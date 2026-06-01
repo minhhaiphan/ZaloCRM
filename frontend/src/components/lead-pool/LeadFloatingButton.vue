@@ -15,8 +15,16 @@
       @mouseleave="onLeave"
     >
 
-      <!-- Rich tooltip -->
-      <div v-if="showTooltip" class="lfb-tooltip-rich" @mouseenter="cancelHide" @mouseleave="onLeave">
+      <!-- Rich tooltip — Teleport ra body trong inline mode để không bị cột 2 che. -->
+      <Teleport :to="inline ? 'body' : undefined" :disabled="!inline">
+      <div
+        v-if="showTooltip"
+        class="lfb-tooltip-rich"
+        :class="{ 'lfb-tooltip-floating': inline }"
+        :style="inline && tooltipPos ? { top: tooltipPos.top + 'px', left: tooltipPos.left + 'px' } : undefined"
+        @mouseenter="cancelHide"
+        @mouseleave="onLeave"
+      >
         <div v-if="loadingStats" class="lfb-tip-loading">Đang tải...</div>
         <div v-else-if="!stats" class="lfb-tip-loading">Không tải được dữ liệu</div>
         <template v-else>
@@ -117,6 +125,7 @@
           </div>
         </template>
       </div>
+      </Teleport>
 
       <!-- Dynamic button -->
       <button
@@ -191,10 +200,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, onUnmounted, Teleport } from 'vue';
+import { computed, onMounted, ref, watch, onUnmounted, Teleport, nextTick } from 'vue';
 
 // 2026-06-01: prop `inline` chuyển anchor từ floating bottom-right → inline trong parent (sidebar).
-defineProps<{ inline?: boolean }>();
+const props = defineProps<{ inline?: boolean }>();
+
+// Tooltip position cho inline mode — compute từ button rect, position fixed body
+const tooltipPos = ref<{ top: number; left: number } | null>(null);
 import { useRoute } from 'vue-router';
 import { api } from '@/api/index';
 import { useLeadPool, type LeadPayload, type Eligibility } from '@/composables/use-lead-pool';
@@ -291,11 +303,35 @@ watch(expiresLabel, (val, oldVal) => {
   }
 });
 
+function computeTooltipPos() {
+  // 2026-06-01: inline mode — compute tooltip position từ button rect (fixed body).
+  if (!props.inline) return;
+  const btn = document.querySelector('.lfb-wrap.lfb-inline .lfb-btn') as HTMLElement | null;
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  const TOOLTIP_W = 320;
+  const TOOLTIP_MAX_H = window.innerHeight * 0.7;
+  // Default: render bên phải button + 12px gap
+  let left = r.right + 12;
+  // Clamp nếu tràn viewport phải → render bên trái
+  if (left + TOOLTIP_W > window.innerWidth - 16) {
+    left = r.left - TOOLTIP_W - 12;
+  }
+  // Clamp top để không tràn viewport dọc
+  let top = r.top;
+  if (top + TOOLTIP_MAX_H > window.innerHeight - 16) {
+    top = window.innerHeight - TOOLTIP_MAX_H - 16;
+  }
+  if (top < 16) top = 16;
+  tooltipPos.value = { top, left };
+}
+
 function onHover() {
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
   if (showTooltip.value) return;
   hoverTimer = window.setTimeout(async () => {
     showTooltip.value = true;
+    if (props.inline) nextTick(computeTooltipPos);
     if (!stats.value) {
       loadingStats.value = true;
       stats.value = await fetchStats();
@@ -483,20 +519,23 @@ watch(() => route.path, (path) => {
   align-items: stretch;
   gap: 6px;
 }
-.lfb-wrap.lfb-inline .lfb-tooltip-rich {
-  /* tooltip vẫn dùng tuyệt đối được vì .lfb-wrap.inline làm relative parent ngầm */
-  position: absolute;
-  left: 100%;
-  top: 0;
-  margin-left: 8px;
-  margin-bottom: 0;
+/* Inline tooltip — teleport ra body + fixed position theo button rect (tránh bị cột 2 che). */
+.lfb-tooltip-rich.lfb-tooltip-floating {
+  position: fixed;
+  z-index: 9999;
+  margin: 0;
 }
 .lfb-wrap.lfb-inline { position: relative; }
 .lfb-wrap.lfb-inline .lfb-btn {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: 8px;
   padding: 10px 12px;
   box-shadow: 0 2px 8px rgba(255, 105, 5, 0.15);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .lfb-wrap.lfb-inline .lfb-btn::before {
   /* Pulse ring effect cho inline mode */
