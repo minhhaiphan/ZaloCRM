@@ -513,11 +513,18 @@ watch(() => route.path, (path) => {
   position: fixed; bottom: 24px; right: 24px; z-index: 95;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
 }
-/* 2026-06-01: inline mode trong sidebar — bỏ position fixed + align stretch */
+/* 2026-06-01: inline mode trong sidebar — RESET hết position legacy (bottom/right từ FAB cũ). */
 .lfb-wrap.lfb-inline {
-  position: static;
+  position: relative;
+  bottom: auto;
+  right: auto;
+  top: auto;
+  left: auto;
+  inset: auto;
+  z-index: auto;
   align-items: stretch;
   gap: 6px;
+  width: 100%;
 }
 /* Inline tooltip — teleport ra body + fixed position theo button rect (tránh bị cột 2 che). */
 .lfb-tooltip-rich.lfb-tooltip-floating {
@@ -525,7 +532,6 @@ watch(() => route.path, (path) => {
   z-index: 9999;
   margin: 0;
 }
-.lfb-wrap.lfb-inline { position: relative; }
 .lfb-wrap.lfb-inline .lfb-btn {
   width: 100%;
   max-width: 100%;
