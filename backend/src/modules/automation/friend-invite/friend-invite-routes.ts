@@ -1191,6 +1191,298 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  // ── GET /:id/edit — Wizard prefill payload (P2 Wave 4 #Edit 2026-06-02) ───
+  // Trả về shape gọn cho MucTieuWizard hydrate edit-mode (4 bước).
+  // Lý do tách khỏi /dashboard: dashboard payload nặng (entries + counters +
+  // monitor), không cần khi user chỉ mở wizard "Sửa". Endpoint này chỉ scan 1
+  // row AutomationTrigger + un-pack segmentSpec.
+  //
+  // Shape khớp với form.value của MucTieuWizard:
+  //   name, listId, nickIds, successorSequenceId, greetingTemplate,
+  //   welcomeMessageTemplate, welcomeDelaySeconds, safetyRules (8 cột schema),
+  //   skipRules (từ segmentSpec), state (để FE disable field readonly nếu cần).
+  // FE KHÔNG sửa listId hay state qua wizard — readonly UI side.
+  app.get<{ Params: { id: string } }>(`${BASE}/:id/edit`, async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params;
+
+    const trigger = await prisma.automationTrigger.findFirst({
+      where: { id, orgId: user.orgId, eventType: 'friend_invite_to_list' },
+      select: {
+        id: true,
+        name: true,
+        state: true,
+        segmentSpec: true,
+        successorSequenceId: true,
+        greetingTemplate: true,
+        welcomeMessageTemplate: true,
+        welcomeDelaySeconds: true,
+        sendHourStart: true,
+        sendHourEnd: true,
+        minFriendReqGapMs: true,
+        recencySkipDays: true,
+        multiNickThreshold: true,
+        sequenceStartDelayMinutes: true,
+        pauseOnActivityHours: true,
+        scheduledAt: true,
+      },
+    });
+    if (!trigger) return reply.status(404).send({ error: 'trigger_not_found' });
+
+    const spec = (trigger.segmentSpec ?? {}) as {
+      listId?: string;
+      nickIds?: string[];
+      skipRules?: Record<string, unknown>;
+    };
+
+    // Convert "HH" int hour → "HH:00" string khớp <input type="time"> của wizard B3.
+    const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
+    const quietHoursStart = `${pad2(trigger.sendHourStart)}:00`;
+    const quietHoursEnd = `${pad2(trigger.sendHourEnd)}:00`;
+
+    return reply.send({
+      id: trigger.id,
+      name: trigger.name,
+      state: trigger.state,
+      listId: spec.listId ?? null,
+      nickIds: Array.isArray(spec.nickIds) ? spec.nickIds : [],
+      successorSequenceId: trigger.successorSequenceId,
+      greetingTemplate: trigger.greetingTemplate,
+      welcomeMessageTemplate: trigger.welcomeMessageTemplate,
+      welcomeDelaySeconds: trigger.welcomeDelaySeconds,
+      scheduledAt: trigger.scheduledAt ? trigger.scheduledAt.toISOString() : null,
+      safetyRules: {
+        quietHoursStart,
+        quietHoursEnd,
+        sendIntervalSeconds: Math.round(trigger.minFriendReqGapMs / 1000),
+        recencyDays: trigger.recencySkipDays,
+        multinickThreshold: trigger.multiNickThreshold,
+        delayAfterFriendRequestMin: trigger.sequenceStartDelayMinutes,
+        pauseHoursOnReply: trigger.pauseOnActivityHours,
+      },
+      skipRules: spec.skipRules ?? {},
+    });
+  });
+
+  // ── PATCH /:id — Partial update Mục tiêu (P2 Wave 4 #Edit 2026-06-02) ─────
+  // Cho phép sale chỉnh: name, greetingTemplate, welcomeMessageTemplate,
+  // welcomeDelaySeconds, safetyRules (8 cột), segmentSpec.skipRules.
+  // KHÔNG cho đổi listId / nickIds / successorSequenceId / state qua endpoint
+  // này — state đổi qua /pause /resume /cancel /activate; đổi list/nicks tạo
+  // Mục tiêu mới (vì làm lại precompute pool + worker assignment phức tạp).
+  //
+  // Side-effect: KHÔNG re-build BullMQ pending jobs khi sửa delay (P2 todo
+  // "Edit Trigger rebuild" defer riêng) — config mới chỉ apply cho enrollment
+  // sau PATCH. Worker đọc trigger row mỗi vòng nên giờ làm việc / interval mới
+  // tự động kicks-in.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      name?: string;
+      greetingTemplate?: string;
+      welcomeMessageTemplate?: string | null;
+      welcomeDelaySeconds?: number;
+      safetyRules?: {
+        quietHoursStart?: string;
+        quietHoursEnd?: string;
+        sendIntervalSeconds?: number;
+        recencyDays?: number;
+        multinickThreshold?: number;
+        delayAfterFriendRequestMin?: number;
+        pauseHoursOnReply?: number;
+      };
+      segmentSpec?: {
+        skipRules?: Record<string, unknown>;
+      };
+    };
+  }>(`${BASE}/:id`, async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params;
+    const body = request.body ?? {};
+
+    const existing = await prisma.automationTrigger.findFirst({
+      where: { id, orgId: user.orgId, eventType: 'friend_invite_to_list' },
+      select: {
+        id: true,
+        state: true,
+        segmentSpec: true,
+        sendHourStart: true,
+        sendHourEnd: true,
+        minFriendReqGapMs: true,
+        recencySkipDays: true,
+        multiNickThreshold: true,
+        sequenceStartDelayMinutes: true,
+        pauseOnActivityHours: true,
+      },
+    });
+    if (!existing) return reply.status(404).send({ error: 'trigger_not_found' });
+    // Terminal states không sửa được — fail-fast để FE biết không show wizard
+    // sau khi user click "Sửa" trên Mục tiêu đã huỷ/hoàn tất.
+    if (existing.state === 'cancelled' || existing.state === 'completed' || existing.state === 'cancelling') {
+      return reply.status(400).send({ error: 'trigger_terminal_state', current: existing.state });
+    }
+
+    const data: Record<string, unknown> = {};
+
+    // ── name ────────────────────────────────────────────────────────────────
+    if (body.name !== undefined) {
+      const trimmed = String(body.name).trim();
+      if (!trimmed) return reply.status(400).send({ error: 'name_required' });
+      data.name = trimmed;
+    }
+
+    // ── greetingTemplate (tin 1 — Phải có {name}, max 200) ──────────────────
+    if (body.greetingTemplate !== undefined) {
+      const trimmed = String(body.greetingTemplate).trim();
+      if (!trimmed) return reply.status(400).send({ error: 'greetingTemplate_required' });
+      if (trimmed.length > 200)
+        return reply.status(400).send({ error: 'greetingTemplate_too_long' });
+      if (!trimmed.includes('{name}'))
+        return reply.status(400).send({
+          error: 'greetingTemplate_missing_name',
+          hint: 'Phải chứa biến {name}',
+        });
+      data.greetingTemplate = trimmed;
+    }
+
+    // ── welcomeMessageTemplate (tin 3 — null/empty = bỏ qua welcome gate) ──
+    if (body.welcomeMessageTemplate !== undefined) {
+      if (body.welcomeMessageTemplate === null) {
+        data.welcomeMessageTemplate = null;
+      } else {
+        const trimmed = String(body.welcomeMessageTemplate).trim();
+        if (trimmed.length === 0) {
+          data.welcomeMessageTemplate = null;
+        } else {
+          if (trimmed.length > 4000)
+            return reply
+              .status(400)
+              .send({ error: 'welcomeMessageTemplate_too_long', hint: 'Tối đa 4000 ký tự' });
+          if (!trimmed.includes('{name}') && !trimmed.includes('{gender}'))
+            return reply.status(400).send({
+              error: 'welcomeMessageTemplate_missing_var',
+              hint: 'Phải chứa {name} hoặc {gender}',
+            });
+          data.welcomeMessageTemplate = trimmed;
+        }
+      }
+    }
+
+    // ── welcomeDelaySeconds ─────────────────────────────────────────────────
+    if (body.welcomeDelaySeconds !== undefined) {
+      const v = Number(body.welcomeDelaySeconds);
+      if (!Number.isFinite(v) || v < 0 || v > 3600)
+        return reply
+          .status(400)
+          .send({ error: 'welcomeDelaySeconds_invalid', hint: 'Phải từ 0 đến 3600 giây' });
+      data.welcomeDelaySeconds = Math.round(v);
+    }
+
+    // ── safetyRules → 7 schema cols (concurrencyPerNickPerMinute không expose) ─
+    if (body.safetyRules !== undefined) {
+      const sr = body.safetyRules;
+      let sendHourStart = existing.sendHourStart;
+      let sendHourEnd = existing.sendHourEnd;
+      if (sr.quietHoursStart !== undefined) {
+        sendHourStart = parseQuietHour(sr.quietHoursStart, existing.sendHourStart);
+      }
+      if (sr.quietHoursEnd !== undefined) {
+        sendHourEnd = parseQuietHour(sr.quietHoursEnd, existing.sendHourEnd);
+      }
+      if (sendHourStart >= sendHourEnd) {
+        return reply.status(400).send({
+          error: 'workingHours_invalid_range',
+          hint: 'Giờ bắt đầu phải nhỏ hơn giờ kết thúc',
+          sendHourStart,
+          sendHourEnd,
+        });
+      }
+      if (sr.quietHoursStart !== undefined) data.sendHourStart = sendHourStart;
+      if (sr.quietHoursEnd !== undefined) data.sendHourEnd = sendHourEnd;
+
+      if (sr.sendIntervalSeconds !== undefined) {
+        const v = Number(sr.sendIntervalSeconds);
+        if (!Number.isFinite(v) || v < 1 || v > 3600)
+          return reply
+            .status(400)
+            .send({ error: 'sendIntervalSeconds_invalid', hint: 'Phải từ 1 đến 3600 giây' });
+        data.minFriendReqGapMs = Math.round(v * 1000);
+      }
+      if (sr.recencyDays !== undefined) {
+        const v = Number(sr.recencyDays);
+        if (!Number.isFinite(v) || v < 0 || v > 365)
+          return reply
+            .status(400)
+            .send({ error: 'recencyDays_invalid', hint: 'Phải từ 0 đến 365 ngày' });
+        data.recencySkipDays = Math.round(v);
+      }
+      if (sr.multinickThreshold !== undefined) {
+        const v = Number(sr.multinickThreshold);
+        if (!Number.isFinite(v) || v < 0 || v > 100)
+          return reply
+            .status(400)
+            .send({ error: 'multinickThreshold_invalid', hint: 'Phải từ 0 đến 100' });
+        data.multiNickThreshold = Math.round(v);
+      }
+      if (sr.delayAfterFriendRequestMin !== undefined) {
+        const v = Number(sr.delayAfterFriendRequestMin);
+        if (!Number.isFinite(v) || v < 0 || v > 10080)
+          return reply.status(400).send({
+            error: 'delayAfterFriendRequestMin_invalid',
+            hint: 'Phải từ 0 đến 10080 phút (1 tuần)',
+          });
+        data.sequenceStartDelayMinutes = Math.round(v);
+      }
+      if (sr.pauseHoursOnReply !== undefined) {
+        const v = Number(sr.pauseHoursOnReply);
+        if (!Number.isFinite(v) || v < 1 || v > 720)
+          return reply
+            .status(400)
+            .send({ error: 'pauseHoursOnReply_invalid', hint: 'Phải từ 1 đến 720 giờ (30 ngày)' });
+        data.pauseOnActivityHours = Math.round(v);
+      }
+    }
+
+    // ── segmentSpec.skipRules (merge — KHÔNG cho đổi listId/nickIds) ────────
+    if (body.segmentSpec?.skipRules !== undefined) {
+      const oldSpec = (existing.segmentSpec ?? {}) as Record<string, unknown>;
+      data.segmentSpec = {
+        ...oldSpec,
+        skipRules: body.segmentSpec.skipRules,
+      } as object;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return reply.status(400).send({ error: 'no_fields_to_update' });
+    }
+
+    const updated = await prisma.automationTrigger.update({
+      where: { id: existing.id },
+      data,
+      select: {
+        id: true,
+        name: true,
+        state: true,
+        greetingTemplate: true,
+        welcomeMessageTemplate: true,
+        welcomeDelaySeconds: true,
+        sendHourStart: true,
+        sendHourEnd: true,
+        minFriendReqGapMs: true,
+        recencySkipDays: true,
+        multiNickThreshold: true,
+        sequenceStartDelayMinutes: true,
+        pauseOnActivityHours: true,
+      },
+    });
+
+    logger.info(
+      `[friend-invite] trigger ${updated.id} patched fields=[${Object.keys(data).join(',')}]`,
+    );
+
+    return reply.send({ ok: true, trigger: updated });
+  });
+
   // ── GET /list-muc-tieu (+ alias /muc-tieu/list) ───────────────────────────
   // Wave 3 2026-05-30 — list Mục tiêu với counters cho UI overview page.
   // Query: search? status? limit=50 offset=0

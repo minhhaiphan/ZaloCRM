@@ -6,12 +6,19 @@
       <span class="sep">/</span>
       <a href="#" @click.prevent="router.push('/marketing/triggers')">Mục tiêu</a>
       <span class="sep">/</span>
-      <span>Tạo mới</span>
+      <span>{{ isEditMode ? 'Sửa' : 'Tạo mới' }}</span>
     </div>
     <div class="topbar">
       <div>
-        <h1>Tạo Mục tiêu mới</h1>
-        <p class="sub">Mời kết bạn + bám đuổi 1 tệp khách hàng</p>
+        <h1>{{ isEditMode ? 'Sửa Mục tiêu' : 'Tạo Mục tiêu mới' }}</h1>
+        <p class="sub">
+          <template v-if="isEditMode">
+            Sửa cấu hình. Tệp + nick + chuỗi không đổi được — tạo Mục tiêu mới nếu cần thay.
+          </template>
+          <template v-else>
+            Mời kết bạn + bám đuổi 1 tệp khách hàng
+          </template>
+        </p>
       </div>
     </div>
 
@@ -72,7 +79,7 @@
             <select
               v-model="form.listId"
               class="text-input"
-              :disabled="prefilled"
+              :disabled="prefilled || isEditMode"
             >
               <option :value="''" disabled>— Chọn tệp khách hàng —</option>
               <option v-for="l in lists" :key="l.id" :value="l.id">
@@ -82,6 +89,9 @@
             <span v-if="selectedList" class="chip-inline">
               {{ formatNum(selectedList.totalEntries) }} SĐT
             </span>
+            <span v-if="isEditMode" class="chip-inline" style="background: var(--bg-soft); color: var(--text-3);">
+              🔒 Không đổi được
+            </span>
           </div>
         </div>
 
@@ -89,7 +99,12 @@
         <div class="section">
           <div class="section-title">👥 Nick gửi mời (chọn nhiều) <span class="req">*</span></div>
           <div class="section-help">
-            Mỗi nick gửi tối đa 300 lời mời/ngày + 300 tin nhắn/ngày. Nick offline tự động bị loại.
+            <template v-if="isEditMode">
+              🔒 Không đổi được nick trong chế độ Sửa — tạo Mục tiêu mới nếu cần.
+            </template>
+            <template v-else>
+              Mỗi nick gửi tối đa 300 lời mời/ngày + 300 tin nhắn/ngày. Nick offline tự động bị loại.
+            </template>
           </div>
           <div class="nick-list">
             <div
@@ -372,6 +387,7 @@
                     v-model="form.successorSequenceId"
                     class="text-input"
                     style="min-width: 320px; margin-top: 6px;"
+                    :disabled="isEditMode"
                     @click.stop
                   >
                     <option :value="''" disabled>— Chọn Luồng kịch bản —</option>
@@ -379,6 +395,9 @@
                       {{ s.name }} ({{ stepCount(s) }} bước)
                     </option>
                   </select>
+                  <div v-if="isEditMode" class="safety-help" style="margin-top: 4px;">
+                    🔒 Không đổi được chuỗi trong chế độ Sửa.
+                  </div>
                 </div>
 
                 <!-- Preview steps -->
@@ -855,8 +874,8 @@
           </div>
         </div>
 
-        <!-- Thời điểm bắt đầu -->
-        <div class="section start-mode-section">
+        <!-- Thời điểm bắt đầu (chỉ Create mode — edit-mode giữ schedule cũ) -->
+        <div v-if="!isEditMode" class="section start-mode-section">
           <div class="section-title">🚀 Thời điểm bắt đầu <span class="req">*</span></div>
           <div class="section-help">
             Chọn chạy ngay hoặc hẹn lịch một thời điểm trong tương lai (chỉ trong khung 6h–22h giờ VN).
@@ -980,6 +999,14 @@ const nicks = ref<NickSummary[]>([]);
 const sequences = ref<SequenceSummary[]>([]);
 const submitting = ref(false);
 const prefilled = ref(false);
+
+// P2 Wave 4 #Edit 2026-06-02 — Edit-mode: route truyền `?edit=<triggerId>` →
+// wizard fetch GET /:id/edit hydrate form, submit gọi PATCH thay POST. Listid /
+// nickIds / successorSequenceId KHÔNG sửa được (BE PATCH reject silently —
+// xem friend-invite-routes.ts comment).
+const editingTriggerId = ref<string | null>(null);
+const isEditMode = computed(() => !!editingTriggerId.value);
+const editLoading = ref(false);
 
 const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
@@ -1138,7 +1165,8 @@ const canSubmit = computed(() => {
 });
 
 const submitButtonLabel = computed(() => {
-  if (submitting.value) return 'Đang khởi tạo...';
+  if (submitting.value) return isEditMode.value ? 'Đang lưu...' : 'Đang khởi tạo...';
+  if (isEditMode.value) return '💾 Lưu thay đổi';
   return form.value.startMode === 'scheduled'
     ? '⏰ Hẹn lịch chạy Mục tiêu'
     : '▶ Bắt đầu chạy Mục tiêu';
@@ -1206,6 +1234,8 @@ function getMockCounter(nickId: string, kind: 'kb' | 'msg'): number {
 }
 
 function toggleNick(n: NickSummary) {
+  // Edit mode: locked — nick set không đổi được (xem PATCH endpoint contract).
+  if (isEditMode.value) return;
   if (n.status !== 'connected') return;
   const idx = form.value.nickIds.indexOf(n.id);
   if (idx >= 0) form.value.nickIds.splice(idx, 1);
@@ -1407,12 +1437,31 @@ async function submit() {
     alert('Form chưa đủ thông tin. Quay lại các bước trước để bổ sung.');
     return;
   }
-  if (form.value.startMode === 'scheduled' && scheduledError.value) {
+  if (!isEditMode.value && form.value.startMode === 'scheduled' && scheduledError.value) {
     alert(scheduledError.value);
     return;
   }
   submitting.value = true;
   try {
+    if (isEditMode.value && editingTriggerId.value) {
+      // P2 Wave 4 #Edit — PATCH partial update. Chỉ gửi các field BE chấp nhận
+      // (name, greetingTemplate, welcomeMessageTemplate, welcomeDelaySeconds,
+      // safetyRules, segmentSpec.skipRules). KHÔNG gửi listId/nickIds/sequence/
+      // startMode — BE reject silently nhưng tránh waste payload.
+      const fullPayload = buildSubmitPayload();
+      const patchBody = {
+        name: fullPayload.name,
+        greetingTemplate: fullPayload.greetingTemplate,
+        welcomeMessageTemplate: fullPayload.welcomeMessageTemplate,
+        welcomeDelaySeconds: fullPayload.welcomeDelaySeconds,
+        safetyRules: fullPayload.safetyRules,
+        segmentSpec: { skipRules: fullPayload.skipRules },
+      };
+      await api.patch(`/automation/triggers/${editingTriggerId.value}`, patchBody);
+      router.push(`/automation/muc-tieu/${editingTriggerId.value}`);
+      return;
+    }
+
     const createResp = await api.post('/automation/triggers/friend-invite', buildSubmitPayload());
     const triggerId = createResp.data.trigger?.id;
     if (!triggerId) throw new Error('trigger id missing');
@@ -1424,9 +1473,69 @@ async function submit() {
     }
     router.push(`/automation/muc-tieu/${triggerId}`);
   } catch (err: any) {
-    alert('Tạo Mục tiêu thất bại: ' + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
+    const verb = isEditMode.value ? 'Lưu' : 'Tạo';
+    alert(`${verb} Mục tiêu thất bại: ` + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
   } finally {
     submitting.value = false;
+  }
+}
+
+// P2 Wave 4 #Edit 2026-06-02 — Hydrate form từ GET /:id/edit cho edit-mode.
+// Gọi sau loadData() để dropdown lists/nicks/sequences đã ready (option list
+// match value đúng — Vue <select> mới render đúng item selected).
+async function loadForEdit(triggerId: string): Promise<void> {
+  editLoading.value = true;
+  try {
+    const r = await api.get(`/automation/triggers/${triggerId}/edit`);
+    const t = r.data;
+    form.value.name = t.name ?? '';
+    if (t.listId) {
+      form.value.listId = t.listId;
+      prefilled.value = true;
+    }
+    if (Array.isArray(t.nickIds)) form.value.nickIds = [...t.nickIds];
+    if (t.successorSequenceId) form.value.successorSequenceId = t.successorSequenceId;
+    if (typeof t.greetingTemplate === 'string') {
+      form.value.messages.friendRequest = t.greetingTemplate;
+    }
+    if (typeof t.welcomeMessageTemplate === 'string') {
+      form.value.messages.welcome = t.welcomeMessageTemplate;
+    } else if (t.welcomeMessageTemplate === null) {
+      // Mục tiêu trước đó không có welcome — wizard hiện cần ít nhất template,
+      // giữ default đã có sẵn trong form, không clear.
+    }
+    if (typeof t.welcomeDelaySeconds === 'number') {
+      form.value.welcomeDelayMinutes = Math.max(0, Math.round(t.welcomeDelaySeconds / 60));
+    }
+    if (t.safetyRules) {
+      const s = t.safetyRules;
+      if (typeof s.quietHoursStart === 'string') form.value.safetyRules.quietHoursStart = s.quietHoursStart;
+      if (typeof s.quietHoursEnd === 'string') form.value.safetyRules.quietHoursEnd = s.quietHoursEnd;
+      if (typeof s.sendIntervalSeconds === 'number') form.value.safetyRules.sendIntervalSeconds = s.sendIntervalSeconds;
+      if (typeof s.recencyDays === 'number') form.value.safetyRules.recencyDays = s.recencyDays;
+      if (typeof s.multinickThreshold === 'number') form.value.safetyRules.multinickThreshold = s.multinickThreshold;
+      if (typeof s.delayAfterFriendRequestMin === 'number') form.value.safetyRules.delayAfterFriendRequestMin = s.delayAfterFriendRequestMin;
+      if (typeof s.pauseHoursOnReply === 'number') form.value.safetyRules.pauseHoursOnReply = s.pauseHoursOnReply;
+    }
+    if (t.skipRules && typeof t.skipRules === 'object') {
+      const sr = t.skipRules as Record<string, unknown>;
+      if (typeof sr.skipHadChat === 'boolean') form.value.skipRules.skipHadChat = sr.skipHadChat;
+      if (typeof sr.skipAlreadyFriend === 'string')
+        form.value.skipRules.skipAlreadyFriend = sr.skipAlreadyFriend as 'whitelisted_nick' | 'any_nick' | 'off';
+      if (typeof sr.skipNoZalo === 'boolean') form.value.skipRules.skipNoZalo = sr.skipNoZalo;
+      if (typeof sr.skipInactive === 'boolean') form.value.skipRules.skipInactive = sr.skipInactive;
+      if (typeof sr.inactiveDays === 'number') form.value.skipRules.inactiveDays = sr.inactiveDays;
+    }
+    // Edit mode: skip start-mode picker (giữ schedule cũ — BE PATCH không chấp
+    // nhận đổi scheduledAt qua endpoint này).
+    form.value.startMode = 'now';
+    form.value.scheduledAt = null;
+  } catch (err: any) {
+    console.error('[muc-tieu-wizard] loadForEdit failed', err);
+    alert('Không tải được Mục tiêu để sửa: ' + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
+    router.push('/automation/muc-tieu');
+  } finally {
+    editLoading.value = false;
   }
 }
 
@@ -1465,8 +1574,14 @@ watch(() => route.query.listId, (newVal) => {
   }
 }, { immediate: true });
 
-onMounted(() => {
-  loadData();
+onMounted(async () => {
+  await loadData();
+  // P2 Wave 4 #Edit — hydrate edit-mode AFTER loadData (cần options ready).
+  const editId = route.query.edit;
+  if (typeof editId === 'string' && editId.trim()) {
+    editingTriggerId.value = editId.trim();
+    await loadForEdit(editingTriggerId.value);
+  }
 });
 </script>
 

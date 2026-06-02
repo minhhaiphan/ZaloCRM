@@ -1204,8 +1204,10 @@ async function onActivate(): Promise<void> {
   }
 }
 function onEdit(): void {
-  // Defer Wave 4 — mở wizard edit
-  alert('Sửa Mục tiêu — Wave 4.');
+  // P2 Wave 4 #Edit 2026-06-02 — Mở wizard edit-mode (?edit=<triggerId>).
+  // Wizard sẽ GET /:id/edit hydrate form 4 bước rồi submit qua PATCH.
+  // Constraint: listId / nickIds / successorSequenceId / state KHÔNG đổi được.
+  void router.push(`/automation/muc-tieu/tao-moi?edit=${encodeURIComponent(triggerId)}`);
 }
 function onDuplicate(): void {
   menuOpen.value = false;
