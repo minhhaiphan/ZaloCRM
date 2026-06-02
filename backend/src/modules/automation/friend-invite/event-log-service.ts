@@ -36,7 +36,10 @@ export type EventType =
   // BE T4 2026-05-30 — cron flip draft→active theo scheduledAt (friend-invite).
   | 'scheduled_activated'
   // 2026-05-30 22:46 — KH đã là bạn nick từ trước, skip friend_request, vào bám đuổi luôn.
-  | 'friend_already';
+  | 'friend_already'
+  // 2026-06-02 — Zalo SDK trả code 215 lúc sendFriendRequest → KH đã chặn nick từ trước.
+  // Phân biệt với 'customer_block' (event handler sau khi accept rồi mới chặn).
+  | 'customer_block_detected_on_invite';
 
 export interface LogEventInput {
   orgId: string;

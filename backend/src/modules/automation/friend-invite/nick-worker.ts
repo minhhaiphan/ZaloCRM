@@ -432,7 +432,18 @@ async function runTick(nickId: string): Promise<void> {
 
       // Detect "already friend" — KH đã là bạn của nick này. Coi như success
       // (no friend request needed) → mark processed + insert Outbox for sequence.
-      if (msg.includes('đã là bạn') || msg.includes('already friend') || code === 'ALREADY_FRIEND') {
+      //
+      // Cũng cover code 222 — Zalo SDK: KH đã gửi lời mời cho nick từ trước,
+      // request này được Zalo tự động xử lý như "accept" → 2 bên thành bạn ngay.
+      // Flow xử lý: y hệt 'already friend' (mark processed + enroll sequence).
+      // Ref: zca-js dist/apis/sendFriendRequest.js note @ line 11-13.
+      if (
+        msg.includes('đã là bạn') ||
+        msg.includes('already friend') ||
+        code === 'ALREADY_FRIEND' ||
+        code === 222 ||
+        code === '222'
+      ) {
         logger.info(`[nick-worker] ${nickId} entry=${entry.id} already friend → mark processed`);
         // B2 fix: persist enrichment for "already friend" path too (was previously skipped)
         if (resolvedUid) {
@@ -495,6 +506,109 @@ async function runTick(nickId: string): Promise<void> {
             eventPriority: 'info',
             summary: `${cd} đã là bạn với nick ${nd} — bỏ qua bước kết bạn, chuyển sang bám đuổi (row #${entry.rowIndex})`,
             metadata: { rowIndex: entry.rowIndex, phoneE164: entry.phoneE164 },
+          });
+        }
+        return;
+      }
+
+      // Detect code 215 — KH đã chặn nick từ trước (block detected lúc gửi lời mời).
+      // KHÔNG hard fail (sai semantic — KH chặn không phải lỗi nick), KHÔNG enroll sequence.
+      // Flow: mark entry customer_block + insert outbox sendStatus='blocked_by_user' +
+      // log event 'customer_block_detected_on_invite'. Drainer sẽ skip outbox row
+      // vì sendStatus không nằm trong {'success','tentative'}.
+      // Ref: zca-js dist/apis/sendFriendRequest.js note @ line 11-13.
+      if (code === 215 || code === '215' || msg.includes('blocked')) {
+        logger.info(`[nick-worker] ${nickId} entry=${entry.id} customer_block detected on invite (code=215)`);
+        // Persist enrichment first nếu có (để Lead Pool / Privacy / dedup vẫn dùng được).
+        if (resolvedUid) {
+          await prisma.customerListEntry.update({
+            where: { id: entry.id },
+            data: {
+              hasZalo: true,
+              zaloUid: resolvedUid,
+              zaloName: resolvedDisplayName ?? entry.nameRaw,
+              resolvedByNickId: nickId,
+            },
+          });
+        }
+        let blockedContactId: string | null = null;
+        try {
+          blockedContactId = await resolveContactIdForEntry(
+            entry,
+            worker.orgId,
+            resolvedUid
+              ? {
+                  nickId,
+                  zaloUid: resolvedUid,
+                  zaloName: resolvedDisplayName,
+                  avatarUrl: resolvedAvatarUrl,
+                  gender: zaloGender ?? null,
+                }
+              : null,
+          );
+        } catch (resolveErr) {
+          logger.warn(
+            `[nick-worker] ${nickId} entry=${entry.id} resolveContact failed on customer_block path:`,
+            resolveErr,
+          );
+        }
+        // Mark entry processed + queueStatus='customer_block'. Reuse existing queueStatus
+        // value (đồng bộ với friend-event-handler customer_block flow + UI counters).
+        await prisma.customerListEntry.update({
+          where: { id: entry.id },
+          data: {
+            queueStatus: 'customer_block',
+            lockedAt: null,
+            claimedByNickId: null,
+          },
+        });
+        // Insert outbox row với sendStatus='blocked_by_user'. KHÔNG dùng markEntrySent
+        // vì hàm đó set sendStatus='success' + tạo WELCOME_PROBE row (sai semantic).
+        if (blockedContactId) {
+          try {
+            await prisma.friendRequestOutbox.upsert({
+              where: {
+                customerListEntryId_kind: {
+                  customerListEntryId: entry.id,
+                  kind: 'FRIEND_REQUEST',
+                },
+              },
+              create: {
+                customerListEntryId: entry.id,
+                triggerId: entry.triggerId,
+                nickId,
+                contactId: blockedContactId,
+                successorSequenceId: trigger.successorSequenceId,
+                sequenceVersionSnapshot: undefined,
+                sendStatus: 'blocked_by_user',
+                zaloLeadgenId: '',
+                kind: 'FRIEND_REQUEST',
+                allowStrangerMessage: false,
+                lastErrorMessage: `code=215 ${msg}`.slice(0, 500),
+              },
+              update: {
+                sendStatus: 'blocked_by_user',
+                lastErrorMessage: `code=215 ${msg}`.slice(0, 500),
+              },
+            });
+          } catch (outboxErr) {
+            logger.warn(
+              `[nick-worker] ${nickId} entry=${entry.id} outbox upsert failed on customer_block path:`,
+              outboxErr,
+            );
+          }
+          // Log event để anh thấy trong tab Log sự kiện.
+          const cd = resolvedDisplayName?.trim() || entry.nameRaw?.trim() || entry.phoneE164 || 'KH';
+          const nd = nick.displayName?.trim() || nickId.slice(0, 8);
+          void logEvent({
+            orgId: worker.orgId,
+            triggerId: entry.triggerId,
+            contactId: blockedContactId,
+            nickId,
+            eventType: 'customer_block_detected_on_invite',
+            eventPriority: 'urgent',
+            summary: `🚫 ${cd} đã chặn nick ${nd} từ trước — bỏ qua kết bạn (row #${entry.rowIndex})`,
+            metadata: { rowIndex: entry.rowIndex, phoneE164: entry.phoneE164, zaloErrorCode: 215 },
           });
         }
         return;
