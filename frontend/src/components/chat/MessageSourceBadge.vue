@@ -47,22 +47,53 @@ const emit = defineEmits<{
 }>();
 
 // Derive kind từ sentVia + metadata.sender
-type BadgeKind = 'user_crm' | 'user_native' | 'bot_automation' | 'bot_ai' | 'bot_system' | null;
+// ✨ Anh chốt 2026-06-02: hợp nhất user_native vào user_crm (icon 🔄 trailing).
+// Variants còn lại: user_crm (CRM hoặc Native sync) | bot_automation | bot_ai | bot_system.
+type BadgeKind = 'user_crm' | 'bot_automation' | 'bot_ai' | 'bot_system' | null;
 
 const badgeKind = computed<BadgeKind>(() => {
   const meta = props.message.metadata?.sender;
-  if (meta?.kind) return meta.kind;
+  if (meta?.kind) {
+    // Legacy 'user_native' → map về 'user_crm' (giữ syncedFromNative flag)
+    if (meta.kind === 'user_native') return 'user_crm';
+    return meta.kind as BadgeKind;
+  }
 
   const via = props.message.sentVia;
-  if (via === 'user') return 'user_crm';
-  if (via === 'user_native') return 'user_native';
+  // 'user' + 'user_native' đều map về 'user_crm', distinguish qua syncedFromNative
+  if (via === 'user' || via === 'user_native') return 'user_crm';
   if (via === 'automation') return 'bot_automation';
   if (via === 'ai_assistant') return 'bot_ai';
   if (via === 'system') return 'bot_system';
-  return null; // tin sale CRM mặc định KHÔNG badge nếu repliedByUserId === currentUser
+
+  // Tin self mà không có sentVia/metadata.sender → vẫn show user_crm
+  // (Anh chốt 2026-06-02: LUÔN show badge cho mọi tin outbound)
+  if (props.message.senderType === 'self') return 'user_crm';
+  return null;
 });
 
-// Group consecutive logic: ẩn badge nếu prev cùng kind + same sender + gap < 60s
+// Determine syncedFromNative flag (cho icon 🔄 trailing)
+const syncedFromNative = computed<boolean>(() => {
+  const meta = props.message.metadata?.sender;
+  if (meta?.syncedFromNative === true) return true;
+  if (meta?.kind === 'user_native') return true;
+  if (props.message.sentVia === 'user_native') return true;
+  // Heuristic: tin self không có repliedByUserId → coi như Native sync
+  // (sale gõ app Zalo → echo về không có FK user CRM)
+  if (
+    props.message.senderType === 'self' &&
+    !props.message.repliedByUserId &&
+    props.message.sentVia !== 'automation' &&
+    props.message.sentVia !== 'ai_assistant' &&
+    props.message.sentVia !== 'system'
+  ) {
+    return true;
+  }
+  return false;
+});
+
+// Group consecutive logic: ẩn badge nếu prev cùng kind + same sender + same sync flag + gap < 60s
+// ✨ NEW: nếu sync flag khác → re-show badge (Native vs CRM = sender khác)
 const showBadge = computed(() => {
   if (!badgeKind.value) return false;
 
@@ -73,12 +104,40 @@ const showBadge = computed(() => {
   if (!props.prevMessage) return true;
 
   const prev = props.prevMessage;
-  const prevKind: BadgeKind = (prev.metadata?.sender?.kind as BadgeKind) ??
-    (prev.sentVia === 'user' ? 'user_crm' : prev.sentVia === 'user_native' ? 'user_native' : null);
+  // Map prev kind theo logic mới (user/user_native → user_crm)
+  let prevKind: BadgeKind = null;
+  const prevMeta = prev.metadata?.sender;
+  if (prevMeta?.kind) {
+    prevKind = (prevMeta.kind === 'user_native' ? 'user_crm' : prevMeta.kind) as BadgeKind;
+  } else if (prev.sentVia === 'user' || prev.sentVia === 'user_native') {
+    prevKind = 'user_crm';
+  } else if (prev.sentVia === 'automation') {
+    prevKind = 'bot_automation';
+  } else if (prev.sentVia === 'ai_assistant') {
+    prevKind = 'bot_ai';
+  } else if (prev.sentVia === 'system') {
+    prevKind = 'bot_system';
+  } else if (prev.senderType === 'self') {
+    prevKind = 'user_crm';
+  }
 
   if (prevKind !== badgeKind.value) return true;
 
-  // Same kind — check name match + gap
+  // Check sync flag prev
+  const prevSynced =
+    prevMeta?.syncedFromNative === true ||
+    prevMeta?.kind === 'user_native' ||
+    prev.sentVia === 'user_native' ||
+    (prev.senderType === 'self' &&
+      !prev.repliedByUserId &&
+      prev.sentVia !== 'automation' &&
+      prev.sentVia !== 'ai_assistant' &&
+      prev.sentVia !== 'system');
+
+  // Sync flag khác → coi như sender khác, re-show badge
+  if (prevSynced !== syncedFromNative.value) return true;
+
+  // Same kind + same sync — check name match + gap
   const currName = props.message.metadata?.sender?.name ?? props.message.senderName ?? '';
   const prevName = prev.metadata?.sender?.name ?? prev.senderName ?? '';
   if (currName !== prevName) return true;
@@ -91,26 +150,27 @@ const showBadge = computed(() => {
   return false;
 });
 
-// Render labels (Section 25.2 format)
+// Render labels (Section 25.2 format — updated 2026-06-02)
 const labelData = computed(() => {
   if (!badgeKind.value) return null;
   const meta = props.message.metadata?.sender;
-  const name = meta?.name ?? props.message.senderName ?? '';
+  // Ưu tiên metadata.sender.name → repliedBy.fullName → senderName fallback
+  const name =
+    meta?.name ??
+    props.message.repliedBy?.fullName ??
+    props.message.senderName ??
+    'Sale';
 
   switch (badgeKind.value) {
     case 'user_crm':
       return {
         icon: '👤',
-        label: `Sale CRM · ${name || 'Sale'}`,
-        tooltip: 'Tin sale gõ trên CRM',
+        label: `Sale CRM · ${name}`,
+        tooltip: syncedFromNative.value
+          ? 'Tin sale gõ trên app Zalo, sync về CRM'
+          : 'Tin sale gõ trên CRM',
         clickable: true,
-      };
-    case 'user_native':
-      return {
-        icon: '📱',
-        label: `Gửi từ Zalo · ${name || 'nick'}`,
-        tooltip: 'Tin gõ trên app Zalo, sync về CRM',
-        clickable: true,
+        showSyncIcon: syncedFromNative.value,
       };
     case 'bot_automation': {
       const detail = meta?.detail ?? '';
@@ -120,6 +180,7 @@ const labelData = computed(() => {
         label: `Tự động · ${seqName}`,
         tooltip: 'Tin gửi tự động bởi Sequence — click xem chi tiết',
         clickable: true,
+        showSyncIcon: false,
       };
     }
     case 'bot_ai':
@@ -128,6 +189,7 @@ const labelData = computed(() => {
         label: `Trợ lý AI · ${meta?.detail ?? 'phản hồi tự động'}`,
         tooltip: 'AI Trợ lý reply tự động — click audit',
         clickable: true,
+        showSyncIcon: false,
       };
     case 'bot_system':
       return {
@@ -135,6 +197,7 @@ const labelData = computed(() => {
         label: `Hệ thống · ${meta?.detail ?? 'CRM thông báo'}`,
         tooltip: 'Tin tự động do CRM gửi',
         clickable: false,
+        showSyncIcon: false,
       };
     default:
       return null;
@@ -146,11 +209,15 @@ function handleClick(): void {
   const meta = props.message.metadata?.sender;
   switch (badgeKind.value) {
     case 'user_crm':
-      // emit user id (M3.5 sẽ wire repliedByUserId)
-      // For now: noop
-      break;
-    case 'user_native':
-      emit('explain-native');
+      // Nếu là Sale Native sync → emit explain dialog
+      if (syncedFromNative.value) {
+        emit('explain-native');
+        return;
+      }
+      // Sale gõ trên CRM → emit open-user nếu có repliedByUserId
+      if (props.message.repliedByUserId) {
+        emit('open-user', props.message.repliedByUserId);
+      }
       break;
     case 'bot_automation':
       if (meta?.sequenceId) emit('open-sequence', meta.sequenceId);
@@ -173,6 +240,12 @@ function handleClick(): void {
   >
     <span class="source-badge-icon">{{ labelData.icon }}</span>
     <span class="source-badge-label">{{ labelData.label }}</span>
+    <!-- Icon sync trailing cho Sale gõ trên Zalo Real (Anh chốt 2026-06-02) -->
+    <span
+      v-if="labelData.showSyncIcon"
+      class="source-badge-sync"
+      title="Tin sync từ app Zalo Real"
+    >🔄</span>
   </div>
 </template>
 
@@ -204,18 +277,21 @@ function handleClick(): void {
   font-weight: 600;
 }
 
-/* 1. User CRM — cam M55 (giữ palette legacy) */
+/* Icon sync trailing — Sale gõ trên Zalo Real (Anh chốt 2026-06-02) */
+.source-badge-sync {
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 2px;
+  opacity: 0.75;
+}
+
+/* 1. User CRM — cam M55 (giữ palette legacy)
+   ✨ Anh chốt 2026-06-02: bao gồm cả tin sync từ Zalo Real (icon 🔄 trailing).
+   Phân biệt với CSS: tin sync có .source-badge-sync child. */
 .source-badge--user_crm {
   color: #7c2d12;
   background: rgba(254, 215, 170, 0.6);
   border-color: rgba(251, 146, 60, 0.4);
-}
-
-/* 2. User Native — sky (Zalo app brand-adjacent) */
-.source-badge--user_native {
-  color: #075985;
-  background: rgba(186, 230, 253, 0.6);
-  border-color: rgba(56, 189, 248, 0.4);
 }
 
 /* 3. Bot Automation — violet (sequence/marketing) */

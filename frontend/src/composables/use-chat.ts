@@ -152,18 +152,23 @@ export interface Message {
   isLocal?: boolean;
   // ── Luồng Mục Tiêu M11 source identity 2026-06-01 ──
   // sentVia enum: 'user' | 'user_native' | 'automation' | 'ai_assistant' | 'system'
+  // Note (Anh chốt 2026-06-02): user_native vẫn lưu trong DB nhưng FE map về
+  // variant 'user_crm' với syncedFromNative=true (icon 🔄 trailing).
   sentVia?: string;
   // FK BullMQ jobId (string DASH pattern), null cho tin sale gõ tay
   automationTaskId?: string | null;
   automationStepIndex?: number | null;
-  // metadata mở rộng cho M11: sender = { kind, name, detail?, sequenceId?, stepIdx? }
+  // metadata mở rộng cho M11: sender = { kind, name, detail?, sequenceId?, stepIdx?, syncedFromNative? }
   metadata?: {
     sender?: {
+      // Kind: 4 variant (Anh chốt 2026-06-02 hợp nhất user_native vào user_crm).
+      // Legacy 'user_native' vẫn accept ở payload BE để backward compat — FE remap.
       kind?: 'user_crm' | 'user_native' | 'bot_automation' | 'bot_ai' | 'bot_system';
       name?: string;
       detail?: string;
       sequenceId?: string;
       stepIdx?: number;
+      // Flag distinguish CRM thuần vs Native sync (sale gõ trên app Zalo)
       syncedFromNative?: boolean;
     };
     [key: string]: unknown;
