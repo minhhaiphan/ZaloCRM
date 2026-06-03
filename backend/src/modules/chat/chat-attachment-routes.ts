@@ -18,6 +18,8 @@ import { zaloOps } from '../../shared/zalo-operations.js';
 import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor.js';
 import { uploadBuffer, type UploadResult } from '../../shared/storage/minio-client.js';
 import { logger } from '../../shared/utils/logger.js';
+// Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
+import { getUserFullName } from './chat-helpers.js';
 
 const IMAGE_MAX = 100 * 1024 * 1024;
 const VIDEO_MAX = 500 * 1024 * 1024;
@@ -72,6 +74,9 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
         include: { zaloAccount: true },
       });
       if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+      // Fix 2026-06-03 — optimistic badge "Sale CRM · {tên}"
+      const userFullName = await getUserFullName(user.id);
 
       const instance = zaloPool.getInstance(conversation.zaloAccountId);
       if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
@@ -166,6 +171,8 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
                 senderType: 'self',
                 senderUid: conversation.zaloAccount.zaloUid || '',
                 senderName: 'Staff',
+                sentVia: 'user',
+                metadata: { sender: { kind: 'user_crm', name: userFullName } },
                 content: JSON.stringify({ href: mirror.url, thumb: mirror.url, size: mirror.size }),
                 contentType: 'image',
                 sentAt: new Date(),
@@ -210,6 +217,8 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
                 senderType: 'self',
                 senderUid: conversation.zaloAccount.zaloUid || '',
                 senderName: 'Staff',
+                sentVia: 'user',
+                metadata: { sender: { kind: 'user_crm', name: userFullName } },
                 content: JSON.stringify({
                   href: mirror.url,
                   thumb: thumbUrl,
@@ -245,6 +254,8 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
                 senderType: 'self',
                 senderUid: conversation.zaloAccount.zaloUid || '',
                 senderName: 'Staff',
+                sentVia: 'user',
+                metadata: { sender: { kind: 'user_crm', name: userFullName } },
                 content: JSON.stringify({
                   href: mirror.url,
                   thumb: thumbUrl,

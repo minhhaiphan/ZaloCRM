@@ -19,6 +19,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { sendNativeVideo } from '../../shared/video-processor.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { markExpected as markReactionEchoExpected } from './reaction-echo-cache.js';
+import { getUserFullName } from './chat-helpers.js';
 
 interface ResolvedMessageRefs {
   messageId: string;
@@ -618,6 +619,8 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
                   senderType: 'self',
                   senderUid: target.zaloAccount.zaloUid || '',
                   senderName: 'Staff',
+                  sentVia: 'user',
+                  metadata: { sender: { kind: 'user_crm', name: await getUserFullName(user.id) } },
                   content: refs.content,
                   contentType: refs.contentType,
                   sentAt: new Date(),
@@ -761,6 +764,8 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
           senderType: 'self',
           senderUid: '',
           senderName: 'Staff',
+          sentVia: 'user',
+          metadata: { sender: { kind: 'user_crm', name: await getUserFullName(user.id) } },
           // Lưu content shape JSON như Zalo native ({id, catId, type}) → frontend
           // dùng metadata endpoint render đúng (animated CSS sprite hoặc static)
           content: JSON.stringify({ id: stickerId, catId: cateId || 0, type: type || 0 }),
@@ -811,6 +816,8 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
           senderType: 'self',
           senderUid: '',
           senderName: 'Staff',
+          sentVia: 'user',
+          metadata: { sender: { kind: 'user_crm', name: await getUserFullName(user.id) } },
           content: url,
           contentType: 'link',
           sentAt: new Date(),
@@ -859,6 +866,8 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
           senderType: 'self',
           senderUid: '',
           senderName: 'Staff',
+          sentVia: 'user',
+          metadata: { sender: { kind: 'user_crm', name: await getUserFullName(user.id) } },
           content: contactId,
           contentType: 'contact_card',
           sentAt: new Date(),

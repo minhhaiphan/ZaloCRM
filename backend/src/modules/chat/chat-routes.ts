@@ -19,6 +19,8 @@ import { triggerVirtualChatAiReply } from '../ai/ai-virtual-chat-service.js';
 import { attachContactCollaboratorByUser } from '../contacts/contact-scope.js';
 // FIX A 2026-06-02 — AutomationTask model dropped post-M0 BullMQ rebuild; stub fallback
 import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
+// Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
+import { getUserFullName } from './chat-helpers.js';
 
 type QueryParams = Record<string, string>;
 
@@ -952,6 +954,11 @@ export async function chatRoutes(app: FastifyInstance) {
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
 
+    // Fix 2026-06-03 (optimistic badge): lookup User.fullName cho metadata.sender
+    // → socket emit ngay sau khi insert message có đủ tên sale → FE hiện badge
+    // "Sale CRM · {tên}" đúng ngay, KHÔNG đợi reload page. Cache 5 phút.
+    const userFullName = await getUserFullName(user.id);
+
     // ── M53 2026-05-30: Virtual conversation gate ──────────────────────────
     // KH no-Zalo có conversation ảo trong /chat. Tin nhắn lưu thẳng DB, KHÔNG qua Zalo SDK.
     // Skip rate-limit + privacy check + SDK send. Anh chốt Approach A — sale dùng làm nhật ký.
@@ -973,7 +980,12 @@ export async function chatRoutes(app: FastifyInstance) {
             repliedByUserId: user.id,
             isLocal: true,
             sentVia: 'user',
+            // Fix 2026-06-03 (Anh báo): optimistic badge "Sale CRM · Staff"
+            metadata: {
+              sender: { kind: 'user_crm', name: await getUserFullName(user.id) },
+            },
           },
+          include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
         });
 
         await prisma.conversation.update({
@@ -1084,6 +1096,12 @@ export async function chatRoutes(app: FastifyInstance) {
         : content;
       const persistedContentType = hasStyles ? 'rich' : 'text';
 
+      // ── Fix 2026-06-03 (Anh báo bug optimistic Sale CRM · Staff) ──
+      // Set metadata.sender.name = user.fullName (M11 explicit) để socket
+      // emit có đủ data → FE render badge "Sale CRM · {tên}" đúng ngay
+      // optimistic, KHÔNG cần đợi reload page.
+      // Include repliedBy relation trong response → defense in depth nếu
+      // FE đọc theo repliedBy.fullName.
       const message = await prisma.message.create({
         data: {
           id: randomUUID(),
@@ -1098,7 +1116,12 @@ export async function chatRoutes(app: FastifyInstance) {
           quote: quote ?? undefined,
           sentAt: new Date(),
           repliedByUserId: user.id,
+          sentVia: 'user',
+          metadata: {
+            sender: { kind: 'user_crm', name: await getUserFullName(user.id) },
+          },
         },
+        include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
       });
 
       await prisma.conversation.update({
@@ -1242,7 +1265,13 @@ export async function chatRoutes(app: FastifyInstance) {
             contentType,
             sentAt: new Date(),
             repliedByUserId: user.id,
+            sentVia: 'user',
+            // Fix 2026-06-03 (Anh báo): optimistic badge "Sale CRM · Staff"
+            metadata: {
+              sender: { kind: 'user_crm', name: await getUserFullName(user.id) },
+            },
           },
+          include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
         });
         createdMessages.push(msg);
       }
