@@ -2449,11 +2449,12 @@ watch(() => props.editingMessage?.id, async (id) => {
 .chat-header > .ch-avatar-wrap { align-self: center; }
 .chat-header > .ch-actions { align-self: flex-start; margin-top: 2px; }
 
-/* Row chips (giữa row tên và row nick) */
+/* Row chips (giữa row tên và row nick) — KHÔNG wrap, ép 1 dòng */
 .ch-row-chips {
-  display: flex; align-items: center; flex-wrap: wrap;
+  display: flex; align-items: center; flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
   padding: 3px 0;
 }
 
@@ -2505,12 +2506,13 @@ watch(() => props.editingMessage?.id, async (id) => {
   .btn-action { padding: 5px 7px; }
 }
 
-/* Row 1: Name | Gender icon | Care status */
+/* Row 1: Tên KH + Gender icon — luôn 1 dòng */
 .ch-row-1 {
   display: flex; align-items: center; gap: 8px;
-  min-width: 0; /* cho phép children shrink — ch-name ellipsis hoạt động */
+  min-width: 0;
   flex-wrap: nowrap; overflow: hidden;
 }
+.ch-row-1 .ch-gender-chip { flex-shrink: 0; }
 .ch-name {
   font-weight: 600; font-size: 16px;
   color: var(--smax-text);
@@ -2572,11 +2574,13 @@ watch(() => props.editingMessage?.id, async (id) => {
   color: #0D47A1;
 }
 
-/* Row 2: nick avatar + nick name | in/out | last online */
+/* Row 3 (giữ class .ch-row-2): nick + counts + online — KHÔNG wrap */
 .ch-row-2 {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--smax-grey-700);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-width: 0;
 }
 .nick-name {
   font-weight: 500; color: var(--smax-text);
