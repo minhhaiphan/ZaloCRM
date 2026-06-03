@@ -430,14 +430,55 @@ async function loadTimeline() {
   loadingTimeline.value = true;
   try {
     const res = await api.get<any>(`/customers/${id}/timeline?limit=25`);
-    timeline.value = (res.data?.items ?? []).map((x: any) => ({
-      id: x.id,
-      icon: x.type === 'message' ? '💬' : x.type === 'call' ? '📞' : x.type === 'appointment' ? '📅' : '•',
-      text: x.data?.preview || x.data?.body || x.data?.summary || x.title || '(không nội dung)',
-      at: x.createdAt,
-    }));
+    timeline.value = (res.data?.items ?? [])
+      .map((x: any, i: number) => describeTimelineItem(x, i))
+      .filter((t: any) => t.text); // bỏ item rỗng không mô tả được
   } catch { timeline.value = []; }
   finally { loadingTimeline.value = false; }
+}
+
+// Timeline item từ /customers/:id/timeline. Có 2 dạng:
+//  - type='message'/'call': data có preview/content
+//  - type='activity': activity-log (data.action + data.details) — map sang câu tiếng Việt.
+function describeTimelineItem(x: any, idx: number): { id: string; icon: string; text: string; at: string } {
+  const d = x.data || {};
+  const at = x.createdAt || d.createdAt;
+  const id = d.id || `${x.type}-${idx}`;
+  // message/call có nội dung trực tiếp
+  if (x.type === 'message') {
+    return { id, icon: '💬', text: cleanPreview(d.preview || d.content || d.body, d.contentType), at };
+  }
+  if (x.type === 'call') return { id, icon: '📞', text: d.summary || 'Cuộc gọi', at };
+  if (x.type === 'note') return { id, icon: '📝', text: d.body || d.content || 'Ghi chú', at };
+  if (x.type === 'appointment') return { id, icon: '📅', text: d.title || 'Lịch hẹn', at };
+  // activity-log: dịch action + details sang câu người đọc
+  const actor = d.user?.fullName || (d.actorType === 'system' ? 'Hệ thống' : 'Sale');
+  const det = d.details || {};
+  const tagName = det.to || det.tag || det.name || det.value;
+  const map: Record<string, () => { icon: string; text: string }> = {
+    tag_change_zalo: () => ({ icon: '🏷', text: `${actor} đổi nhãn Zalo${det.from ? ` từ "${det.from}"` : ''} → "${det.to}"` }),
+    tag_change:      () => ({ icon: '🏷', text: `${actor} đổi nhãn${det.from ? ` từ "${det.from}"` : ''} → "${det.to}"` }),
+    tag_add_crm:     () => ({ icon: '🏷', text: `${actor} gắn nhãn "${tagName}"` }),
+    tag_remove_crm:  () => ({ icon: '🏷', text: `${actor} gỡ nhãn "${tagName}"` }),
+    tag_add_zalo:    () => ({ icon: '🏷', text: `Gắn nhãn Zalo "${tagName}"` }),
+    tag_remove_zalo: () => ({ icon: '🏷', text: `Gỡ nhãn Zalo "${tagName}"` }),
+    auto_tag_change: () => ({ icon: '🤖', text: `Tự động cập nhật nhãn${det.to ? ` → "${det.to}"` : ''}` }),
+    status_change:   () => ({ icon: '🎯', text: `${actor} đổi trạng thái → "${det.to || det.status}"` }),
+    contact_status_changed: () => ({ icon: '🎯', text: `${actor} đổi trạng thái KH → "${det.to || det.status}"` }),
+    friend_added:    () => ({ icon: '🤝', text: `Kết bạn Zalo thành công` }),
+    friend_request:  () => ({ icon: '📨', text: `Đã gửi lời mời kết bạn` }),
+    alias_change:    () => ({ icon: '✏️', text: `${actor} đổi tên gợi nhớ → "${det.to}"` }),
+    score_change:    () => ({ icon: '⭐', text: `Score thay đổi → ${det.to ?? det.score}` }),
+  };
+  const built = map[d.action]?.();
+  if (built) return { id, icon: built.icon, text: built.text, at };
+  // fallback: category có nghĩa hơn action; dịch nhóm category phổ biến
+  if (d.category === 'tags_crm' || d.category === 'tags_zalo') {
+    return { id, icon: '🏷', text: `Cập nhật nhãn${tagName ? ` "${tagName}"` : ''}`, at };
+  }
+  // cuối cùng: hiện action thô (vẫn hơn để trống) — dev thấy để bổ sung map sau
+  const label = d.action || d.category || x.type;
+  return { id, icon: '•', text: label ? `Hoạt động: ${label}` : '', at };
 }
 async function loadNotes() {
   const id = c.value?.id;
