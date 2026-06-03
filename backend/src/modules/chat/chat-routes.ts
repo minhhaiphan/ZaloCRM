@@ -828,10 +828,105 @@ export async function chatRoutes(app: FastifyInstance) {
     ]);
 
     const ordered = messages.reverse();
+
+    // ── INBOUND sender name resolver (Anh chốt 2026-06-03) ─────────────────
+    // 3 case Anh chốt:
+    //   A. Nick lẻ ngoài hệ thống:
+    //      - Có Contact.crmName → hiện "Chị Lan · Lan Nguyen" (crmName + zalo)
+    //      - Không có crmName → hiện tên Zalo thật
+    //   B. Nick có owner trong org (sale khác): hiện "Tuan HS · Sale: Anh Tuấn"
+    //   C. senderUid null → senderResolved=null, FE skip render
+    // 3 batch query song song (0 N+1). Tên ưu tiên: crmName → aliasInNick → senderName.
+    const inboundUids = Array.from(
+      new Set(
+        ordered
+          .filter((m) => m.senderType === 'contact' && m.senderUid)
+          .map((m) => m.senderUid as string),
+      ),
+    );
+    let resolverMaps: {
+      internalNicks: Map<string, { displayName: string | null; ownerId: string | null; ownerFullName: string | null }>;
+      contacts: Map<string, { id: string; crmName: string | null; fullName: string | null }>;
+      friends: Map<string, { aliasInNick: string | null; zaloDisplayName: string | null }>;
+    } = { internalNicks: new Map(), contacts: new Map(), friends: new Map() };
+
+    if (inboundUids.length > 0) {
+      const [internalNickRows, contactRows, friendRows] = await Promise.all([
+        prisma.zaloAccount.findMany({
+          where: { orgId: user.orgId, zaloUid: { in: inboundUids } },
+          select: {
+            zaloUid: true,
+            displayName: true,
+            ownerUserId: true,
+            owner: { select: { id: true, fullName: true } },
+          },
+        }),
+        prisma.contact.findMany({
+          where: { orgId: user.orgId, zaloUid: { in: inboundUids } },
+          select: { id: true, zaloUid: true, crmName: true, fullName: true },
+        }),
+        prisma.friend.findMany({
+          where: {
+            orgId: user.orgId,
+            zaloUidInNick: { in: inboundUids },
+          },
+          select: { zaloUidInNick: true, aliasInNick: true, zaloDisplayName: true },
+        }),
+      ]);
+      for (const r of internalNickRows) {
+        if (r.zaloUid) {
+          resolverMaps.internalNicks.set(r.zaloUid, {
+            displayName: r.displayName,
+            ownerId: r.owner?.id ?? r.ownerUserId,
+            ownerFullName: r.owner?.fullName ?? null,
+          });
+        }
+      }
+      for (const r of contactRows) {
+        if (r.zaloUid) {
+          resolverMaps.contacts.set(r.zaloUid, {
+            id: r.id,
+            crmName: r.crmName,
+            fullName: r.fullName,
+          });
+        }
+      }
+      for (const r of friendRows) {
+        resolverMaps.friends.set(r.zaloUidInNick, {
+          aliasInNick: r.aliasInNick,
+          zaloDisplayName: r.zaloDisplayName,
+        });
+      }
+    }
+
+    function resolveSender(msg: typeof ordered[number]) {
+      if (msg.senderType !== 'contact' || !msg.senderUid) return null;
+      const internal = resolverMaps.internalNicks.get(msg.senderUid);
+      const contact = resolverMaps.contacts.get(msg.senderUid);
+      const friend = resolverMaps.friends.get(msg.senderUid);
+      const crmName = contact?.crmName ?? friend?.aliasInNick ?? null;
+      const zaloName = msg.senderName ?? friend?.zaloDisplayName ?? contact?.fullName ?? null;
+      const displayName = crmName ?? zaloName ?? 'Người lạ';
+      return {
+        senderDisplayName: displayName,
+        senderCrmName: crmName,
+        senderZaloName: zaloName,
+        senderIsInternalNick: !!internal,
+        senderInternalNickLabel: internal?.displayName ?? null,
+        senderInternalNickOwner: internal?.ownerFullName ?? null,
+        senderInternalNickOwnerId: internal?.ownerId ?? null,
+        senderCase: internal ? 'B' : 'A',
+      };
+    }
+
     const redacted = ordered.map((m) => {
       const r = redactMessage(m as any, conversation as any, privacyCtx);
       // BigInt zaloMsgIdNum → string cho JSON serialize
-      return { ...r, zaloMsgIdNum: (r as any).zaloMsgIdNum?.toString() ?? null };
+      return {
+        ...r,
+        zaloMsgIdNum: (r as any).zaloMsgIdNum?.toString() ?? null,
+        senderResolved: resolveSender(m),
+      };
     });
     return { messages: redacted, total, page: parseInt(page), limit: parseInt(limit) };
   });
