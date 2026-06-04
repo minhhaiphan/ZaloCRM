@@ -1920,10 +1920,14 @@ model SavedFilterPreset {
 // Folder tổ chức Block — pattern smax.ai (folder theo sale: PHÚ, THÀNH, NGỌC...).
 // `ownerNickId` optional: nếu bind 1 nick → block trong folder mặc định runtime
 // dispatch qua nick đó. `ownerUserId` optional: folder cá nhân của 1 sale CRM.
+// BlockFolder — Anh chốt 2026-06-04: visibility lưu ở Folder, KHÔNG ở Block.
+// visibility='public' → mọi sale trong org dùng. 'private' → chỉ ownerUserId dùng.
+// Phase 1 enforce parentId IS NULL ở route (1 cấp). Schema giữ parentId cho Phase 2.
 model BlockFolder {
   id          String   @id @default(uuid())
   orgId       String   @map("org_id")
   name        String
+  visibility  String   @default("public") // 'public' | 'private' — 2026-06-04
   parentId    String?  @map("parent_id")
   ownerNickId String?  @map("owner_nick_id")
   ownerUserId String?  @map("owner_user_id")
@@ -1939,6 +1943,7 @@ model BlockFolder {
   createdBy User          @relation("BlockFolderCreatedBy", fields: [createdById], references: [id])
   blocks    Block[]
 
+  @@index([orgId, visibility])
   @@index([orgId, ownerNickId])
   @@index([orgId, ownerUserId])
   @@index([parentId])
@@ -1963,7 +1968,9 @@ model Block {
   actionType  String    @map("action_type") // 'request_friend' | 'send_message' | 'update_status' | ...
   content     Json      @default("{}")
   ownerNickId String?   @map("owner_nick_id")
+  // 2026-06-04: isShared DEPRECATED — visibility lên Folder. Giữ field để migrate dual-read 2 tuần.
   isShared    Boolean   @default(true) @map("is_shared")
+  tagIds      String[]  @default([]) @map("tag_ids") // 2026-06-04 — dự án/mục đích, multi free-form
   usageCount  Int       @default(0) @map("usage_count")
   lastUsedAt  DateTime? @map("last_used_at")
   archivedAt  DateTime? @map("archived_at")
@@ -1971,16 +1978,39 @@ model Block {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  folder    BlockFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  ownerNick ZaloAccount? @relation("BlockOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
-  createdBy User         @relation("BlockCreatedBy", fields: [createdById], references: [id])
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  folder        BlockFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  ownerNick     ZaloAccount?   @relation("BlockOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
+  createdBy     User           @relation("BlockCreatedBy", fields: [createdById], references: [id])
+  sequenceSteps SequenceStep[]
   // tasks  AutomationTask[]  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
 
   @@index([orgId, channel, actionType])
   @@index([orgId, archivedAt])
   @@index([folderId])
+  @@index([tagIds], type: Gin)
   @@map("blocks")
+}
+
+// SequenceStep — 2026-06-04 Anh chốt: tách JSON blob ra table riêng.
+// Trước: AutomationSequence.steps Json @default("[]") → archive Block silent break Sequence.
+// Sau: FK Block thật. Worker dual-read: ưu tiên sequenceSteps[], fallback steps Json 2 tuần.
+model SequenceStep {
+  id            String   @id @default(uuid())
+  sequenceId    String   @map("sequence_id")
+  blockId       String?  @map("block_id") // nullable: step có thể chưa pick Block (draft)
+  stepOrder     Int      @map("step_order")
+  delayMinutes  Int      @default(0) @map("delay_minutes")
+  exitCondition Json?    @map("exit_condition") // {type: 'replied'|'clicked'|'timeout', value?}
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  sequence AutomationSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  block    Block?             @relation(fields: [blockId], references: [id], onDelete: SetNull)
+
+  @@unique([sequenceId, stepOrder])
+  @@index([blockId])
+  @@map("sequence_steps")
 }
 
 // Sequence — multi-step drip flow. `steps` là array có cấu trúc:
@@ -2016,10 +2046,11 @@ model AutomationSequence {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  createdBy User                 @relation("SequenceCreatedBy", fields: [createdById], references: [id])
-  triggers  AutomationTrigger[]  @relation("TriggerSequence")
-  campaigns AutomationCampaign[] @relation("CampaignSequence")
+  org           Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy     User                 @relation("SequenceCreatedBy", fields: [createdById], references: [id])
+  triggers      AutomationTrigger[]  @relation("TriggerSequence")
+  campaigns     AutomationCampaign[] @relation("CampaignSequence")
+  sequenceSteps SequenceStep[]       // 2026-06-04 — replace JSON `steps` (dual-read 2 weeks)
 
   @@index([orgId, channel, enabled])
   @@map("automation_sequences")
@@ -2050,6 +2081,26 @@ model AutomationTrigger {
   // Wave 2 2026-05-29 — per-trigger welcome probe (split from Org-level)
   welcomeMessageTemplate String?   @map("welcome_message_template") @db.Text
   welcomeDelaySeconds    Int       @default(60) @map("welcome_delay_seconds")
+  // ── Cấu trúc 5 tin 2026-06-04 (I10 — Anh chốt qua /design-html) ──
+  // Tin 2 · Cảm ơn KH đã đồng ý KB — gửi khi event friend_accepted (KHÁC welcome=Tin1
+  // gửi sau khi mời, không chờ accept). thankYouDelay tính từ lúc KH accept.
+  thankYouTemplate       String?   @map("thank_you_template") @db.Text
+  thankYouDelaySeconds   Int       @default(60) @map("thank_you_delay_seconds")
+  // Tin 3 · Nhắc KH đồng ý KB sau N ngày (cron quét, tự bỏ qua nếu đã accept).
+  remindTemplate         String?   @map("remind_template") @db.Text
+  remindDelayDays        Int       @default(3) @map("remind_delay_days")
+  // Tin 4 · Khi KH từ chối KB — gửi qua hộp người lạ ngay khi event friend_rejected.
+  rejectedTemplate       String?   @map("rejected_template") @db.Text
+  // 4 cờ bật/tắt từng tin (Lời mời = greetingTemplate luôn bắt buộc, không có cờ).
+  // Tin 1 Chào mừng / Tin 2 Cảm ơn / Tin 3 Nhắc / Tin 4 Từ chối.
+  enableWelcome          Boolean   @default(true)  @map("enable_welcome")
+  enableThankYou         Boolean   @default(true)  @map("enable_thank_you")
+  enableRemind           Boolean   @default(true)  @map("enable_remind")
+  enableRejectedFollowUp Boolean   @default(false) @map("enable_rejected_follow_up")
+  // Thông báo nội bộ per-event: { "<eventKey>": { "owner": bool, "manager": bool, "zaloGroup": bool } }
+  // eventKey: welcome|thankYou|remind|rejected|reply|reactionPositive|reactionNegative|lead|block.
+  // owner = Sale phụ trách nick (LÀM THẬT). manager + zaloGroup = defer (FE khóa "Đang phát triển").
+  notifyChannels         Json?     @map("notify_channels")
   state                  String    @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed' (UI derive 'scheduled' khi state=draft + scheduledAt set)
   // BE T4 2026-05-30 — friend-invite lên lịch hẹn giờ. NULL = activate ngay khi gọi /activate.
   scheduledAt            DateTime? @map("scheduled_at")

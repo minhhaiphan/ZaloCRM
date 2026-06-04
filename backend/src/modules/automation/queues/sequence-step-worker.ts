@@ -71,6 +71,36 @@ interface SequenceStepConfig {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// 2026-06-04 — DUAL-READ pattern (Anh chốt: Khối Phase 1 + Reviewer R1)
+// SequenceStep FK table mới + JSON `steps` cũ (deprecated 2026-06-18).
+// Worker ưu tiên sequence_steps[], fallback steps JSON nếu empty.
+// Khi drop JSON 2 tuần sau: chỉ giữ block đầu của function này.
+// ════════════════════════════════════════════════════════════════════════
+async function loadSequenceSteps(sequenceId: string): Promise<SequenceStepConfig[]> {
+  const rows = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: 'asc' },
+    select: { id: true, blockId: true, delayMinutes: true, exitCondition: true },
+  });
+  if (rows.length > 0) {
+    return rows
+      .filter((r) => r.blockId != null) // skip step không có blockId (draft)
+      .map((r) => ({
+        stepId: r.id,
+        blockId: r.blockId as string,
+        delayMinutes: r.delayMinutes,
+        exitCondition: r.exitCondition ?? undefined,
+      }));
+  }
+  // Fallback JSON cũ (dual-read window 2 tuần)
+  const seq = await prisma.automationSequence.findUnique({
+    where: { id: sequenceId },
+    select: { steps: true },
+  });
+  return (seq?.steps as unknown as SequenceStepConfig[]) ?? [];
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Stats counter helpers (M10 hồi sinh dead writer)
 // ════════════════════════════════════════════════════════════════════════
 async function incrEnrolledCounter(sequenceId: string): Promise<void> {
@@ -256,7 +286,7 @@ async function processJob(
     return { status: 'skipped', stepIdx, reason: `nick_${nick.status}` };
   }
 
-  const steps = (sequence.steps as unknown as SequenceStepConfig[]) ?? [];
+  const steps = await loadSequenceSteps(sequence.id); // 2026-06-04 dual-read
   if (stepIdx >= steps.length) {
     return { status: 'skipped', stepIdx, reason: 'step_out_of_range' };
   }
@@ -581,7 +611,7 @@ export async function enqueueSequenceStart(input: {
     return;
   }
 
-  const steps = (seq.steps as unknown as SequenceStepConfig[]) ?? [];
+  const steps = await loadSequenceSteps(input.sequenceId); // 2026-06-04 dual-read
   if (steps.length === 0) {
     logger.warn(`[sequence-step] sequence ${input.sequenceId} has 0 steps`);
     return;
@@ -677,11 +707,7 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
     });
     if (!trigger?.sequenceId) continue;
 
-    const seq = await prisma.automationSequence.findUnique({
-      where: { id: trigger.sequenceId },
-      select: { steps: true },
-    });
-    const steps = (seq?.steps as unknown as SequenceStepConfig[]) ?? [];
+    const steps = await loadSequenceSteps(trigger.sequenceId); // 2026-06-04 dual-read
     if (nextStepIdx >= steps.length) continue;
 
     // Find current nick assigned (from outbox or entry)
