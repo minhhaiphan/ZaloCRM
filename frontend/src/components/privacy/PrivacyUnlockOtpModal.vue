@@ -154,12 +154,15 @@
 </template>
 
 <script setup lang="ts">
-// @ts-nocheck — privacy OTP store extension WIP, methods not yet on store typing
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { usePrivacyStore } from '@/stores/privacy';
 
-const props = defineProps<{ open: boolean }>();
+const props = defineProps<{
+  open: boolean;
+  /** Context hành động (gạt nick) — tin OTP sẽ nêu cụ thể nick + bật/tắt. */
+  context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string };
+}>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'unlocked'): void;
@@ -252,7 +255,7 @@ async function onRequestOtp() {
   busy.value = true;
   errorText.value = '';
   try {
-    const result = await privacyStore.requestOtp(selectedDuration.value);
+    const result = await privacyStore.requestOtp(selectedDuration.value, props.context);
     tokenId.value = result.tokenId;
     expiresAt.value = new Date(result.expiresAt);
     remainingMs.value = expiresAt.value.getTime() - Date.now();

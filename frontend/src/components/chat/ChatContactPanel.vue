@@ -16,10 +16,15 @@
         <template #name>
           <div class="ip-name-line" :title="headerFullName">{{ headerFullName }}</div>
           <div v-if="props.contact?.zaloUid" class="ip-id">UID: {{ props.contact.zaloUid }}</div>
+          <!-- 2026-06-06 (Anh chốt): trạng thái cột 4 cạnh UID dùng CÙNG ContactDealStageSelector
+               (statusId dynamic) như cột 3 → đổi 1 chỗ sync ngay 2 chỗ (cùng trường statusId). -->
           <div class="ip-care-row-inline">
-            <CareStatusBadge
-              :model-value="(form.status as string | null) || 'new'"
-              @update:model-value="onChangeCareStatus"
+            <ContactDealStageSelector
+              v-if="props.contact?.id"
+              :contact-id="props.contact.id"
+              :current-status-id="(props.contact as { statusId?: string | null }).statusId ?? null"
+              :org-id="orgId"
+              @updated="onDealStageUpdatedPanel"
             />
           </div>
         </template>
@@ -82,19 +87,27 @@
             <input v-model="form.fullName" placeholder="Tên Zalo cung cấp" @blur="saveContact" />
           </div>
 
-          <!-- Always visible: SĐT chính -->
+          <!-- Always visible: SĐT chính. Hiển thị '0359 944 488' (+tooltip +84) khi không focus,
+               raw khi focus để sửa. Giá trị lưu giữ raw → backend normalizePhone tự chuẩn hoá. -->
           <div class="ip-form-row">
             <span class="ip-icon">📞</span>
             <span class="ip-label">SĐT</span>
             <div class="phone-cell">
-              <input v-model="form.phone" placeholder="SĐT chính" @blur="saveContact" />
+              <input
+                :value="phoneFocused ? form.phone : displayPhone(form.phone)"
+                :title="form.phone ? displayPhoneIntl(form.phone) : ''"
+                placeholder="SĐT chính"
+                @focus="phoneFocused = true"
+                @input="form.phone = ($event.target as HTMLInputElement).value"
+                @blur="phoneFocused = false; saveContact()"
+              />
               <button
                 v-if="form.phone && infoExpanded"
                 class="show-extra-phones"
                 :title="showExtraPhones ? 'Ẩn SĐT phụ' : 'Hiện SĐT phụ'"
                 @click="showExtraPhones = !showExtraPhones"
               >
-                {{ showExtraPhones ? '−' : '+' }} {{ filledExtras }}/2
+                {{ showExtraPhones ? '−' : '+' }} {{ form.phonesExtra.length }}
               </button>
             </div>
           </div>
@@ -139,15 +152,29 @@
                 <option value="other">Khác</option>
               </select>
             </div>
+            <!-- SĐT phụ — list động nhãn tự nhập (phụ/vợ/viber...) + số. Anh chốt 2026-06-06.
+                 Thay 2 ô cố định SĐT 2/3 (vỡ UI). Lưu vào contacts.phonesExtra (JSON). -->
             <template v-if="showExtraPhones">
-              <div class="ip-form-row sub">
-                <span class="ip-label">SĐT 2</span>
-                <input v-model="form.phone2" placeholder="SĐT phụ 1" @blur="saveContact" />
+              <div
+                v-for="(p, idx) in form.phonesExtra"
+                :key="'pex-' + idx"
+                class="ip-form-row sub phone-extra-row"
+              >
+                <input
+                  v-model="p.label"
+                  class="pex-label"
+                  placeholder="nhãn (phụ, vợ, viber...)"
+                  @blur="saveContact"
+                />
+                <input
+                  v-model="p.phone"
+                  class="pex-phone"
+                  placeholder="Số điện thoại"
+                  @blur="saveContact"
+                />
+                <button class="pex-remove" title="Xoá số này" @click="removeExtraPhone(idx)">×</button>
               </div>
-              <div class="ip-form-row sub">
-                <span class="ip-label">SĐT 3</span>
-                <input v-model="form.phone3" placeholder="SĐT phụ 2" @blur="saveContact" />
-              </div>
+              <button class="pex-add" type="button" @click="addExtraPhone">+ Thêm SĐT</button>
             </template>
             <!-- 3 field Email · Địa chỉ · Nghề: ẨN khỏi cột 4 (quick view chat panel).
                  Schema giữ nguyên — data vẫn lưu/edit qua tab "Hồ sơ KH tổng hợp" (phase sau).
@@ -548,14 +575,15 @@ import { useRouter } from 'vue-router';
 import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
+import { displayPhone, displayPhoneIntl } from '@/composables/use-phone-format';
 import ChatAppointments from './ChatAppointments.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList from './AutomationCardList.vue';
 import AddFlowModal from './AddFlowModal.vue';
 import Avatar from '@/components/ui/Avatar.vue';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
-import type { CareStatusValue } from '@/constants/care-status';
+import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
+import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
 import CustomerTimelineSection from './CustomerTimelineSection.vue';
@@ -591,7 +619,21 @@ const emit = defineEmits<{
   'refresh-ai-summary': [];
   'refresh-ai-sentiment': [];
   'insert-suggestion': [text: string];
+  'status-changed': [statusId: string | null];
 }>();
+
+// orgId cho ContactDealStageSelector (trạng thái cột 4 cạnh UID — sync với cột 3).
+const _authStorePanel = useAuthStore();
+const orgId = computed(() => _authStorePanel.user?.orgId ?? null);
+
+// Đổi trạng thái ở cột 4 → cập nhật local contact + emit để cột 3 sync (cùng tab).
+// Cross-device đã do BE emit friend:updated lo (ChatView listen).
+function onDealStageUpdatedPanel(newStatusId: string | null) {
+  if (props.contact) {
+    (props.contact as { statusId?: string | null }).statusId = newStatusId;
+  }
+  emit('status-changed', newStatusId);
+}
 
 const {
   form, saveSuccess, saveError,
@@ -782,11 +824,8 @@ async function fetchRelations(contactId: string) {
   }
 }
 
-// ════════ Care status (dropdown qua CareStatusBadge — emit value mới) ════════
-function onChangeCareStatus(value: CareStatusValue) {
-  form.status = value;
-  saveContact();
-}
+// Care status legacy (CareStatusBadge) GỠ 2026-06-06 — cột 4 dùng ContactDealStageSelector
+// (statusId dynamic) cạnh UID để sync với cột 3. onChangeCareStatus + import bỏ.
 
 // ════════ Header name (Avatar component handle initials + gender + gradient) ════════
 // B7 fix — Contact stub có thể fullName='Unknown'; fallback qua aliasInNick (props.friendship)
@@ -814,7 +853,19 @@ const scoreData = computed(() => ({
 
 // ════════ Phones extras ════════
 const showExtraPhones = ref(false);
-const filledExtras = computed(() => [form.phone2, form.phone3].filter(Boolean).length);
+// SĐT chính: hiển thị format đẹp '0359 944 488' khi KHÔNG focus; khi focus thì show raw để
+// sale gõ/sửa tự nhiên. Tooltip = '+84...' (Anh chốt 2026-06-06). Giá trị lưu vẫn raw.
+const phoneFocused = ref(false);
+
+// SĐT phụ — list động (form.phonesExtra). Thêm/xoá dòng, lưu khi blur.
+function addExtraPhone() {
+  form.phonesExtra.push({ label: '', phone: '' });
+  showExtraPhones.value = true;
+}
+function removeExtraPhone(idx: number) {
+  form.phonesExtra.splice(idx, 1);
+  saveContact();
+}
 
 // Tag CRM hệ thống đã chuyển sang TagCrmBar trên chat input (Cột 3).
 // Zalo Real labels chuyển sang dropdown trong header Cột 3 (MessageThread).
@@ -875,6 +926,12 @@ const hasAnyActivity = computed(() =>
 
 const toast = useToast();
 const router = useRouter();
+
+// AI suggest state — PHẢI khai báo TRƯỚC watcher(props.contactId, {immediate:true}) bên dưới
+// vì watcher đó reset suggestText.value lúc setup. Khai báo sau watcher → TDZ
+// "Cannot access 'suggestText' before initialization" làm crash setup panel (fix 2026-06-06).
+const suggestText = ref('');
+const suggestLoading = ref(false);
 
 // Khi đổi sang contact mới, reset về tab Hồ sơ + refetch relations
 // (NotesSection tự fetch khi prop contactId đổi).
@@ -1076,8 +1133,7 @@ function shortName(full: string | null | undefined): string | null {
 }
 
 // ─── Widget 2: AI suggest ────────────────────────────────────────────────
-const suggestText = ref('');
-const suggestLoading = ref(false);
+// suggestText + suggestLoading đã khai báo ở trên (trước watcher contactId) để tránh TDZ.
 
 async function runAiSuggest() {
   if (!props.conversationId) {
@@ -1536,6 +1592,49 @@ async function onRegenerateHandoff() {
   flex-shrink: 0;
 }
 .show-extra-phones:hover { background: var(--smax-primary-soft); color: var(--smax-primary); }
+
+/* ════════ SĐT phụ — list động nhãn tự nhập (2026-06-06) ════════
+   Override grid của .ip-form-row.sub: dùng flex để nhãn + số + nút xoá nằm 1 hàng,
+   không vỡ như 2 ô cố định cũ (label 80px wrap). */
+.phone-extra-row {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  padding-left: 32px;
+}
+.phone-extra-row .pex-label {
+  flex: 0 0 96px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--smax-grey-700);
+}
+.phone-extra-row .pex-phone {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+}
+.phone-extra-row .pex-remove {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--smax-grey-500);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.phone-extra-row .pex-remove:hover { color: var(--smax-danger, #e53935); }
+.pex-add {
+  margin: 4px 0 4px 32px;
+  background: none;
+  border: 1px dashed var(--smax-grey-300);
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--smax-primary, #1786be);
+  cursor: pointer;
+}
+.pex-add:hover { background: var(--smax-primary-soft); }
 
 /* ════════ Section ════════ */
 .ip-section {

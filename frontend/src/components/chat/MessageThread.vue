@@ -65,15 +65,7 @@
               </svg>
               <span class="gender-label">{{ genderLabel }}</span>
             </span>
-          </div>
-
-          <!-- Row 2: Chips meta (Cùng-chăm + Giai đoạn + Phân loại) -->
-          <div class="ch-row-chips">
-            <span
-              v-if="cungChamCount >= 2"
-              class="ch-cung-cham-chip"
-              :title="cungChamTooltip"
-            >🤝 {{ cungChamCount }} sale</span>
+            <!-- Gom 2 dòng 2026-06-06 (Anh chốt): deal-stage lên dòng 1 cạnh gender. -->
             <ContactDealStageSelector
               v-if="conversation.contact"
               :contact-id="conversation.contact.id"
@@ -81,12 +73,13 @@
               :org-id="_authStore.user?.orgId ?? null"
               @updated="onDealStageUpdated"
             />
-            <!-- Zalo Real label dropdown — Zalo-native UI (single-select, list all labels in account)
-                 Hỗ trợ cả user thread (UID) + group thread (groupId). Chỉ ẩn nếu không có externalThreadId. -->
+            <!-- Tag Zalo Real — dòng 1 PHÍA SAU trạng thái (Anh chốt 2026-06-06). -->
             <v-menu v-if="conversation.externalThreadId && conversation.zaloAccount" :close-on-content-click="false" location="bottom start">
               <template #activator="{ props: actProps }">
                 <button v-bind="actProps" class="zlbl-trigger" :title="currentLabel ? `Đang gắn: ${currentLabel.text}` : 'Chưa gắn tag Zalo'">
-                  <span class="zlbl-icon" :style="currentLabel ? `color: ${currentLabel.color}` : ''">🏷</span>
+                  <!-- Logo Zalo thật (brand đa màu) — ĐỒNG BỘ với TagCrmBar + cột 2 (Anh chốt 2026-06-06).
+                       KHÔNG ép màu theo label; chỉ tên label mới ăn currentLabel.color. -->
+                  <ZaloBrandIcon class="zlbl-icon" :size="14" />
                   <span v-if="currentLabel" class="zlbl-current-name" :style="`color: ${currentLabel.color}`">
                     {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
                   </span>
@@ -127,12 +120,17 @@
             </v-menu>
           </div>
 
-          <!-- Row 3: nick avatar + nick name | in/out | last online
-               Sprint v3 Tuần 3 Row 6.9 (2026-06-03): wrap NickAvatarLock + nick-name
-               trong v-menu activator → click hiện dropdown TẤT CẢ nick (Cách B) cho
-               sale switch sang chat với KH qua nick khác. KH đã KB → switch ngay.
-               KH chưa KB → trong dropdown có nút mời nhanh (defer feature). -->
-          <div class="ch-row-2">
+          <!-- Row 2: chip meta gom 1 dòng (cùng-chăm + tag Zalo + nick + số tin + online) -->
+          <div class="ch-row-chips">
+            <span
+              v-if="cungChamCount >= 2"
+              class="ch-cung-cham-chip"
+              :title="cungChamTooltip"
+            >🤝 {{ cungChamCount }} sale</span>
+            <!-- Tag Zalo Real ĐÃ CHUYỂN lên dòng 1 (sau trạng thái) — Anh chốt 2026-06-06. -->
+            <span class="ch-sep" v-if="cungChamCount >= 2">|</span>
+            <!-- Gom 2 dòng 2026-06-06: nick + số tin + online dồn chung dòng 2 (cùng ch-row-chips).
+                 nick switcher: click → dropdown TẤT CẢ nick (Cách B) cho sale switch nick chat với KH. -->
             <v-menu
               v-if="conversation.zaloAccount && conversation.contact?.id"
               :close-on-content-click="true"
@@ -221,7 +219,7 @@
             </template>
           </div>
         </div>
-
+        <!-- ch-actions: nút Kết bạn / menu ⋮ / ⓘ — đẩy phải dòng 1 (gom 2 dòng 2026-06-06) -->
         <div class="ch-actions">
           <!-- Smart friendship button: state-aware -->
           <!-- Đã kết bạn: hover hiện thêm nút Huỷ kết bạn (destructive secondary) -->
@@ -305,6 +303,13 @@
               <button class="icon-btn" v-bind="act" title="Thêm">⋮</button>
             </template>
             <v-list density="compact" min-width="220">
+              <!-- 2026-06-06 (Anh chốt): toggle cột 4 (thông tin KH) đưa vào menu ... -->
+              <v-list-item
+                :prepend-icon="showContactPanel ? 'mdi-information' : 'mdi-information-outline'"
+                :title="showContactPanel ? 'Ẩn thông tin KH (cột phải)' : 'Hiện thông tin KH (cột phải)'"
+                @click="$emit('toggle-contact-panel')"
+              />
+              <v-divider />
               <v-list-item prepend-icon="mdi-history" title="Lịch sử hội thoại" @click="toast.push('Lịch sử: chưa implement')" />
               <v-list-item prepend-icon="mdi-magnify" title="Tìm trong hội thoại" @click="toast.push('Tìm: chưa implement')" />
               <v-list-item prepend-icon="mdi-note-edit-outline" title="Ghi chú nhanh" @click="onOpenNote" />
@@ -321,13 +326,6 @@
               <v-list-item prepend-icon="mdi-flag-outline" title="Báo cáo" @click="toast.push('Report: chưa implement')" />
             </v-list>
           </v-menu>
-
-          <button
-            class="icon-btn"
-            :class="{ on: showContactPanel }"
-            title="Toggle thông tin KH"
-            @click="$emit('toggle-contact-panel')"
-          >ⓘ</button>
         </div>
       </header>
 
@@ -790,6 +788,7 @@ import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // `Contact.status` khiến lazy gate KHÔNG kích hoạt. CareStatusBadge giữ ở ChatContactPanel.vue
 // nếu sale vẫn cần thao tác care-status legacy 9 giá trị.
 import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
+import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
@@ -1202,9 +1201,15 @@ async function onPickLabel(label: AccountLabelView) {
 
   // ── Snapshots cho rollback nếu fail ─────────────────────────────────
   const snapshotAllLabels = allLabels.value.map(l => ({ ...l }));
-  const friendship = props.conversation?.friendship as { crmTagsPerNick?: string[] } | null | undefined;
+  const friendship = props.conversation?.friendship as {
+    crmTagsPerNick?: string[];
+    zaloLabels?: Array<{ id?: number; name?: string; color?: string }>;
+  } | null | undefined;
   const oldCrmTags = Array.isArray(friendship?.crmTagsPerNick)
     ? [...(friendship!.crmTagsPerNick as string[])]
+    : [];
+  const oldZaloLabels = Array.isArray(friendship?.zaloLabels)
+    ? [...(friendship!.zaloLabels as Array<{ id?: number; name?: string; color?: string }>)]
     : [];
 
   // ── Optimistic 1: allLabels assignedTo flag (dropdown ✓ animation) ──
@@ -1213,9 +1218,17 @@ async function onPickLabel(label: AccountLabelView) {
     assignedTo: labelId !== null && l.id === labelId,
   }));
 
-  // ── Optimistic 2: friendship.crmTagsPerNick — strip ALL "🔵 X" cũ +
-  // add "🔵 newLabel" nếu assign. Đây là field tag bar cột 3 + cột 2 read.
-  // Vue reactive mutation: friendship là proxy của conversation prop. ──
+  // ── Optimistic 2: friendship.zaloLabels — NGUỒN CHÍNH cột 2 đọc (object {id,name,color}
+  // màu chuẩn = zalo_labels.color, đồng bộ TagCrmBar + header). Single-select Zalo: 1 label/
+  // friend → assign = replace toàn bộ; unassign = []. Cập nhật NGAY, không chờ socket. ──
+  if (friendship) {
+    friendship.zaloLabels = labelId !== null
+      ? [{ id: label.id, name: label.text, color: label.color }]
+      : [];
+  }
+
+  // ── Optimistic 3: friendship.crmTagsPerNick mirror "🔵 X" — giữ cho legacy reader
+  // (filter chat-routes, timeline). Cột 2 KHÔNG còn đọc field này cho tag Zalo. ──
   const stripped = oldCrmTags.filter(t => !t.startsWith('🔵 '));
   const newTags = labelId !== null ? [...stripped, `🔵 ${label.text}`] : stripped;
   if (friendship) {
@@ -1242,9 +1255,12 @@ async function onPickLabel(label: AccountLabelView) {
     const contactId = props.conversation?.contact?.id;
     if (contactId) window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId } }));
   } catch (err: any) {
-    // Rollback BOTH optimistic mutations + clear pending
+    // Rollback ALL optimistic mutations + clear pending
     allLabels.value = snapshotAllLabels;
-    if (friendship) friendship.crmTagsPerNick = oldCrmTags;
+    if (friendship) {
+      friendship.crmTagsPerNick = oldCrmTags;
+      friendship.zaloLabels = oldZaloLabels;
+    }
     if (convId) clearPendingTags(convId);
     toast.error(err.response?.data?.error || 'Không gán được tag — đã hoàn tác');
   }
@@ -2642,16 +2658,22 @@ watch(() => props.editingMessage?.id, async (id) => {
   top: 8px;
   right: 17px;
 }
-/* Row 1 chừa chỗ phải cho action cluster (~190px friendship + ⋮ + ⓘ) — row 2 & 3 full width */
-.ch-row-1 { padding-right: 200px; }
+/* Gom 2 dòng 2026-06-06 (Anh chốt):
+   Dòng 1 (.ch-row-1) = tên + gender + deal-stage, chừa chỗ phải cho actions cluster.
+   Dòng 2 (.ch-row-chips) = cùng-chăm + tag Zalo + nick + số tin + online — 1 hàng, wrap có kiểm soát. */
+.ch-row-1 {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-right: 200px; /* chừa chỗ cho .ch-actions (friendship + ⋮ + ⓘ) */
+  min-width: 0;
+}
 
-/* Row chips (giữa row tên và row nick) — KHÔNG wrap, ép 1 dòng */
+/* Row 2 — gom tất cả meta còn lại, cho phép wrap nếu hẹp (1366/1280). */
 .ch-row-chips {
-  display: flex; align-items: center; flex-wrap: nowrap;
+  display: flex; align-items: center; flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  overflow: hidden;
-  padding: 3px 0;
+  padding: 2px 0;
+  row-gap: 5px;
 }
 
 /* Click avatar + tên header → mở dialog user info */
@@ -2877,12 +2899,21 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .last-online {
   display: inline-flex; align-items: center; gap: 4px;
+  /* Giảm font 2026-06-06 (Anh chốt): chữ Online/last-seen nhỏ lại cho gọn header. */
+  font-size: 11px;
+  color: var(--smax-grey-700);
 }
 .last-online .online-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
+  /* Offline = xám (Anh chốt 2026-06-06). */
   background: var(--smax-grey-300);
   flex-shrink: 0;
+}
+.last-online.is-online {
+  /* Online = chữ + chấm xanh. */
+  color: var(--smax-success);
+  font-weight: 600;
 }
 .last-online.is-online .online-dot {
   background: var(--smax-success);
@@ -3440,7 +3471,7 @@ watch(() => props.editingMessage?.id, async (id) => {
   border-color: var(--smax-primary, #1786be);
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
-.zlbl-icon { font-size: 12px; flex-shrink: 0; }
+.zlbl-icon { flex-shrink: 0; display: block; }
 .zlbl-current-name {
   font-weight: 600;
   overflow: hidden;

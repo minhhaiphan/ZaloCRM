@@ -128,6 +128,7 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
+import { useFriendSocket } from '@/composables/use-friend-socket';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 
 interface TagV2 {
@@ -196,6 +197,17 @@ watch(() => props.friendId, () => {
   loadFriendTags();
 });
 
+// 2026-06-06 (Anh chốt) — Realtime sync tag Zalo Real: khi BE emit friend:updated{zaloLabels}
+// (sale đổi tag trên app Zalo / từ header CRM / sync) cho ĐÚNG friend đang mở → reload junction
+// để pill Zalo Real ở thanh này khớp header + cột 2. Lọc theo friendId tránh reload thừa.
+// useFriendSocket tự cleanup khi unmount.
+useFriendSocket((p) => {
+  if (!props.friendId || p.friendId !== props.friendId) return;
+  if (p.patch && 'zaloLabels' in p.patch) {
+    loadFriendTags();
+  }
+});
+
 // Màu NỀN thống nhất theo nhóm (đồng bộ ScoreBanner để dễ phân biệt ở UI Chat — Anh chốt
 // 2026-06-06). Nền cố định theo nhóm; CHỮ = bản đậm của tag.color (đổi được trong setting).
 //   Auto Detect    → vàng giống Lead score   (#F59E0B)
@@ -240,6 +252,14 @@ function onEnterSearch() {
   }
 }
 
+// Sau khi gắn/gỡ tag manual → báo timeline KH refresh (BE đã log tag_add_crm/remove
+// với entityType=contact). CustomerTimelineSection nghe event này, lọc theo contactId.
+function notifyTimeline() {
+  if (props.contactId) {
+    window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId: props.contactId } }));
+  }
+}
+
 async function onPickTag(def: TagV2) {
   if (!props.friendId) return;
   // Toggle: nếu đã có → remove, chưa có → add
@@ -254,6 +274,7 @@ async function onPickTag(def: TagV2) {
       source: 'manual_per_nick',
     });
     await loadFriendTags();
+    notifyTimeline();
     dropdownOpen.value = false;
   } catch (err) {
     const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Gắn tag thất bại';
@@ -272,6 +293,7 @@ async function onCreateNewTag() {
     fetchedDefsOnce = false; // refetch defs để dropdown thấy tag mới
     await loadManualTagDefs();
     await loadFriendTags();
+    notifyTimeline();
     search.value = '';
     dropdownOpen.value = false;
     toast.success('Đã tạo và gắn tag mới');
@@ -286,6 +308,7 @@ async function removeManualTag(tag: TagV2) {
   try {
     await api.delete(`/friends/${props.friendId}/tags/${tag.id}`);
     await loadFriendTags();
+    notifyTimeline();
   } catch (err) {
     toast.error('Gỡ tag thất bại');
   }

@@ -129,6 +129,8 @@ model Organization {
   leadPoolBonusQuotas  LeadPoolBonusQuota[]
   // Phase Multi-Source Lead Ads 2026-05-27
   facebookPageAccounts FacebookPageAccount[]
+  // 2026-06-06 (Anh chốt) — trần SDK mặc định hệ thống (9 category, áp cho mọi nick).
+  sdkLimits            SdkLimit[]
 
   @@map("organizations")
 }
@@ -162,7 +164,10 @@ model User {
   permissionGroupId            String?              @map("permission_group_id")
   permissionGroup              PermissionGroup?     @relation(fields: [permissionGroupId], references: [id], onDelete: SetNull)
   departmentMember             DepartmentMember?
-  // Phase Riêng Tư 2026-05-22 — PIN-gated visual privacy cho main nicks của user
+  // Phase Riêng Tư — visual privacy gate cho main nicks của user.
+  // @deprecated 2026-06-06: chuyển sang OTP qua Zalo, KHÔNG còn PIN. privacyPinHash thành
+  //   dead column (giữ tạm, migration drop để task dọn riêng). privacyFailedCount/LockedUntil
+  //   VẪN DÙNG cho OTP (sai 5 lần → lock 30 phút).
   privacyPinHash               String?              @map("privacy_pin_hash")
   privacyFailedCount           Int                  @default(0) @map("privacy_failed_count")
   privacyLockedUntil           DateTime?            @map("privacy_locked_until")
@@ -305,8 +310,41 @@ model ZaloAccount {
   systemNotifyRecipientsAsInternal SystemNotifyRecipient[] @relation("SystemNotifyInternalContact")
   systemNotificationsAsSender      SystemNotification[]    @relation("SystemNotificationSender")
   systemNotificationsAsInternal    SystemNotification[]    @relation("SystemNotificationInternalContact")
+  // 2026-06-06 (Anh chốt) — trần SDK ghi đè riêng per-nick (NULL = theo org default).
+  sdkLimits                        SdkLimit[]
 
   @@map("zalo_accounts")
+}
+
+// 2026-06-06 (Anh chốt) — Trần an toàn SDK Zalo, cấu hình được (thay CATEGORY_LIMITS hardcode).
+// 1 bảng cho CẢ org default LẪN nick override:
+//   - zaloAccountId = NULL  → trần MẶC ĐỊNH HỆ THỐNG (áp cho mọi nick của org).
+//   - zaloAccountId = <id>  → trần GHI ĐÈ riêng cho nick đó.
+// Quy tắc đọc (Anh chốt): ưu tiên giá trị của nick; nick không có → dùng org default;
+// org cũng chưa cấu hình loại đó → fallback hằng số code (DEFAULT_SDK_LIMITS).
+// MỌI nơi gọi SDK (automation/trigger/sequence/broadcast qua zalo-rate-limiter) đọc từ đây.
+model SdkLimit {
+  id             String  @id @default(uuid())
+  orgId          String  @map("org_id")
+  zaloAccountId  String? @map("zalo_account_id") // NULL = org default; có giá trị = nick override
+  category       String  // 'message'|'reaction'|'chat_action'|'group_admin'|'group_read'|'friend_action'|'friend_read'|'profile'|'query'
+  dailyLimit     Int     @map("daily_limit")
+  burstLimit     Int     @map("burst_limit")
+  burstWindowMs  Int     @default(30000) @map("burst_window_ms")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nick ZaloAccount? @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+
+  // Uniqueness do 2 PARTIAL unique index trong migration đảm bảo (Postgres):
+  //   - sdk_limits_org_default_key  : UNIQUE(org_id, category) WHERE zalo_account_id IS NULL
+  //   - sdk_limits_nick_override_key: UNIQUE(zalo_account_id, category) WHERE zalo_account_id IS NOT NULL
+  // Không dùng @@unique của Prisma vì nó coi mỗi NULL là khác nhau → không chặn trùng org-default.
+  // Service đọc/ghi qua findFirst + update/create (không upsert composite).
+  @@index([orgId, zaloAccountId])
+  @@map("sdk_limits")
 }
 
 // Phase ZaloAccounts redesign 2026-05-22 — event log + checkpoint hybrid.
@@ -2177,6 +2215,8 @@ model AutomationTrigger {
   broadcast AutomationBroadcast? @relation("TriggerBroadcast", fields: [broadcastId], references: [id], onDelete: SetNull)
   createdBy User                 @relation("TriggerCreatedBy", fields: [createdById], references: [id])
   campaigns AutomationCampaign[] @relation("CampaignTrigger")
+  // #2 2026-06-06 — hàng đợi per-trigger (mỗi Mục tiêu độc lập, không tranh khách).
+  queueEntries TriggerQueueEntry[]
 
   @@index([orgId, eventType, enabled])
   @@index([orgId, category])
@@ -2517,38 +2557,51 @@ model CustomerListEntry {
   customFields Json? @map("custom_fields")
   sourceMeta   Json? @map("source_meta")
 
-  // Phase Friend Invite Queue 2026-05-28 — producer-consumer queue mode.
-  // null = entry KHÔNG thuộc Mục tiêu nào (legacy enrichment workflow).
-  // ENUM: queued_for_pickup | processing | processed | skipped_friend_cap |
-  //       skipped_recency | skipped_status | failed_permanent | failed_stuck | cancelled
-  queueStatus        String?   @map("queue_status")
+  // #2 2026-06-06 (Anh chốt) — TOÀN BỘ cột hàng đợi + M9 override đã TÁCH sang bảng
+  // nối TriggerQueueEntry (per-trigger, mỗi Mục tiêu độc lập). CustomerListEntry giờ
+  // chỉ giữ data khách per-tệp (phone, zalo*, hasZalo, contactId, dup, status...).
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // #2 2026-06-06 — hàng đợi tách sang bảng nối per-trigger.
+  queueRows TriggerQueueEntry[]
+
+  @@unique([customerListId, rowIndex])
+  @@index([customerListId, status])
+  @@index([phoneE164]) // hot index for cross-list dedup + reverse update
+  @@index([phoneLocal])
+  @@map("customer_list_entries")
+}
+
+// #2 2026-06-06 (Anh chốt) — BẢNG NỐI hàng đợi per-Mục-tiêu.
+// Mỗi Mục tiêu (trigger) độc lập hoàn toàn về khách, KHÔNG chống trùng: 1 khách
+// (CustomerListEntry) có thể có N hàng — mỗi trigger 1 hàng, mỗi hàng 1 trạng thái
+// xử lý riêng. Trước đây các cột này nằm thẳng trên CustomerListEntry nên 1 khách chỉ
+// thuộc 1 trigger → 2 Mục tiêu chung tệp tranh nhau. Tách ra đây để chạy song song.
+// Denormalize orgId/customerListId/contactId để claim/sweeper/sticky-hold query nhanh
+// (sticky-hold + chat-handler filter theo contactId, không theo entryId).
+model TriggerQueueEntry {
+  id                  String  @id @default(uuid())
+  triggerId           String  @map("trigger_id")
+  customerListEntryId String  @map("customer_list_entry_id")
+  // Denormalized scope keys (đọc/where nhanh không cần JOIN entry).
+  orgId               String  @map("org_id")
+  customerListId      String  @map("customer_list_id")
+  contactId           String? @map("contact_id")
+
+  // ── Hàng đợi (di dời từ CustomerListEntry) ──
+  queueStatus        String    @default("queued_for_pickup") @map("queue_status")
   claimedByNickId    String?   @map("claimed_by_nick_id")
   lockedAt           DateTime? @map("locked_at")
-  failedNickIds      Json      @default("[]") @map("failed_nick_ids") @db.JsonB // string[] nick đã fail entry này
+  failedNickIds      Json      @default("[]") @map("failed_nick_ids") @db.JsonB
   stuckRecoveryCount Int       @default(0) @map("stuck_recovery_count")
-  // P2 2026-06-02 — đếm số lần soft fail (RATE_LIMITED/NOT_CONNECTED/timeout).
-  // Sprint v3 2026-06-03 — BỎ escalate SOFT_FAIL_CAP. Counter giữ cho metric
-  // nhưng KHÔNG còn append failedNickIds khi đạt cap. Skip turn, online lại
-  // nick tiếp tục pick (Anh chốt câu 2.5).
   rateLimitCount     Int       @default(0) @map("rate_limit_count")
-  triggerId          String?   @map("trigger_id") // FK to AutomationTrigger (no relation enforced)
+  nickHoldSince      DateTime? @map("nick_hold_since")
+  restartCycle       Int       @default(0) @map("restart_cycle")
+  lastResetReason    String?   @map("last_reset_reason")
 
-  // ── Sticky Nick 24h Hold Flow (Sprint v3 2026-06-03) ──
-  // Anh Lộc chốt: nick gắn chặt 1 KH hết welcome+sequence. Nick chết →
-  // hold 23h chờ nick hồi → quá hạn reset queue cho nick khác làm lại từ đầu.
-  // nickHoldSince = NOW() khi nick gốc disconnect lần đầu cho entry này.
-  // restart_cycle = đếm số lần KH bị reset (Vòng 0, Vòng 1, ...). UI chip "Vòng N".
-  // last_reset_reason = audit lý do reset (nick_offline_23h | manual | etc).
-  nickHoldSince    DateTime? @map("nick_hold_since")
-  restartCycle     Int       @default(0) @map("restart_cycle")
-  lastResetReason  String?   @map("last_reset_reason")
-
-  // ── M9 Bám đuổi thủ công overrides (Luồng Mục Tiêu 2026-06-01) ──
-  // Sale ở /chat enroll 1 KH vào "Mục tiêu hệ thống" → set override per-entry:
-  //   nickIdOverride = nick đang chat (KHÔNG trong segmentSpec.nickIds whitelist)
-  //   sequenceIdOverride = Sequence sale tự chọn trong modal
-  //   enrolledBy = userId sale ra quyết định
-  //   enrollReason = lý do bắt buộc nhập trong modal
+  // ── M9 manual-enroll override (di dời — per-trigger, Anh chốt dời) ──
   sequenceIdOverride String?   @map("sequence_id_override")
   nickIdOverride     String?   @map("nick_id_override")
   enrolledBy         String?   @map("enrolled_by")
@@ -2559,17 +2612,17 @@ model CustomerListEntry {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([customerListId, rowIndex])
-  @@index([customerListId, status])
-  @@index([phoneE164]) // hot index for cross-list dedup + reverse update
-  @@index([phoneLocal])
-  // Phase Friend Invite Queue 2026-05-28 — hot pickup query
-  @@index([queueStatus, triggerId, rowIndex])
-  @@index([queueStatus, lockedAt])
-  // M9 — nick override + enrolledBy lookup
-  @@index([nickIdOverride])
-  @@index([enrolledBy, enrolledAt])
-  @@map("customer_list_entries")
+  trigger AutomationTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+  entry   CustomerListEntry @relation(fields: [customerListEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([triggerId, customerListEntryId]) // 1 cặp = 1 hàng đợi
+  @@index([queueStatus, triggerId])          // dashboard groupBy + completion sweeper
+  @@index([queueStatus, lockedAt])           // stuck sweeper
+  @@index([claimedByNickId, queueStatus])    // sticky-hold disconnect/reconnect
+  @@index([nickHoldSince])                   // sticky-hold sweeper
+  @@index([triggerId, contactId])            // chat-handler + accept/reject theo contact
+  @@index([customerListEntryId])             // join entry→queue cho dashboard
+  @@map("trigger_queue_entries")
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2685,6 +2738,12 @@ model PrivacyOtpToken {
   usedAt                 DateTime? @map("used_at")
   ipAddress              String?   @map("ip_address")
   userAgent              String?   @map("user_agent")
+  // 2026-06-06 — tách 2 luồng (anh chốt):
+  //   'unlock'  = mở khoá XEM nội dung → verify tạo UserPrivacySession (có session, chọn duration).
+  //   'enable'/'disable' = GẠT bật/tắt Riêng tư 1 nick → verify CHỈ xác nhận mã, KHÔNG tạo session.
+  // nickId: bind OTP với đúng nick đang gạt (chống token-verify-nick-A-flip-nick-B). Null cho 'unlock'.
+  action                 String    @default("unlock") @map("action")
+  nickId                 String?   @map("nick_id")
 
   user User @relation("PrivacyOtpUser", fields: [userId], references: [id], onDelete: Cascade)
 
