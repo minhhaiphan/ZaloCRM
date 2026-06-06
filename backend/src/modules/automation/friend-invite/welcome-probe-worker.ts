@@ -129,7 +129,9 @@ async function processRow(row: ProbeRow): Promise<void> {
       ? prisma.automationTrigger.findUnique({
           where: { id: row.trigger_id },
           // I10 2026-06-04 — enableWelcome: công tắc Tin 1. Tắt = không gửi tin chào.
-          select: { welcomeMessageTemplate: true, enableWelcome: true },
+          // #3 2026-06-06 — warmWindowDays: cửa sổ coi KH là "ấm" (Anh nhập trên UI),
+          // thay 30 ngày hardcode.
+          select: { welcomeMessageTemplate: true, enableWelcome: true, warmWindowDays: true },
         })
       : Promise.resolve(null),
   ]);
@@ -204,9 +206,11 @@ async function processRow(row: ProbeRow): Promise<void> {
     return;
   }
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  // #3 2026-06-06 — cửa sổ "ấm" đọc từ cấu hình Mục tiêu (warmWindowDays), thay 30 ngày cứng.
+  const warmDays = trigger?.warmWindowDays ?? 30;
+  const warmCutoff = new Date(Date.now() - warmDays * 24 * 60 * 60 * 1000);
   const isWarm = friend.friendshipStatus === 'accepted' &&
-    !!contact?.lastInboundAt && contact.lastInboundAt > thirtyDaysAgo;
+    !!contact?.lastInboundAt && contact.lastInboundAt > warmCutoff;
 
   if (!isWarm && !org.welcomeStrangerInboxEnabled) {
     await prisma.friendRequestOutbox.update({
@@ -419,8 +423,9 @@ async function runProbeTick(): Promise<void> {
     // mid-tick, the row becomes re-claimable on the next eligible tick.
     const claimToken = 'claim:' + (++tickCounter) + ':' + process.pid;
     // Wave 2 refactor 2026-05-29 — delay floor now comes from the trigger
-    // (welcome_delay_seconds), not from the organization. 60s minimum kept as
-    // a safety floor so probes never fire before the friend-accept settles.
+    // (welcome_delay_seconds), not from the organization.
+    // #3 2026-06-06 (Anh chốt): sàn an toàn trước đây hardcode 60s nay đọc từ cột
+    // welcome_min_floor_seconds (Anh chỉnh được). Độ trễ thực = GREATEST(sàn, welcome_delay).
     const rows = await prisma.$queryRaw<ProbeRow[]>`
       UPDATE friend_request_outbox
       SET welcome_last_error = ${claimToken}
@@ -431,8 +436,10 @@ async function runProbeTick(): Promise<void> {
         WHERE o.kind = 'WELCOME_PROBE'
           AND o.welcome_outcome IS NULL
           AND (o.welcome_last_error IS NULL OR o.welcome_last_error NOT LIKE 'claim:%')
-          AND o.created_at <= NOW() - INTERVAL '60 seconds'
-          AND o.created_at <= NOW() - make_interval(secs => COALESCE(t.welcome_delay_seconds, 60))
+          AND o.created_at <= NOW() - make_interval(secs => GREATEST(
+                COALESCE(t.welcome_min_floor_seconds, 60),
+                COALESCE(t.welcome_delay_seconds, 60)
+              ))
         ORDER BY o.created_at ASC
         LIMIT 5
       )

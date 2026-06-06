@@ -514,6 +514,36 @@ watch(searchQuery, () => {
     grid-template-columns: 56px 320px 1fr;
   }
 }
+/* HD 1366 — target chính sale VN. Chèn 2026-06-06 (/plan-design-review), giữ :has() động đủ 4 trạng thái. */
+@media (max-width: 1366px) {
+  .smax-chat-grid { grid-template-columns: 220px 296px 1fr 288px; }
+  .smax-chat-grid:not(:has(.smax-info-col)) {
+    grid-template-columns: 220px 296px 1fr;
+  }
+  .smax-chat-grid:has(.filter-rail.collapsed),
+  .smax-chat-grid:has(.filter-sidebar.collapsed) {
+    grid-template-columns: 56px 296px 1fr 288px;
+  }
+  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
+  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
+    grid-template-columns: 56px 296px 1fr;
+  }
+}
+/* 1280 — XGA, vẫn giữ 4 cột, thread giữa ~450px đủ rộng. */
+@media (max-width: 1280px) {
+  .smax-chat-grid { grid-template-columns: 208px 280px 1fr 280px; }
+  .smax-chat-grid:not(:has(.smax-info-col)) {
+    grid-template-columns: 208px 280px 1fr;
+  }
+  .smax-chat-grid:has(.filter-rail.collapsed),
+  .smax-chat-grid:has(.filter-sidebar.collapsed) {
+    grid-template-columns: 56px 280px 1fr 280px;
+  }
+  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
+  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
+    grid-template-columns: 56px 280px 1fr;
+  }
+}
 /* < 1200: drop filter rail */
 @media (max-width: 1200px) {
   .smax-chat-grid { grid-template-columns: 0 320px 1fr 280px; }

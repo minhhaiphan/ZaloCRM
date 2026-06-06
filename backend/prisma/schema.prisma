@@ -100,6 +100,22 @@ model Organization {
   welcomeMaxRetries             Int     @default(2) @map("welcome_max_retries")
   welcomeHardFailStops          Boolean @default(true) @map("welcome_hard_fail_stops")
 
+  // ── #3 2026-06-06 (Anh chốt): Cài đặt kỹ thuật cấp tổ chức (admin) ──
+  // Nhóm tham số VẬN HÀNH nội bộ — trước đây hardcode rải rác trong sweepers /
+  // nick-worker. Đưa ra trang "Cài đặt kỹ thuật" cho admin, KHÔNG trộn vào wizard
+  // tạo Mục tiêu. Default = đúng giá trị hardcode cũ để không đổi hành vi.
+  // Nhịp quét các bộ dọn nền (giây).
+  autoStuckSweepSeconds         Int     @default(60)  @map("auto_stuck_sweep_seconds")
+  autoDrainerSweepSeconds       Int     @default(30)  @map("auto_drainer_sweep_seconds")
+  autoWelcomeProbeSeconds       Int     @default(10)  @map("auto_welcome_probe_seconds")
+  autoRemindSweepMinutes        Int     @default(30)  @map("auto_remind_sweep_minutes")
+  // Ngưỡng coi 1 KH là "kẹt" trong lúc xử lý (phút) + số lần cứu tối đa.
+  autoStuckThresholdMinutes     Int     @default(5)   @map("auto_stuck_threshold_minutes")
+  autoStuckMaxRecovery          Int     @default(10)  @map("auto_stuck_max_recovery")
+  // Ngưỡng coi 1 chiến dịch bị treo (giờ) + reset KH khi nick offline lâu (giờ).
+  autoCampaignTimeoutHours      Int     @default(24)  @map("auto_campaign_timeout_hours")
+  autoNickOfflineResetHours     Int     @default(24)  @map("auto_nick_offline_reset_hours")
+
   // Phase Tag Taxonomy v2 2026-05-31 (M57 /plan-eng-review Big-Bang Refactor)
   // Schema mới Tag + TagGroup + FriendTag + ContactTag chạy song song với CrmTag/CrmTagGroup
   // trong Wave 1-4 (dual-write). Drop legacy Wave 5.
@@ -2097,6 +2113,14 @@ model AutomationTrigger {
   enableThankYou         Boolean   @default(true)  @map("enable_thank_you")
   enableRemind           Boolean   @default(true)  @map("enable_remind")
   enableRejectedFollowUp Boolean   @default(false) @map("enable_rejected_follow_up")
+  // ── #1 2026-06-06 (Anh chốt): 2 công tắc bám đuổi theo trạng thái kết bạn ──
+  // followUpStrangerEnabled: bám đuổi cả khi KH CHƯA đồng ý kết bạn (gửi qua hộp
+  //   người lạ). BẬT = hành vi cũ (spam hết luồng). TẮT = chỉ bám đuổi sau khi accept.
+  // followUpFriendEnabled: bám đuổi khi KH ĐÃ là bạn — kích hoạt khi nhận event
+  //   accept thật từ Zalo (onFriendAccepted). TẮT = KH duyệt cũng không bám đuổi.
+  // Default cả 2 = true → Mục tiêu cũ giữ nguyên hành vi.
+  followUpStrangerEnabled Boolean  @default(true)  @map("follow_up_stranger_enabled")
+  followUpFriendEnabled   Boolean  @default(true)  @map("follow_up_friend_enabled")
   // Thông báo nội bộ per-event: { "<eventKey>": { "owner": bool, "manager": bool, "zaloGroup": bool } }
   // eventKey: welcome|thankYou|remind|rejected|reply|reactionPositive|reactionNegative|lead|block.
   // owner = Sale phụ trách nick (LÀM THẬT). manager + zaloGroup = defer (FE khóa "Đang phát triển").
@@ -2125,6 +2149,19 @@ model AutomationTrigger {
   recencySkipDays             Int     @default(30) @map("recency_skip_days")
   // Per-nick throttle gate (ms) giữa các lần gửi friend-request.
   minFriendReqGapMs           Int     @default(60000) @map("min_friend_req_gap_ms")
+  // ── #3 2026-06-06 (Anh chốt): đưa nhịp gửi + sàn welcome + cửa sổ warm RA UI ──
+  // Trước đây nick-worker.getRandomDelayMs() HARDCODE 20-40 phút (hoặc 1 phút khi
+  // FRIEND_INVITE_TEST_MODE) và PHỚT LỜ ô user nhập. Giờ worker đọc 2 cột này:
+  // nhịp gửi 1 lời mời/nick = random trong [min, max] phút. Đặt min=max để cố định.
+  // Default 20-40 = giữ nguyên hành vi prod cũ; muốn "test nhanh" thì set min=max=1.
+  friendReqIntervalMinMinutes Int     @default(20) @map("friend_req_interval_min_minutes")
+  friendReqIntervalMaxMinutes Int     @default(40) @map("friend_req_interval_max_minutes")
+  // Sàn tối thiểu (giây) trước khi gửi Tin 1 chào mừng — trước đây hardcode 60s ở
+  // welcome-probe. Độ trễ thực = MAX(welcomeMinFloorSeconds, welcomeDelaySeconds).
+  welcomeMinFloorSeconds      Int     @default(60) @map("welcome_min_floor_seconds")
+  // Cửa sổ (ngày) coi KH là "ấm" (đã là bạn + có inbound gần đây) để gửi Tin 1 qua
+  // kênh bạn bè thay vì hộp người lạ — trước đây hardcode 30 ngày ở welcome-probe.
+  warmWindowDays              Int     @default(30) @map("warm_window_days")
   // Memory 1-1 only (feedback_crm_filter_1to1_not_group) — chỉ trigger conv.threadType='user'.
   filterThreadType            String  @default("user") @map("filter_thread_type")
   // M9 System trigger flag — "Bám đuổi khách hàng thủ công" KHÔNG cho xoá, chỉ Tắt.

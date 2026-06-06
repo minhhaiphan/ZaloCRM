@@ -153,16 +153,18 @@ export type AutoTagKey =
   | 'atrisk' // score giảm > 20 trong 7 ngày
   | 'has-appointment'; // có Appointment scheduled tương lai
 
+// Việt hóa 100% — PA3 ngắn gọn (Anh chốt 2026-06-06). Nhóm AUTO DETECT tả TRẠNG THÁI/
+// thời điểm (KHÔNG dùng từ "tích cực/tương tác" của nhóm Engagement → tránh lẫn).
 export const AUTO_TAG_LABELS: Record<AutoTagKey, string> = {
-  active: 'Hoạt động',
-  cooling: 'Đang nguội',
-  cold: 'Nguội',
+  active: 'Đang chat',
+  cooling: 'Chớm nguội',
+  cold: 'Đã nguội',
   frozen: 'Đóng băng',
-  rewarmed: 'Ấm trở lại',
+  rewarmed: 'Ấm lại',
   stuck: 'Đình trệ',
-  ready: 'Sẵn sàng chốt',
-  atrisk: 'Có nguy cơ',
-  'has-appointment': 'Có lịch hẹn',
+  ready: 'Chốt được',
+  atrisk: 'Rủi ro mất',
+  'has-appointment': 'Sắp gặp',
 };
 
 export const AUTO_TAG_ICONS: Record<AutoTagKey, string> = {

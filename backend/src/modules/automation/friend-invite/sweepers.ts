@@ -18,6 +18,37 @@ import { materializeSequenceForContact } from '../engine/campaign-materializer.j
 import { getSequenceStepQueue } from '../queues/queue-registry.js';
 import { logEvent } from './event-log-service.js';
 
+// #3 2026-06-06 (Anh chốt): các NGƯỠNG vận hành (kẹt mấy phút, cứu mấy lần, timeout
+// mấy giờ, reset nick offline mấy giờ) đọc từ "Cài đặt kỹ thuật" cấp org thay vì
+// hardcode. Single-org deploy → đọc org đầu tiên mỗi lần sweep (query rất nhẹ, có
+// thể cache nếu cần). Fallback = default cũ khi chưa có settings / DB lỗi.
+interface TechThresholds {
+  stuckMinutes: number;
+  stuckMaxRecovery: number;
+  campaignTimeoutHours: number;
+  nickOfflineResetHours: number;
+}
+async function getTechThresholds(): Promise<TechThresholds> {
+  try {
+    const org = await prisma.organization.findFirst({
+      select: {
+        autoStuckThresholdMinutes: true,
+        autoStuckMaxRecovery: true,
+        autoCampaignTimeoutHours: true,
+        autoNickOfflineResetHours: true,
+      },
+    });
+    return {
+      stuckMinutes: org?.autoStuckThresholdMinutes || 5,
+      stuckMaxRecovery: org?.autoStuckMaxRecovery || 10,
+      campaignTimeoutHours: org?.autoCampaignTimeoutHours || 24,
+      nickOfflineResetHours: org?.autoNickOfflineResetHours || 24,
+    };
+  } catch {
+    return { stuckMinutes: 5, stuckMaxRecovery: 10, campaignTimeoutHours: 24, nickOfflineResetHours: 24 };
+  }
+}
+
 let stuckSweeperInterval: NodeJS.Timeout | null = null;
 let triggerSweeperInterval: NodeJS.Timeout | null = null;
 let exhaustedSweeperInterval: NodeJS.Timeout | null = null;
@@ -29,6 +60,8 @@ let campaignTimeoutSweeperInterval: NodeJS.Timeout | null = null;
  */
 async function runStuckSweeper(): Promise<void> {
   try {
+    // #3 2026-06-06 — ngưỡng kẹt + số lần cứu đọc từ Cài đặt kỹ thuật (Anh chỉnh được).
+    const { stuckMinutes, stuckMaxRecovery } = await getTechThresholds();
     // ── Sprint v3 (2026-06-03) — Sửa 6.5 ──
     // Anh chốt: stuck do nick chết → release entry NHƯNG KHÔNG tăng counter
     // (vì lỗi không do SĐT mà do nick chết, không nên flip failed_stuck oan).
@@ -48,20 +81,20 @@ async function runStuckSweeper(): Promise<void> {
             ELSE stuck_recovery_count
           END
       WHERE queue_status = 'processing'
-        AND locked_at < NOW() - INTERVAL '5 minutes'
-        AND stuck_recovery_count < 10
+        AND locked_at < NOW() - make_interval(mins => ${stuckMinutes}::int)
+        AND stuck_recovery_count < ${stuckMaxRecovery}::int
     `;
     if (result > 0) {
       logger.info(`[stuck-sweeper] released ${result} stuck entries back to pool`);
     }
 
-    // Mark entries that hit 10 recoveries as failed_stuck
+    // Mark entries that hit max recoveries as failed_stuck
     const failedStuck = await prisma.$executeRaw`
       UPDATE customer_list_entries
       SET queue_status = 'failed_stuck'
       WHERE queue_status = 'processing'
-        AND locked_at < NOW() - INTERVAL '5 minutes'
-        AND stuck_recovery_count >= 10
+        AND locked_at < NOW() - make_interval(mins => ${stuckMinutes}::int)
+        AND stuck_recovery_count >= ${stuckMaxRecovery}::int
     `;
     if (failedStuck > 0) {
       logger.warn(`[stuck-sweeper] ${failedStuck} entries marked failed_stuck after 10 recoveries`);
@@ -184,10 +217,15 @@ async function runOutboxDrainer(): Promise<void> {
     let materialized = 0;
     for (const row of rows) {
       try {
-        // Look up trigger to get orgId + ruleOverrides
+        // Look up trigger to get orgId + ruleOverrides + 2 công tắc bám đuổi (#1).
         const trigger = await prisma.automationTrigger.findUnique({
           where: { id: row.triggerId },
-          select: { orgId: true, ruleOverrides: true },
+          select: {
+            orgId: true,
+            ruleOverrides: true,
+            followUpStrangerEnabled: true,
+            followUpFriendEnabled: true,
+          },
         });
         if (!trigger) {
           logger.warn(`[outbox-drainer] trigger ${row.triggerId} not found for outbox row ${row.id}`);
@@ -198,6 +236,38 @@ async function runOutboxDrainer(): Promise<void> {
               lastErrorMessage: 'trigger missing',
             },
           });
+          continue;
+        }
+
+        // ── #1 2026-06-06 (Anh chốt): chặn enroll bám đuổi theo 2 công tắc ──
+        // Xác định KH hiện đã là bạn của nick chưa (quyết định công tắc nào áp dụng).
+        // SENT_STRANGER = welcome gửi qua hộp người lạ ⇒ lúc đó CHƯA là bạn.
+        // SENT_FRIEND = đã là bạn. DUPLICATE_SKIP = tra Friend thực tế để biết.
+        let isFriendNow = row.welcomeOutcome === 'SENT_FRIEND';
+        if (row.welcomeOutcome === 'DUPLICATE_SKIP') {
+          const fr = await prisma.friend.findFirst({
+            where: { zaloAccountId: row.nickId, contactId: row.contactId, friendshipStatus: 'accepted' },
+            select: { id: true },
+          });
+          isFriendNow = !!fr;
+        }
+        // CT1 (chưa là bạn) tắt → KHÔNG bám đuổi qua hộp người lạ.
+        // CT2 (đã là bạn) tắt → KHÔNG bám đuổi KH đã là bạn (chờ accept path lo nếu cần).
+        const allowed = isFriendNow ? trigger.followUpFriendEnabled : trigger.followUpStrangerEnabled;
+        if (!allowed) {
+          // Đánh dấu đã xử lý (materialized) để drainer không quét lại mãi; KHÔNG enqueue sequence.
+          await prisma.friendRequestOutbox.update({
+            where: { id: row.id },
+            data: {
+              sequenceMaterializedAt: new Date(),
+              lastErrorMessage: isFriendNow
+                ? 'followUpFriendEnabled=false — bỏ qua bám đuổi (KH đã là bạn)'
+                : 'followUpStrangerEnabled=false — bỏ qua bám đuổi (KH chưa kết bạn)',
+            },
+          });
+          logger.info(
+            `[outbox-drainer] skip enroll (công tắc tắt) trigger=${row.triggerId} contact=${row.contactId} isFriend=${isFriendNow}`,
+          );
           continue;
         }
 
@@ -326,17 +396,19 @@ let welcomeFailedCleanupInterval: NodeJS.Timeout | null = null;
  */
 async function runCampaignTimeoutSweeper(): Promise<void> {
   try {
-    // ── Sprint v3 (2026-06-03) — Sửa 5.7: đổi 12h → 24h ──
+    // #3 2026-06-06 — ngưỡng timeout campaign đọc từ Cài đặt kỹ thuật (Anh chỉnh được).
+    // ── Sprint v3 (2026-06-03) — Sửa 5.7: đổi 12h → 24h (giờ là default) ──
     // Anh chốt sticky+hold 24h: sequence dài nhất ~10h + buffer 14h cho nick
-    // hồi. Quá 24h vẫn không advance = nick chết hẳn → timeout campaign.
+    // hồi. Quá ngưỡng vẫn không advance = nick chết hẳn → timeout campaign.
     // runStickyNickHoldSweeper (mới, mục 4.8) chạy 5 phút quét nick_hold_since,
-    // sẽ reset KH về queue ở mốc 24h trước khi sweeper này kích campaign timeout.
+    // sẽ reset KH về queue ở mốc ngưỡng trước khi sweeper này kích campaign timeout.
     // Sweeper campaign-timeout còn giữ làm safety net cho campaign orphan.
+    const { campaignTimeoutHours } = await getTechThresholds();
     const stale = await prisma.automationCampaign.findMany({
       where: {
         state: { in: ['active', 'on_hold'] },
         triggerId: { not: null },
-        updatedAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) },
+        updatedAt: { lt: new Date(Date.now() - campaignTimeoutHours * 60 * 60_000) },
       },
       select: {
         id: true,
@@ -452,7 +524,9 @@ async function runCampaignTimeoutSweeper(): Promise<void> {
  */
 async function runStickyNickHoldSweeper(): Promise<void> {
   try {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60_000);
+    // #3 2026-06-06 — ngưỡng reset nick offline đọc từ Cài đặt kỹ thuật (Anh chỉnh được).
+    const { nickOfflineResetHours } = await getTechThresholds();
+    const cutoff = new Date(Date.now() - nickOfflineResetHours * 60 * 60_000);
     const stale = await prisma.customerListEntry.findMany({
       where: {
         nickHoldSince: { not: null, lt: cutoff },
@@ -695,7 +769,7 @@ async function runRemindSweeper(): Promise<void> {
 /**
  * Start all sweepers (Sprint v3 — 7 sweeper + remind Tin 3).
  */
-export function startFriendInviteSweepers(): void {
+export async function startFriendInviteSweepers(): Promise<void> {
   if (
     stuckSweeperInterval ||
     triggerSweeperInterval ||
@@ -710,29 +784,50 @@ export function startFriendInviteSweepers(): void {
     return;
   }
 
-  stuckSweeperInterval = setInterval(() => void runStuckSweeper(), 60_000);
+  // #3 2026-06-06 (Anh chốt): nhịp quét sweeper đọc từ "Cài đặt kỹ thuật" cấp org
+  // thay vì hardcode. Single-org deploy → đọc org đầu tiên. Fallback = default cũ
+  // nếu chưa có settings / DB lỗi. (Đổi nhịp cần restart container để áp dụng — đây
+  // là tham số kỹ thuật ít đổi, không cần hot-reload.)
+  let stuckSec = 60, drainerSec = 30, remindMin = 30;
+  try {
+    const org = await prisma.organization.findFirst({
+      select: {
+        autoStuckSweepSeconds: true,
+        autoDrainerSweepSeconds: true,
+        autoRemindSweepMinutes: true,
+      },
+    });
+    if (org) {
+      stuckSec = org.autoStuckSweepSeconds || 60;
+      drainerSec = org.autoDrainerSweepSeconds || 30;
+      remindMin = org.autoRemindSweepMinutes || 30;
+    }
+  } catch (err) {
+    logger.warn('[friend-invite] đọc Cài đặt kỹ thuật thất bại, dùng nhịp mặc định:', err);
+  }
+
+  stuckSweeperInterval = setInterval(() => void runStuckSweeper(), stuckSec * 1000);
   triggerSweeperInterval = setInterval(() => void runTriggerCompletionSweeper(), 60_000);
   exhaustedSweeperInterval = setInterval(() => void runExhaustedNicksSweeper(), 60_000);
-  drainerInterval = setInterval(() => void runOutboxDrainer(), 30_000);
+  drainerInterval = setInterval(() => void runOutboxDrainer(), drainerSec * 1000);
   welcomeFailedCleanupInterval = setInterval(() => void runWelcomeFailedCleanup(), 60_000);
-  // Sprint v3 2026-06-03 — campaign timeout sweeper (5 min). 24h threshold +
-  // BullMQ pending-job double-check trước khi flip state='timeout'.
+  // Sprint v3 2026-06-03 — campaign timeout sweeper (5 min). Ngưỡng timeout đọc per-org
+  // trong runCampaignTimeoutSweeper + BullMQ pending-job double-check trước flip.
   campaignTimeoutSweeperInterval = setInterval(
     () => void runCampaignTimeoutSweeper(),
     5 * 60_000,
   );
-  // Sprint v3 2026-06-03 — sticky-hold sweeper (5 min). 24h threshold quét
-  // entry nick_hold_since > 24h → reset queue cho nick khác làm lại từ đầu.
+  // Sprint v3 2026-06-03 — sticky-hold sweeper (5 min). Ngưỡng reset nick offline
+  // đọc per-org trong runStickyNickHoldSweeper.
   stickyHoldSweeperInterval = setInterval(
     () => void runStickyNickHoldSweeper(),
     5 * 60_000,
   );
-  // I12 2026-06-04 — Tin 3 nhắc đồng ý KB. Quét mỗi 30 phút (delay tính theo ngày,
-  // không cần dày). Skip nếu KH đã accept, gửi 1 lần (idempotent qua event remind_sent).
-  remindSweeperInterval = setInterval(() => void runRemindSweeper(), 30 * 60_000);
+  // I12 2026-06-04 — Tin 3 nhắc đồng ý KB. Nhịp quét đọc từ Cài đặt kỹ thuật.
+  remindSweeperInterval = setInterval(() => void runRemindSweeper(), remindMin * 60_000);
 
   logger.info(
-    '[friend-invite] sweepers started: stuck(60s) + trigger-complete(60s) + exhausted-nicks(60s) + outbox-drainer(30s) + welcome-failed-cleanup(60s) + campaign-timeout(5min,24h) + sticky-hold(5min,24h) + remind-Tin3(30min)',
+    `[friend-invite] sweepers started: stuck(${stuckSec}s) + trigger-complete(60s) + exhausted-nicks(60s) + outbox-drainer(${drainerSec}s) + welcome-failed-cleanup(60s) + campaign-timeout(5min) + sticky-hold(5min) + remind-Tin3(${remindMin}min)`,
   );
 
   // Initial run on start

@@ -50,6 +50,14 @@ const DEFAULT_PACING = {
   hourEnd: 22,
   nickDayCap: 300,
   excludeBlocked: true,
+  // Đợt 1 v2 2026-06-05 — Anh chốt 2-phase pipeline
+  selectedNickIds: [] as string[],            // bắt buộc nhập ở wizard, validate ≥1
+  allowStrangerSend: false,                    // Phase 2 default off
+  strangerFindUserCapPerNick: 30,              // findUser cap/day/nick (Zalo throttle nặng)
+  strangerFindUserCapPerHour: 5,
+  strangerCooldownMs: 20_000,                  // delay sau mỗi findUser
+  strangerSkipIfNoZaloDays: 30,                // cache PhoneSearchEvent no_zalo cross-broadcast
+  strangerMaxPerBroadcast: 100,                // cap tổng Phase 2/broadcast
 };
 
 export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
@@ -92,7 +100,27 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
       where: { id: bc.blockId, orgId: user.orgId },
       select: { id: true, name: true, actionType: true, content: true, archivedAt: true },
     });
-    return { ...bc, block };
+
+    // Đợt 1 v2 2026-06-05: query Message via automationTaskId pattern `bc-{broadcastId}-%`
+    // để đếm delivered (Zalo server confirm device nhận) + seen (KH mở đọc).
+    // Zalo SDK listeners `delivered_messages` + `seen_messages` đã set sẵn các field này.
+    const taskIdPrefix = `bc-${bc.id}-`;
+    const [deliveredCount, seenCount] = await Promise.all([
+      prisma.message.count({
+        where: {
+          automationTaskId: { startsWith: taskIdPrefix },
+          deliveredAt: { not: null },
+        },
+      }),
+      prisma.message.count({
+        where: {
+          automationTaskId: { startsWith: taskIdPrefix },
+          seenAt: { not: null },
+        },
+      }),
+    ]);
+
+    return { ...bc, block, deliveredCount, seenCount };
   });
 
   // ── Helpers (must be before /:id route to avoid path collision) ────────
@@ -127,6 +155,34 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
     return { tags };
   });
 
+  // Đợt 1 v2 2026-06-05: nick picker cho wizard Step 3
+  app.get(`${BASE}/helpers/nicks`, async (request: FastifyRequest) => {
+    const user = request.user!;
+    const nicks = await prisma.zaloAccount.findMany({
+      where: { orgId: user.orgId },
+      select: {
+        id: true, displayName: true, status: true, phone: true, avatarUrl: true,
+      },
+      orderBy: [{ status: 'asc' }, { displayName: 'asc' }],
+    });
+    // Đếm tin tự động gửi 24h gần nhất per nick để hiển thị "Tin X/cap" trong UI
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const enriched = await Promise.all(
+      nicks.map(async (n: { id: string }) => {
+        const sentToday = await prisma.message.count({
+          where: {
+            conversation: { zaloAccountId: n.id },
+            senderType: 'self',
+            sentAt: { gte: dayAgo },
+            sentVia: 'automation',
+          },
+        });
+        return { ...n, sentToday };
+      }),
+    );
+    return { nicks: enriched };
+  });
+
   // ── Create (draft) ─────────────────────────────────────────────────────
   app.post(BASE, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -152,6 +208,21 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
           error: `broadcast requires send_message block (got '${block.actionType}')`,
         });
       }
+
+      // Đợt 1 v2 2026-06-05: validate pacing.selectedNickIds — bắt buộc ≥1, thuộc org
+      const pacingIn = body.pacing ?? {};
+      const selectedNickIds: string[] = Array.isArray(pacingIn.selectedNickIds) ? pacingIn.selectedNickIds : [];
+      if (selectedNickIds.length === 0) {
+        return reply.status(400).send({ error: 'pacing.selectedNickIds is required (chose ≥1 nick for broadcast)' });
+      }
+      const validNicks = await prisma.zaloAccount.findMany({
+        where: { id: { in: selectedNickIds }, orgId: user.orgId },
+        select: { id: true },
+      });
+      if (validNicks.length !== selectedNickIds.length) {
+        return reply.status(400).send({ error: 'some selectedNickIds do not belong to this org' });
+      }
+
       const bc = await prisma.automationBroadcast.create({
         data: {
           id: randomUUID(),

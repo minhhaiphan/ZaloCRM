@@ -1,242 +1,315 @@
 <template>
-  <div class="sequences-view">
-    <header class="at-page-header">
+  <div class="seq-page">
+    <!-- ================== TOPBAR (HS .mkt-top scaffold) ================== -->
+    <div class="mkt-top">
       <div>
-        <h1 class="at-page-title">Luồng kịch bản</h1>
-        <p class="at-page-subtitle">
-          Luồng kịch bản ghép nhiều Khối thành chuỗi có delay. Mỗi KH được "enroll" sẽ trải qua từng bước theo thời gian.
-        </p>
+        <div class="mtt">Luồng kịch bản</div>
+        <div class="mts">Chuỗi các Khối nội dung gửi theo thời gian + luật chạy an toàn</div>
       </div>
-      <button class="at-btn at-btn--primary" @click="createNew">
-        <v-icon size="18">mdi-plus</v-icon>
-        Luồng mới
+      <button class="btn btn-primary btn-sm" @click="openCreateDrawer">
+        <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo luồng
       </button>
-    </header>
+    </div>
 
-    <div class="seq-layout">
-      <!-- Sidebar: sequence list -->
-      <aside class="seq-sidebar">
-        <v-text-field
-          v-model="search"
-          placeholder="Tìm sequence..."
-          variant="solo-filled"
-          flat
-          density="compact"
-          prepend-inner-icon="mdi-magnify"
-          hide-details
-          clearable
-          class="mb-2"
-        />
-
-        <div v-if="filteredSequences.length === 0" class="empty-seq-list">
-          <v-icon size="36" color="grey-lighten-1">mdi-format-list-numbered</v-icon>
-          <p class="text-caption mt-2 text-medium-emphasis">Chưa có sequence</p>
-        </div>
-
-        <ul v-else class="seq-list">
-          <li v-for="seq in filteredSequences" :key="seq.id">
-            <button
-              class="seq-item"
-              :class="{ 'is-active': seq.id === selectedSeqId }"
-              @click="selectSequence(seq.id)"
-            >
-              <div class="seq-item__title">
-                <span>{{ seq.name }}</span>
-                <span v-if="!seq.enabled" class="seq-item__off-badge">tắt</span>
-              </div>
-              <div class="seq-item__meta">
-                <span><v-icon size="11">mdi-format-list-bulleted</v-icon> {{ seq.steps.length }} bước</span>
-                <span v-if="seq.enrolledCount > 0"><v-icon size="11">mdi-account-multiple</v-icon> {{ seq.enrolledCount }}</span>
-              </div>
-            </button>
-          </li>
-        </ul>
-      </aside>
-
-      <!-- Main: editor -->
-      <section class="seq-editor">
-        <div v-if="!editing" class="seq-empty">
-          <v-icon size="80" color="grey-lighten-1">mdi-format-list-numbered</v-icon>
-          <h3 class="mt-3">Chọn sequence ở sidebar</h3>
-          <p class="text-body-2 text-medium-emphasis">hoặc bấm <strong>Luồng mới</strong> để tạo</p>
-        </div>
-
-        <div v-else>
-        <!-- Top bar: name + Lưu + Switch on/off + kebab menu -->
-        <div class="seq-topbar">
-          <v-text-field
-            v-model="editing.name"
-            variant="plain"
-            density="compact"
-            placeholder="Tên luồng kịch bản..."
-            hide-details
-            class="seq-topbar__name"
+    <div class="mkt-body">
+      <!-- ================== SEARCH ================== -->
+      <div class="seq-toolbar">
+        <div class="search-wrap">
+          <v-icon class="search-icon" size="16">mdi-magnify</v-icon>
+          <input
+            v-model="search"
+            class="search-input"
+            type="text"
+            placeholder="Tìm luồng kịch bản..."
           />
-          <div class="seq-topbar__actions">
-            <v-btn size="small" variant="tonal" :loading="saving" @click="saveSequence">
-              <v-icon start>mdi-content-save</v-icon>
-              Lưu
-            </v-btn>
-            <v-switch
+        </div>
+      </div>
+
+      <!-- ================== EMPTY STATE ================== -->
+      <div v-if="filteredSequences.length === 0" class="seq-empty">
+        <v-icon size="40" class="seq-empty__icon">mdi-format-list-numbered</v-icon>
+        <div class="seq-empty__title">
+          {{ search ? 'Không có luồng nào khớp tìm kiếm' : 'Chưa có luồng kịch bản' }}
+        </div>
+        <div class="seq-empty__desc">
+          {{ search
+            ? 'Thử xoá tìm kiếm.'
+            : 'Luồng kịch bản ghép nhiều Khối thành chuỗi có delay. Mỗi KH được "enroll" sẽ trải qua từng bước theo thời gian.' }}
+        </div>
+        <button v-if="!search" class="btn btn-primary btn-sm" @click="openCreateDrawer">
+          <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo luồng đầu tiên
+        </button>
+      </div>
+
+      <!-- ================== SEQUENCE GRID (read-only Atlas cards) ============ -->
+      <div v-else class="seqs">
+        <article
+          v-for="seq in filteredSequences"
+          :key="seq.id"
+          class="seq"
+          :class="{ active: drawerOpen && editing?.id === seq.id }"
+          @click="openEditDrawer(seq)"
+        >
+          <!-- header: name + desc + toggle -->
+          <div class="sh">
+            <div class="sh-info">
+              <div class="sn">{{ seq.name }}</div>
+              <div v-if="seq.description" class="sd">{{ seq.description }}</div>
+              <div v-else class="sd sd-empty">Không có mô tả</div>
+            </div>
+            <button
+              class="toggle"
+              :class="{ on: seq.enabled }"
+              :title="seq.enabled ? 'Đang chạy — bấm để tắt' : 'Đang tắt — bấm để bật'"
+              @click.stop="toggleEnabledOnCard(seq)"
+            ></button>
+          </div>
+
+          <!-- flow: step chain -->
+          <div v-if="seq.steps.length" class="flow">
+            <template v-for="(step, idx) in seq.steps" :key="step.stepId">
+              <div class="arr" v-if="idx > 0"><v-icon size="15">mdi-chevron-right</v-icon></div>
+              <div class="step">
+                <div class="si">
+                  <v-icon size="14">{{ stepActionIcon(seq, step.blockId) }}</v-icon>
+                  {{ stepActionLabel(seq, step.blockId) }}
+                </div>
+                <div class="sl">{{ stepBlockName(seq, step.blockId) }}</div>
+                <div class="sdelay">{{ stepDelayLabel(step.delayMinutes, idx) }}</div>
+              </div>
+            </template>
+          </div>
+          <div v-else class="flow-empty">Chưa có bước nào</div>
+
+          <!-- runtime rule chips -->
+          <div class="srules">
+            <span
+              v-for="(rule, i) in ruleLabels(seq.runtimeRules)"
+              :key="i"
+              class="chip chip-grey"
+            >
+              <v-icon size="12">mdi-shield-check</v-icon> {{ rule }}
+            </span>
+          </div>
+
+          <!-- stats footer -->
+          <div class="sstats">
+            <div class="sstat">
+              <div class="v">{{ formatNum(seqEnrolled(seq)) }}</div>
+              <div class="l">Đã enroll</div>
+            </div>
+            <div class="sstat">
+              <div class="v" style="color: var(--success)">{{ formatNum(seqCompleted(seq)) }}</div>
+              <div class="l">Hoàn thành</div>
+            </div>
+            <div class="sstat">
+              <div class="v" style="color: var(--error)">{{ formatNum(seqFailed(seq)) }}</div>
+              <div class="l">Lỗi</div>
+            </div>
+            <div class="sstat">
+              <div class="v">{{ formatNum(inProgressCount(seq)) }}</div>
+              <div class="l">Đang chạy</div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <!-- ================== EDITOR DRAWER (slide-from-right) ================== -->
+    <div class="panel-overlay" :class="{ show: drawerOpen }" @click="closeDrawer"></div>
+    <aside class="side-panel" :class="{ open: drawerOpen }">
+      <template v-if="editing">
+        <!-- header -->
+        <div class="panel-header">
+          <div class="panel-header-row">
+            <div class="panel-header-main">
+              <div class="field panel-name-field">
+                <v-icon size="16" class="panel-name-icon">mdi-format-list-numbered</v-icon>
+                <input
+                  v-model="editing.name"
+                  type="text"
+                  placeholder="Tên luồng kịch bản..."
+                />
+              </div>
+            </div>
+            <button class="panel-icon-btn" title="Đóng" @click="closeDrawer">
+              <v-icon size="18">mdi-close</v-icon>
+            </button>
+          </div>
+
+          <!-- action row: switch + save + stats + kebab -->
+          <div class="panel-actions">
+            <button
               v-if="editing.id"
-              :model-value="editing.enabled"
-              @update:model-value="toggleEnabled"
-              color="success"
-              :label="editing.enabled ? 'Đang chạy' : 'Đang tắt'"
-              hide-details
-              density="compact"
-              inset
-              class="seq-topbar__switch"
-            />
-            <v-btn
+              class="toggle-row"
+              :title="editing.enabled ? 'Đang chạy — bấm để tắt' : 'Đang tắt — bấm để bật'"
+              @click="toggleEnabled"
+            >
+              <span class="toggle" :class="{ on: editing.enabled }"></span>
+              <span class="toggle-label" :class="{ on: editing.enabled }">
+                {{ editing.enabled ? 'Đang chạy' : 'Đang tắt' }}
+              </span>
+            </button>
+            <div class="panel-actions-spacer"></div>
+            <button
               v-if="editing.id"
-              size="small"
-              variant="tonal"
-              color="primary"
+              class="btn btn-ghost btn-sm"
               @click="openStats"
             >
-              <v-icon start>mdi-chart-bar</v-icon>
-              Thống kê
-            </v-btn>
-            <v-menu v-if="editing.id">
-              <template #activator="{ props }">
-                <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" />
-              </template>
-              <v-list density="compact">
-                <v-list-item @click="openStats" prepend-icon="mdi-chart-bar">
-                  <v-list-item-title>Xem Thống kê</v-list-item-title>
-                </v-list-item>
-                <v-list-item @click="onDuplicate" prepend-icon="mdi-content-copy">
-                  <v-list-item-title>Nhân bản luồng</v-list-item-title>
-                </v-list-item>
-                <v-list-item @click="onDelete" prepend-icon="mdi-delete" class="text-error">
-                  <v-list-item-title>Xoá luồng</v-list-item-title>
-                </v-list-item>
-              </v-list>
-            </v-menu>
+              <v-icon size="15">mdi-chart-bar</v-icon> Thống kê
+            </button>
+            <button class="btn btn-primary btn-sm" :disabled="saving" @click="saveSequence">
+              <v-icon size="15">{{ saving ? 'mdi-loading' : 'mdi-content-save' }}</v-icon>
+              {{ saving ? 'Đang lưu...' : 'Lưu' }}
+            </button>
+            <div v-if="editing.id" class="menu-wrap">
+              <button class="panel-icon-btn" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen">
+                <v-icon size="18">mdi-dots-horizontal</v-icon>
+              </button>
+              <div class="menu" :class="{ show: menuOpen }">
+                <div class="menu-item" @click="onDuplicate">
+                  <v-icon size="16">mdi-content-copy</v-icon> Nhân bản luồng
+                </div>
+                <div class="menu-divider"></div>
+                <div class="menu-item danger" @click="onDelete">
+                  <v-icon size="16">mdi-delete-outline</v-icon> Xoá luồng
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <v-textarea
-          v-model="editing.description"
-          variant="outlined"
-          density="compact"
-          rows="2"
-          placeholder="Mô tả ngắn (tuỳ chọn)"
-          hide-details
-          class="mb-4"
-        />
-
-        <!-- 3 setting cards: Khi nào / Bảo vệ KH / Dừng bám đuổi -->
-        <div class="seq-rule-cards">
-          <!-- Card 1: Khi nào chạy -->
-          <div class="seq-rule-card">
-            <div class="seq-rule-card__header">
-              <v-icon size="20" color="primary">mdi-clock-outline</v-icon>
-              <strong>Khi nào chạy</strong>
-            </div>
-            <div class="seq-rule-card__body">
-              <div class="seq-rule-row">
-                <label>Giờ làm việc</label>
-                <div class="seq-rule-input-pair">
-                  <v-text-field :model-value="hourStart" @update:model-value="setHourStart($event)" type="number" min="0" max="23" variant="outlined" density="compact" hide-details suffix="h" />
-                  <span class="seq-rule-arrow">→</span>
-                  <v-text-field :model-value="hourEnd" @update:model-value="setHourEnd($event)" type="number" min="0" max="23" variant="outlined" density="compact" hide-details suffix="h" />
-                </div>
-                <p class="seq-rule-hint">
-                  Chỉ gửi từ {{ hourStart }}h đến {{ hourEnd }}h (giờ Việt Nam). Ngoài khung này sẽ hoãn sang sáng hôm sau.
-                </p>
-              </div>
-              <div class="seq-rule-row">
-                <label>Giãn cách giữa các lần gửi</label>
-                <div class="seq-rule-input-pair">
-                  <v-text-field :model-value="delayMin" @update:model-value="setDelayMin($event)" type="number" min="0" variant="outlined" density="compact" hide-details suffix="phút" />
-                  <span class="seq-rule-arrow">→</span>
-                  <v-text-field :model-value="delayMax" @update:model-value="setDelayMax($event)" type="number" min="0" variant="outlined" density="compact" hide-details suffix="phút" />
-                </div>
-                <p class="seq-rule-hint">
-                  Mỗi nick chờ ngẫu nhiên {{ delayMin === delayMax ? delayMin : `${delayMin}–${delayMax}` }} phút trước khi gửi tin tiếp theo. Giả lập tự nhiên, tránh Zalo phát hiện bot.
-                </p>
-              </div>
-            </div>
+        <!-- body -->
+        <div class="panel-body">
+          <!-- description -->
+          <div class="panel-section">
+            <div class="panel-section-title">Mô tả</div>
+            <textarea
+              v-model="editing.description"
+              class="panel-textarea"
+              rows="2"
+              placeholder="Mô tả ngắn (tuỳ chọn)"
+            ></textarea>
           </div>
 
-          <!-- Card 2: Bảo vệ KH không spam -->
-          <div class="seq-rule-card">
-            <div class="seq-rule-card__header">
-              <v-icon size="20" color="warning">mdi-shield-account-outline</v-icon>
-              <strong>Bảo vệ KH không spam</strong>
-            </div>
-            <div class="seq-rule-card__body">
-              <div class="seq-rule-row">
-                <label>Tránh gửi trùng KH</label>
-                <div class="seq-rule-input-pair">
-                  <v-text-field :model-value="recencyDays" @update:model-value="setRecencyDays($event)" type="number" min="0" variant="outlined" density="compact" hide-details suffix="ngày" style="max-width: 140px" />
-                </div>
-                <p class="seq-rule-hint" v-if="recencyDays > 0">
-                  Nếu KH đã chạm với nick CRM khác trong <strong>{{ recencyDays }} ngày</strong> qua → bỏ qua, không bám đuổi (tránh nhiều sale spam 1 KH).
-                </p>
-                <p class="seq-rule-hint" v-else>
-                  <strong>Đã tắt</strong> — gửi cho mọi KH, kể cả nick khác vừa chăm hôm qua. Phù hợp test, KHÔNG khuyến nghị production.
-                </p>
+          <!-- 3 rule cards: Khi nào / Bảo vệ KH / Dừng bám đuổi -->
+          <div class="panel-section">
+            <div class="panel-section-title">Luật chạy an toàn</div>
+
+            <!-- Card 1: Khi nào chạy -->
+            <div class="rule-card">
+              <div class="rule-card__header">
+                <v-icon size="18" color="primary">mdi-clock-outline</v-icon>
+                <strong>Khi nào chạy</strong>
               </div>
-              <div class="seq-rule-row seq-rule-row--switch">
-                <v-switch
-                  :model-value="editing.runtimeRules.perNickThrottle ?? true"
-                  @update:model-value="editing.runtimeRules.perNickThrottle = !!$event"
-                  color="success"
-                  hide-details
-                  density="compact"
-                  inset
-                />
-                <div>
-                  <label>Giãn đều số tin giữa các nick</label>
-                  <p class="seq-rule-hint">
-                    Nick nào gửi gần đây phải chờ; nick chưa gửi sẽ ưu tiên. Phân bổ tải đều, tránh 1 nick gửi dồn quá nhiều.
+              <div class="rule-card__body">
+                <div class="rule-row">
+                  <label>Giờ làm việc</label>
+                  <div class="rule-input-pair">
+                    <input class="rule-num" :value="hourStart" type="number" min="0" max="23" @input="setHourStart(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">h</span>
+                    <v-icon size="15" class="rule-arrow">mdi-arrow-right</v-icon>
+                    <input class="rule-num" :value="hourEnd" type="number" min="0" max="23" @input="setHourEnd(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">h</span>
+                  </div>
+                  <p class="rule-hint">
+                    Chỉ gửi từ {{ hourStart }}h đến {{ hourEnd }}h (giờ Việt Nam). Ngoài khung này sẽ hoãn sang sáng hôm sau.
+                  </p>
+                </div>
+                <div class="rule-row">
+                  <label>Giãn cách giữa các lần gửi</label>
+                  <div class="rule-input-pair">
+                    <input class="rule-num" :value="delayMin" type="number" min="0" @input="setDelayMin(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">phút</span>
+                    <v-icon size="15" class="rule-arrow">mdi-arrow-right</v-icon>
+                    <input class="rule-num" :value="delayMax" type="number" min="0" @input="setDelayMax(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">phút</span>
+                  </div>
+                  <p class="rule-hint">
+                    Mỗi nick chờ ngẫu nhiên {{ delayMin === delayMax ? delayMin : `${delayMin}–${delayMax}` }} phút trước khi gửi tin tiếp theo. Giả lập tự nhiên, tránh Zalo phát hiện bot.
                   </p>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Card 3: Khi nào dừng bám đuổi -->
-          <div class="seq-rule-card">
-            <div class="seq-rule-card__header">
-              <v-icon size="20" color="error">mdi-stop-circle-outline</v-icon>
-              <strong>Khi nào dừng bám đuổi</strong>
-            </div>
-            <div class="seq-rule-card__body">
-              <div class="seq-rule-row seq-rule-row--switch">
-                <v-switch
-                  :model-value="editing.runtimeRules.stopOnAccept ?? true"
-                  @update:model-value="editing.runtimeRules.stopOnAccept = !!$event"
-                  color="success"
-                  hide-details
-                  density="compact"
-                  inset
-                />
-                <div>
-                  <label>Dừng nick khác khi 1 nick đã kết bạn</label>
-                  <p class="seq-rule-hint">
-                    Nếu 1 nick được KH đồng ý kết bạn → các nick còn lại tự dừng gửi tin nhắn (tránh nhiều nick cùng chăm 1 KH).
+            <!-- Card 2: Bảo vệ KH không spam -->
+            <div class="rule-card">
+              <div class="rule-card__header">
+                <v-icon size="18" color="warning">mdi-shield-account-outline</v-icon>
+                <strong>Bảo vệ KH không spam</strong>
+              </div>
+              <div class="rule-card__body">
+                <div class="rule-row">
+                  <label>Tránh gửi trùng KH</label>
+                  <div class="rule-input-pair">
+                    <input class="rule-num" :value="recencyDays" type="number" min="0" @input="setRecencyDays(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">ngày</span>
+                  </div>
+                  <p class="rule-hint" v-if="recencyDays > 0">
+                    Nếu KH đã chạm với nick CRM khác trong <strong>{{ recencyDays }} ngày</strong> qua → bỏ qua, không bám đuổi (tránh nhiều sale spam 1 KH).
                   </p>
+                  <p class="rule-hint" v-else>
+                    <strong>Đã tắt</strong> — gửi cho mọi KH, kể cả nick khác vừa chăm hôm qua. Phù hợp test, KHÔNG khuyến nghị production.
+                  </p>
+                </div>
+                <div class="rule-row rule-row--switch">
+                  <button
+                    class="toggle"
+                    :class="{ on: editing.runtimeRules.perNickThrottle ?? true }"
+                    @click="editing.runtimeRules.perNickThrottle = !(editing.runtimeRules.perNickThrottle ?? true)"
+                  ></button>
+                  <div>
+                    <label>Giãn đều số tin giữa các nick</label>
+                    <p class="rule-hint">
+                      Nick nào gửi gần đây phải chờ; nick chưa gửi sẽ ưu tiên. Phân bổ tải đều, tránh 1 nick gửi dồn quá nhiều.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 3: Khi nào dừng bám đuổi -->
+            <div class="rule-card">
+              <div class="rule-card__header">
+                <v-icon size="18" color="error">mdi-stop-circle-outline</v-icon>
+                <strong>Khi nào dừng bám đuổi</strong>
+              </div>
+              <div class="rule-card__body">
+                <div class="rule-row rule-row--switch">
+                  <button
+                    class="toggle"
+                    :class="{ on: editing.runtimeRules.stopOnAccept ?? true }"
+                    @click="editing.runtimeRules.stopOnAccept = !(editing.runtimeRules.stopOnAccept ?? true)"
+                  ></button>
+                  <div>
+                    <label>Dừng nick khác khi 1 nick đã kết bạn</label>
+                    <p class="rule-hint">
+                      Nếu 1 nick được KH đồng ý kết bạn → các nick còn lại tự dừng gửi tin nhắn (tránh nhiều nick cùng chăm 1 KH).
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Vertical step diagram -->
-        <SequenceStepEditor
-          :steps="editing.steps"
-          :available-blocks="availableBlocks"
-          @update:steps="editing.steps = $event"
-        />
+          <!-- vertical step diagram -->
+          <div class="panel-section">
+            <div class="panel-section-title">Các bước trong luồng</div>
+            <SequenceStepEditor
+              :steps="editing.steps"
+              :available-blocks="availableBlocks"
+              @update:steps="editing.steps = $event"
+            />
+          </div>
 
-        <v-alert v-if="error" type="error" variant="tonal" class="mt-4" closable @click:close="error = ''">{{ error }}</v-alert>
+          <div v-if="error" class="panel-error-banner">
+            <v-icon size="16" color="error">mdi-alert-circle-outline</v-icon>
+            <span>{{ error }}</span>
+            <button class="panel-error-close" @click="error = ''"><v-icon size="14">mdi-close</v-icon></button>
+          </div>
         </div>
-      </section>
-    </div>
+      </template>
+    </aside>
 
     <v-snackbar v-model="toastOpen" :color="toastColor" timeout="3000" location="bottom right">
       {{ toastMsg }}
@@ -267,19 +340,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { sequencesApi, blocksApi } from '@/api/automation';
-import type { AutomationSequence, SequenceStep, SequenceRuntimeRules, Block } from '@/api/automation/types';
+import {
+  ACTION_TYPE_LABELS,
+  ACTION_TYPE_ICONS,
+  type AutomationSequence,
+  type SequenceStep,
+  type SequenceRuntimeRules,
+  type Block,
+  type BlockActionType,
+} from '@/api/automation/types';
 import SequenceStepEditor from '@/components/automation/phase7/SequenceStepEditor.vue';
 
 const router = useRouter();
 const sequences = ref<AutomationSequence[]>([]);
 const availableBlocks = ref<Block[]>([]);
-const selectedSeqId = ref<string | null>(null);
 const search = ref('');
 const error = ref('');
 const saving = ref(false);
+
+// Drawer state
+const drawerOpen = ref(false);
+const menuOpen = ref(false);
 
 const toastOpen = ref(false);
 const toastMsg = ref('');
@@ -342,6 +426,71 @@ const filteredSequences = computed(() => {
   return sequences.value.filter((s) => s.name.toLowerCase().includes(q));
 });
 
+// ============ Read-only card helpers ============
+// Resolve block name / action label / icon from the seq.blocks[] denormalised list
+// (BE ships it on AutomationSequence so cards render without a separate block fetch).
+function seqBlock(seq: AutomationSequence, blockId: string) {
+  return seq.blocks?.find((b) => b.id === blockId) ?? null;
+}
+function stepBlockName(seq: AutomationSequence, blockId: string): string {
+  const b = seqBlock(seq, blockId);
+  if (!b) return availableBlocks.value.find((x) => x.id === blockId)?.name ?? 'Khối đã xoá';
+  return b.name;
+}
+function stepActionType(seq: AutomationSequence, blockId: string): BlockActionType {
+  const b = seqBlock(seq, blockId);
+  if (b) return b.actionType;
+  return availableBlocks.value.find((x) => x.id === blockId)?.actionType ?? 'send_message';
+}
+function stepActionLabel(seq: AutomationSequence, blockId: string): string {
+  return ACTION_TYPE_LABELS[stepActionType(seq, blockId)];
+}
+function stepActionIcon(seq: AutomationSequence, blockId: string): string {
+  return ACTION_TYPE_ICONS[stepActionType(seq, blockId)] ?? 'mdi-help-circle-outline';
+}
+function stepDelayLabel(delayMinutes: number, idx: number): string {
+  if (idx === 0 || !delayMinutes) return 'Ngay';
+  if (delayMinutes % (60 * 24) === 0) return `+${delayMinutes / (60 * 24)} ngày`;
+  if (delayMinutes % 60 === 0) return `+${delayMinutes / 60} giờ`;
+  return `+${delayMinutes} phút`;
+}
+function formatNum(n: number | undefined | null): string {
+  return (n ?? 0).toLocaleString('vi-VN');
+}
+
+// ── Roll-up counters cho thẻ luồng (Anh chốt 2026-06-06) ──
+// Ưu tiên số CACHED (đồng bộ từ các Mục tiêu/trigger dùng luồng); nếu luồng chưa
+// từng sync (cached null/0) thì fallback về counter live của sequence. Nhờ vậy
+// luồng đã sync hiện đúng roll-up, luồng chưa sync vẫn hiện số live nếu có.
+function seqEnrolled(seq: AutomationSequence): number {
+  return seq.enrolledCountCached || seq.enrolledCount || 0;
+}
+function seqCompleted(seq: AutomationSequence): number {
+  // "Hoàn thành" = KH đi hết bước cuối luồng (completedCountCached do cron tính).
+  return seq.completedCountCached || seq.completedCount || 0;
+}
+function seqFailed(seq: AutomationSequence): number {
+  // Chưa có failedCached riêng — dùng live failedCount.
+  return seq.failedCount || 0;
+}
+function inProgressCount(seq: AutomationSequence): number {
+  return Math.max(0, seqEnrolled(seq) - seqCompleted(seq) - seqFailed(seq));
+}
+
+// Build the short runtime-rule chip labels shown on each card.
+function ruleLabels(rules: SequenceRuntimeRules | null | undefined): string[] {
+  const r = rules ?? {};
+  const out: string[] = [];
+  const hr = r.allowedHourRange;
+  if (hr && (hr[0] !== 0 || hr[1] !== 23)) out.push(`Giờ chạy ${hr[0]}h–${hr[1]}h`);
+  const d = r.randomDelayPerSend;
+  if (d) out.push(d.min === d.max ? `Giãn ${d.min}p` : `Giãn ${d.min}–${d.max}p`);
+  if ((r.perNickThrottle ?? true)) out.push('Giãn đều giữa nick');
+  if (r.crossNickRecencyDays && r.crossNickRecencyDays > 0) out.push(`Tránh trùng ${r.crossNickRecencyDays} ngày`);
+  if ((r.stopOnAccept ?? true)) out.push('Dừng khi kết bạn');
+  return out;
+}
+
 const hourStart = computed(() => editing.value?.runtimeRules.allowedHourRange?.[0] ?? 6);
 const hourEnd   = computed(() => editing.value?.runtimeRules.allowedHourRange?.[1] ?? 22);
 const delayMin  = computed(() => editing.value?.runtimeRules.randomDelayPerSend?.min ?? 15);
@@ -378,12 +527,18 @@ async function loadAll() {
   availableBlocks.value = blocks;
 }
 
-onMounted(loadAll);
+onMounted(() => {
+  void loadAll();
+  document.addEventListener('keydown', onKeydown);
+  document.addEventListener('click', onDocClick);
+});
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown);
+  document.removeEventListener('click', onDocClick);
+});
 
-function selectSequence(id: string) {
-  const seq = sequences.value.find((s) => s.id === id);
-  if (!seq) return;
-  selectedSeqId.value = id;
+// ============ Drawer open/close ============
+function openEditDrawer(seq: AutomationSequence) {
   editing.value = {
     id: seq.id,
     name: seq.name,
@@ -394,10 +549,11 @@ function selectSequence(id: string) {
     runtimeRules: JSON.parse(JSON.stringify(seq.runtimeRules ?? {})),
   };
   error.value = '';
+  menuOpen.value = false;
+  drawerOpen.value = true;
 }
 
-function createNew() {
-  selectedSeqId.value = null;
+function openCreateDrawer() {
   editing.value = {
     id: null,
     name: '',
@@ -414,6 +570,17 @@ function createNew() {
     },
   };
   error.value = '';
+  menuOpen.value = false;
+  drawerOpen.value = true;
+}
+
+function closeDrawer() {
+  drawerOpen.value = false;
+  menuOpen.value = false;
+  // Clear editing after slide-out transition so card highlight fades cleanly.
+  setTimeout(() => {
+    if (!drawerOpen.value) editing.value = null;
+  }, 250);
 }
 
 async function saveSequence() {
@@ -438,7 +605,7 @@ async function saveSequence() {
       saved = await sequencesApi.createSequence(input);
     }
     await loadAll();
-    selectSequence(saved.id);
+    reopenSaved(saved.id);
     showToast('Đã lưu sequence', 'success');
   } catch (err: any) {
     if (!maybeShowDestructiveDialog(err)) {
@@ -447,6 +614,22 @@ async function saveSequence() {
   } finally {
     saving.value = false;
   }
+}
+
+// After save/duplicate, re-sync the drawer draft from the freshly-loaded list
+// item so the editor (and card highlight) reflects server state without closing.
+function reopenSaved(id: string) {
+  const seq = sequences.value.find((s) => s.id === id);
+  if (!seq) return;
+  editing.value = {
+    id: seq.id,
+    name: seq.name,
+    description: seq.description ?? '',
+    channel: seq.channel,
+    enabled: seq.enabled,
+    steps: JSON.parse(JSON.stringify(seq.steps)),
+    runtimeRules: JSON.parse(JSON.stringify(seq.runtimeRules ?? {})),
+  };
 }
 
 async function toggleEnabled() {
@@ -460,11 +643,31 @@ async function toggleEnabled() {
   await loadAll();
 }
 
+// Toggle directly from a read-only card (no drawer open required).
+async function toggleEnabledOnCard(seq: AutomationSequence) {
+  try {
+    if (seq.enabled) {
+      await sequencesApi.disableSequence(seq.id);
+    } else {
+      await sequencesApi.enableSequence(seq.id);
+    }
+    await loadAll();
+    // Keep an open drawer in sync if it edits this same sequence.
+    if (editing.value?.id === seq.id) {
+      editing.value.enabled = !seq.enabled;
+    }
+  } catch (err: any) {
+    showToast(extractErrorMsg(err), 'error');
+  }
+}
+
 async function onDuplicate() {
   if (!editing.value?.id) return;
+  menuOpen.value = false;
   const copy = await sequencesApi.duplicateSequence(editing.value.id);
   await loadAll();
-  selectSequence(copy.id);
+  reopenSaved(copy.id);
+  showToast('Đã nhân bản luồng', 'success');
 }
 
 function openStats() {
@@ -474,11 +677,11 @@ function openStats() {
 
 async function onDelete() {
   if (!editing.value?.id) return;
+  menuOpen.value = false;
   if (!confirm(`Xoá sequence "${editing.value.name}"? Chỉ được xoá khi chưa có campaign.`)) return;
   try {
     await sequencesApi.deleteSequence(editing.value.id);
-    editing.value = null;
-    selectedSeqId.value = null;
+    closeDrawer();
     await loadAll();
   } catch (err: any) {
     if (!maybeShowDestructiveDialog(err)) {
@@ -486,216 +689,272 @@ async function onDelete() {
     }
   }
 }
+
+// ============ Keyboard ESC + click-outside menu ============
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (menuOpen.value) menuOpen.value = false;
+    else if (drawerOpen.value) closeDrawer();
+  }
+}
+function onDocClick() {
+  if (menuOpen.value) menuOpen.value = false;
+}
 </script>
 
 <style scoped>
-.sequences-view { max-width: 1280px; }
-
-.seq-layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: var(--at-s-lg);
-  align-items: start;
-}
-
-.seq-sidebar {
-  background: var(--at-canvas);
-  border: 1px solid var(--at-hairline);
-  border-radius: var(--at-r-md);
-  padding: var(--at-s-sm);
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-}
-
-.seq-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
-.seq-item {
+.seq-page {
   width: 100%;
-  background: transparent;
-  border: 0;
-  border-radius: var(--at-r-sm);
-  padding: 10px 12px;
-  cursor: pointer;
-  text-align: left;
+  background: var(--surface-2);
+  min-height: 100%;
+}
+
+/* ── Topbar (.mkt-top is global; page-level overrides) ─────────────────── */
+.seq-page .mkt-top { gap: 16px; }
+.btn-primary[disabled] { opacity: 0.6; cursor: default; }
+
+/* ── Toolbar / search ─────────────────────────────────────────────────── */
+.seq-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.search-wrap { position: relative; width: 320px; }
+.search-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  background: var(--surface);
   font-family: inherit;
+  color: var(--ink);
+  transition: border-color .14s, box-shadow .14s;
 }
-.seq-item:hover { background: var(--at-surface-soft); }
-.seq-item.is-active {
-  background: var(--at-ink);
-  color: var(--at-on-primary);
+.search-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.search-input::placeholder { color: var(--ink-4); }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-4); }
+
+/* ── Sequence list (Anh chốt 2026-06-06: 1 luồng = 1 hàng full-width, cuộn DỌC,
+   KHÔNG lưới 2 cột cạnh nhau) ── */
+.seqs { grid-template-columns: 1fr; }
+.seq { cursor: pointer; transition: border-color .14s, box-shadow .14s; }
+.seq:hover { border-color: var(--brand); box-shadow: var(--sh-md); }
+.seq.active { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft), var(--sh-md); }
+
+.sh-info { min-width: 0; flex: 1; }
+.sd-empty { color: var(--ink-4); font-style: italic; }
+.flow-empty {
+  font-size: 12.5px;
+  color: var(--ink-4);
+  font-style: italic;
+  padding: 8px 0 14px;
 }
-.seq-item__title {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--at-ink);
+.srules:empty { display: none; }
+
+/* ── Editor drawer (slide-from-right) ─────────────────────────────────── */
+.panel-overlay {
+  position: fixed; inset: 0;
+  background: rgba(20, 26, 36, 0.30);
+  z-index: 90;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s;
 }
-.seq-item.is-active .seq-item__title { color: var(--at-on-primary); }
-.seq-item__off-badge {
-  font-size: 10px;
-  background: var(--at-surface-soft);
-  padding: 2px 6px;
-  border-radius: var(--at-r-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  font-weight: 500;
-  color: var(--at-muted);
-}
-.seq-item.is-active .seq-item__off-badge {
-  background: rgba(255,255,255,0.15);
-  color: var(--at-on-primary);
-}
-.seq-item__meta {
+.panel-overlay.show { opacity: 1; pointer-events: auto; }
+
+.side-panel {
+  position: fixed;
+  top: 0; right: 0;
+  height: 100vh;
+  width: 560px;
+  max-width: 92vw;
+  background: var(--surface);
+  z-index: 100;
+  transform: translateX(100%);
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: var(--sh-lg);
   display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--at-muted);
-  margin-top: 2px;
+  flex-direction: column;
+  overflow: hidden;
 }
-.seq-item.is-active .seq-item__meta { color: rgba(255,255,255,0.7); }
-.seq-item__meta span { display: inline-flex; align-items: center; gap: 3px; }
+.side-panel.open { transform: translateX(0); }
 
-.empty-seq-list {
-  text-align: center;
-  padding: 24px 12px;
-  color: var(--at-muted);
+.panel-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
 }
+.panel-header-row { display: flex; align-items: center; gap: 8px; }
+.panel-header-main { flex: 1; min-width: 0; }
+.panel-name-field { height: 40px; flex: 1; }
+.panel-name-field input {
+  border: 0; outline: 0; background: transparent; width: 100%;
+  font-size: 16px; font-weight: 700; color: var(--ink);
+}
+.panel-name-field input::placeholder { color: var(--ink-4); font-weight: 600; }
+.panel-name-icon { color: var(--ink-4); }
 
-.seq-editor {
-  background: var(--at-canvas);
-  border: 1px solid var(--at-hairline);
-  border-radius: var(--at-r-md);
-  padding: var(--at-s-lg);
-  min-height: calc(100vh - 200px);
-}
-.seq-empty {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  text-align: center;
-  height: 60vh;
-  color: var(--at-muted);
-}
-.seq-empty h3 {
-  font-size: 18px;
-  font-weight: 500;
-  margin: 12px 0 4px;
-  color: var(--at-ink);
-}
-
-@media (max-width: 900px) {
-  .seq-layout { grid-template-columns: 1fr; }
-  .seq-sidebar { position: relative; max-height: none; }
-}
-
-/* ── Wave 1.5-C UI Redesign: top bar + 3 rule cards ──────────────────────── */
-.seq-topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 4px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--at-border);
-}
-.seq-topbar__name {
-  flex: 1;
-  font-size: 18px;
-  font-weight: 600;
-}
-.seq-topbar__actions {
+.panel-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 12px;
 }
-.seq-topbar__switch {
-  margin: 0 4px;
+.panel-actions-spacer { flex: 1; }
+.panel-icon-btn {
+  background: transparent; border: none; cursor: pointer;
+  padding: 4px 8px; color: var(--ink-3);
+  line-height: 1; border-radius: var(--r-xs); font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.seq-topbar__switch :deep(.v-label) {
-  font-size: 13px;
-  opacity: 1;
-  font-weight: 500;
-}
+.panel-icon-btn:hover { background: var(--surface-3); color: var(--ink); }
 
-.seq-rule-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+.toggle-row {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; padding: 4px 2px;
+  font-family: inherit; cursor: pointer;
 }
-.seq-rule-card {
-  background: #fff;
-  border: 1px solid var(--at-border);
-  border-radius: 8px;
+.toggle-label { font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.toggle-label.on { color: var(--success); }
+
+.panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.panel-section { margin-bottom: 22px; }
+.panel-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: 0 0 10px;
+}
+.panel-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--surface);
+  resize: vertical;
+  line-height: 1.5;
+}
+.panel-textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.panel-textarea::placeholder { color: var(--ink-4); }
+
+/* ── Rule cards (inside drawer) ───────────────────────────────────────── */
+.rule-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   overflow: hidden;
-  transition: border-color 0.15s ease;
+  margin-bottom: 12px;
 }
-.seq-rule-card:hover {
-  border-color: var(--at-accent-soft, #cbd5e1);
-}
-.seq-rule-card__header {
+.rule-card:last-child { margin-bottom: 0; }
+.rule-card__header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--at-border);
-  font-size: 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
 }
-.seq-rule-card__header strong {
-  color: var(--at-ink);
-}
-.seq-rule-card__body {
+.rule-card__header strong { color: var(--ink); }
+.rule-card__body {
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.seq-rule-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.rule-row { display: flex; flex-direction: column; gap: 6px; }
+.rule-row > label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.rule-row--switch { flex-direction: row; align-items: flex-start; gap: 12px; }
+.rule-row--switch > div { flex: 1; }
+.rule-row--switch .toggle { margin-top: 2px; }
+.rule-input-pair { display: flex; align-items: center; gap: 6px; }
+.rule-num {
+  width: 64px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--surface);
 }
-.seq-rule-row > label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--at-ink);
-}
-.seq-rule-row--switch {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 12px;
-}
-.seq-rule-row--switch > div {
-  flex: 1;
-}
-.seq-rule-input-pair {
+.rule-num:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.rule-input-pair .suffix { font-size: 12.5px; color: var(--ink-3); }
+.rule-arrow { color: var(--ink-4); margin: 0 2px; }
+.rule-hint { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 0; }
+.rule-hint strong { color: var(--ink); font-weight: 600; }
+
+/* ── Inline error banner ──────────────────────────────────────────────── */
+.panel-error-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 300px;
+  padding: 10px 12px;
+  background: var(--error-soft);
+  border: 1px solid var(--error);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--error);
+  margin-bottom: 8px;
 }
-.seq-rule-input-pair :deep(.v-text-field) {
-  max-width: 110px;
-}
-.seq-rule-arrow {
-  color: var(--at-ink-muted);
-  font-weight: 500;
-}
-.seq-rule-hint {
-  font-size: 12px;
-  color: var(--at-ink-muted);
-  line-height: 1.45;
-  margin: 0;
-}
-.seq-rule-hint strong {
-  color: var(--at-ink);
-  font-weight: 600;
+.panel-error-banner span { flex: 1; }
+.panel-error-close {
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--error); padding: 2px; display: inline-flex;
 }
 
-/* ── Destructive edit dialog (xoá/đổi step giữa chuỗi) ─────────────────── */
+/* ── Kebab menu ───────────────────────────────────────────────────────── */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-md);
+  min-width: 170px;
+  padding: 4px;
+  display: none;
+  z-index: 110;
+}
+.menu.show { display: block; }
+.menu-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+.menu-item:hover { background: var(--surface-3); color: var(--ink); }
+.menu-item.danger { color: var(--error); }
+.menu-item.danger:hover { background: var(--error-soft); }
+.menu-divider { height: 1px; background: var(--line); margin: 4px 0; }
+
+/* ── Empty state ──────────────────────────────────────────────────────── */
+.seq-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 56px 24px;
+  text-align: center;
+}
+.seq-empty__icon { color: var(--ink-4); }
+.seq-empty__title { font-size: 15px; font-weight: 700; color: var(--ink); margin-top: 4px; }
+.seq-empty__desc { font-size: 13px; color: var(--ink-3); max-width: 460px; margin-bottom: 8px; }
+
+/* ── Destructive edit dialog (xoá/đổi step giữa chuỗi) ────────────────── */
 .destructive-dialog__header {
-  background: rgba(170, 45, 0, 0.06);
-  color: #aa2d00;
+  background: var(--error-soft);
+  color: var(--error);
   font-size: 15px;
   font-weight: 600;
 }
@@ -703,6 +962,6 @@ async function onDelete() {
   padding-top: 16px !important;
   font-size: 13.5px;
   line-height: 1.55;
-  color: var(--at-ink);
+  color: var(--ink);
 }
 </style>

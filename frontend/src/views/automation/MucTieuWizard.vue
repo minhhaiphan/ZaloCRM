@@ -1,51 +1,41 @@
 <template>
   <div class="mtw-page">
-    <!-- Breadcrumb + Header -->
-    <div class="crumb">
-      <a href="#" @click.prevent="router.push('/marketing/triggers')">Marketing</a>
-      <span class="sep">/</span>
-      <a href="#" @click.prevent="router.push('/marketing/triggers')">Mục tiêu</a>
-      <span class="sep">/</span>
-      <span>{{ isEditMode ? 'Sửa' : 'Tạo mới' }}</span>
-    </div>
-    <div class="topbar">
+    <!-- Header HS .mkt-top scaffold -->
+    <div class="mkt-top">
       <div>
-        <h1>{{ isEditMode ? 'Sửa Mục tiêu' : 'Tạo Mục tiêu mới' }}</h1>
-        <p class="sub">
+        <div class="mtt">{{ isEditMode ? 'Sửa Mục tiêu' : 'Tạo Mục tiêu mới' }}</div>
+        <div class="mts">
           <template v-if="isEditMode">
             Sửa cấu hình. Tệp + nick + chuỗi không đổi được — tạo Mục tiêu mới nếu cần thay.
           </template>
           <template v-else>
             Mời kết bạn + bám đuổi 1 tệp khách hàng
           </template>
-        </p>
+        </div>
       </div>
+      <button class="btn btn-ghost btn-sm" @click="router.push('/marketing/triggers')">
+        <v-icon size="16">mdi-close</v-icon> Huỷ
+      </button>
     </div>
 
-    <!-- Stepper sticky -->
-    <div class="stepper">
-      <div
-        v-for="(label, idx) in stepLabels"
-        :key="idx"
-        class="step-wrap"
-      >
-        <div
-          class="step-item"
-          :class="{ active: currentStep === idx + 1, completed: currentStep > idx + 1 }"
+    <!-- Stepper = hàng chip HS (Anh chốt 2026-06-06: 4 bước, đắp da chip) -->
+    <div class="stepchips">
+      <template v-for="(label, idx) in stepLabels" :key="idx">
+        <button
+          class="chip step-chip"
+          :class="{
+            'chip-blue': currentStep === idx + 1,
+            'chip-green done': currentStep > idx + 1,
+            'chip-grey': currentStep < idx + 1,
+          }"
           @click="goStep(idx + 1)"
         >
-          <div class="step-circle">
-            <span v-if="currentStep > idx + 1">✓</span>
-            <span v-else>{{ idx + 1 }}</span>
-          </div>
-          <div class="step-label">{{ label }}</div>
-        </div>
-        <div
-          v-if="idx < stepLabels.length - 1"
-          class="step-connector"
-          :class="{ done: currentStep > idx + 1 }"
-        ></div>
-      </div>
+          <v-icon v-if="currentStep > idx + 1" size="13">mdi-check</v-icon>
+          <span v-else class="step-num num">{{ idx + 1 }}</span>
+          {{ label }}
+        </button>
+        <span v-if="idx < stepLabels.length - 1" class="step-sep">—</span>
+      </template>
     </div>
 
     <!-- ============================ STEP 1 ============================ -->
@@ -59,7 +49,7 @@
 
         <!-- Tên Mục tiêu -->
         <div class="section">
-          <div class="section-title">📝 Tên Mục tiêu <span class="req">*</span></div>
+          <div class="section-title"><v-icon size="17">mdi-pencil-outline</v-icon> Tên Mục tiêu <span class="req">*</span></div>
           <div class="section-help">Đặt tên dễ nhận biết để theo dõi sau này.</div>
           <input
             v-model="form.name"
@@ -70,7 +60,7 @@
 
         <!-- Tệp -->
         <div class="section">
-          <div class="section-title">📋 Tệp khách hàng <span class="req">*</span></div>
+          <div class="section-title"><v-icon size="17">mdi-folder-outline</v-icon> Tệp khách hàng <span class="req">*</span></div>
           <div class="section-help">
             Mục tiêu chỉ chạy trên 1 tệp.
             <span v-if="prefilled">Đã chọn sẵn từ trang Tệp khách hàng.</span>
@@ -90,17 +80,17 @@
               {{ formatNum(selectedList.totalEntries) }} SĐT
             </span>
             <span v-if="isEditMode" class="chip-inline" style="background: var(--bg-soft); color: var(--text-3);">
-              🔒 Không đổi được
+              <v-icon size="13">mdi-lock-outline</v-icon> Không đổi được
             </span>
           </div>
         </div>
 
         <!-- Nick gửi mời -->
         <div class="section">
-          <div class="section-title">👥 Nick gửi mời (chọn nhiều) <span class="req">*</span></div>
+          <div class="section-title"><v-icon size="17">mdi-account-multiple-outline</v-icon> Nick gửi mời (chọn nhiều) <span class="req">*</span></div>
           <div class="section-help">
             <template v-if="isEditMode">
-              🔒 Không đổi được nick trong chế độ Sửa — tạo Mục tiêu mới nếu cần.
+              <v-icon size="13">mdi-lock-outline</v-icon> Không đổi được nick trong chế độ Sửa — tạo Mục tiêu mới nếu cần.
             </template>
             <template v-else>
               Mỗi nick gửi tối đa 300 lời mời/ngày + 300 tin nhắn/ngày. Nick offline tự động bị loại.
@@ -139,7 +129,7 @@
 
         <!-- Skip rules -->
         <div class="section">
-          <div class="section-title">🛡 Quy tắc bỏ qua</div>
+          <div class="section-title"><v-icon size="17">mdi-shield-outline</v-icon> Quy tắc bỏ qua</div>
           <div class="section-help">Tránh spam KH đã quen, tiết kiệm quota của nick.</div>
           <div class="skip-rules">
 
@@ -206,7 +196,7 @@
           </div>
 
           <div class="info-banner">
-            🔵 <span><span class="strong">Tự động bỏ qua: {{ formatNum(skipEstimate.skipped) }} KH</span> · <span class="strong">Sẽ chạy: {{ formatNum(skipEstimate.willRun) }} KH</span></span>
+            <v-icon size="16">mdi-information-outline</v-icon> <span><span class="strong">Tự động bỏ qua: {{ formatNum(skipEstimate.skipped) }} KH</span> · <span class="strong">Sẽ chạy: {{ formatNum(skipEstimate.willRun) }} KH</span></span>
             <span class="muted" style="margin-left: 8px; font-size: 11px;">(ước tính client — BE sẽ tính chính xác Ngày 5)</span>
           </div>
         </div>
@@ -216,7 +206,7 @@
         <div class="left">Bước 1 / 3</div>
         <div class="right">
           <button class="btn btn-ghost" @click="onCancel">Hủy</button>
-          <button class="btn btn-primary" :disabled="!canNextStep1" @click="goStep(2)">Tiếp →</button>
+          <button class="btn btn-primary" :disabled="!canNextStep1" @click="goStep(2)">Tiếp <v-icon size="16">mdi-arrow-right</v-icon></button>
         </div>
       </div>
     </div>
@@ -234,27 +224,27 @@
         <div class="section">
           <div class="msg-bundle">
             <div class="msg-bundle-header">
-              💬 Bộ tin nhắn (5 loại tin gửi cho khách hàng)
-              <span class="bundle-hint">Mỗi loại tin gửi vào 1 thời điểm khác nhau trong vòng đời của 1 KH lạ → bạn.</span>
+              <v-icon size="16">mdi-message-text-outline</v-icon> Bộ tin nhắn (5 loại tin gửi cho khách hàng)
+              <span class="bundle-hint">Mỗi loại tin gửi vào 1 thời điểm khác nhau trong vòng đời của 1 KH lạ <v-icon size="12">mdi-arrow-right</v-icon> bạn.</span>
             </div>
             <div class="msg-bundle-body">
 
               <!-- Timeline luồng tin (giúp sale hiểu thứ tự) -->
               <div class="flow-strip">
-                <b>Lời mời KB</b> <span class="fa">→</span>
-                <b>Tin 1 Chào mừng</b> <span class="fa">→</span>
-                <span>(chờ KH đồng ý)</span> <span class="fa">→</span>
-                <b>Tin 2 Cảm ơn</b> <span class="fa">·</span>
-                <span>lâu chưa đồng ý → <b>Tin 3 Nhắc</b></span> <span class="fa">·</span>
-                <span>từ chối → <b>Tin 4</b></span>
+                <b>Lời mời KB</b> <span class="fa"><v-icon size="13">mdi-arrow-right</v-icon></span>
+                <b>Tin 1 Chào mừng</b> <span class="fa"><v-icon size="13">mdi-arrow-right</v-icon></span>
+                <b>Chuỗi bám đuổi</b> <span class="fa">·</span>
+                <span>khi đồng ý KB <v-icon size="13">mdi-arrow-right</v-icon> <b>Tin 2 Cảm ơn</b></span> <span class="fa">·</span>
+                <span>lâu chưa đồng ý <v-icon size="13">mdi-arrow-right</v-icon> <b>Tin 3 Nhắc</b></span> <span class="fa">·</span>
+                <span>từ chối <v-icon size="13">mdi-arrow-right</v-icon> <b>Tin 4</b></span>
               </div>
 
               <!-- LỜI MỜI KB — BẮT BUỘC, không công tắc -->
               <div class="msg-item msg-locked">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon">🤝</div>
+                  <div class="msg-item-icon"><v-icon size="16">mdi-handshake-outline</v-icon></div>
                   <div class="msg-item-title">Lời mời kết bạn</div>
-                  <span class="msg-item-badge badge-req">🔒 Bắt buộc</span>
+                  <span class="msg-item-badge badge-req"><v-icon size="12">mdi-lock-outline</v-icon> Bắt buộc</span>
                 </div>
                 <p class="msg-item-help">Lời nhắn gửi <strong>cùng lúc</strong> với lời mời kết bạn Zalo. Không thể tắt (KB Zalo phải kèm lời chào). Tối đa 200 ký tự.</p>
                 <textarea v-model="form.messages.friendRequest" class="ta" rows="2" maxlength="200"></textarea>
@@ -264,7 +254,7 @@
               <!-- TIN 1 · CHÀO MỪNG -->
               <div class="msg-item" :class="{ 'msg-off': !form.enableWelcome }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-blue">👋</div>
+                  <div class="msg-item-icon icon-blue"><v-icon size="16">mdi-hand-wave-outline</v-icon></div>
                   <div class="msg-item-title">Tin 1 · Tin chào mừng</div>
                   <span class="msg-item-badge badge-blue">Hộp người lạ</span>
                   <label class="msg-toggle"><input type="checkbox" v-model="form.enableWelcome" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableWelcome ? 'BẬT' : 'TẮT' }}</span></label>
@@ -284,7 +274,7 @@
               <!-- TIN 2 · CẢM ƠN ĐÃ ĐỒNG Ý -->
               <div class="msg-item" :class="{ 'msg-off': !form.enableThankYou }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-green">🎉</div>
+                  <div class="msg-item-icon icon-green"><v-icon size="16">mdi-party-popper</v-icon></div>
                   <div class="msg-item-title">Tin 2 · Tin cảm ơn khách đã đồng ý kết bạn</div>
                   <span class="msg-item-badge badge-green">Sau khi đồng ý</span>
                   <label class="msg-toggle"><input type="checkbox" v-model="form.enableThankYou" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableThankYou ? 'BẬT' : 'TẮT' }}</span></label>
@@ -304,7 +294,7 @@
               <!-- TIN 3 · NHẮC ĐỒNG Ý KB -->
               <div class="msg-item" :class="{ 'msg-off': !form.enableRemind }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-yellow">⏰</div>
+                  <div class="msg-item-icon icon-yellow"><v-icon size="16">mdi-clock-outline</v-icon></div>
                   <div class="msg-item-title">Tin 3 · Nhắc khách đồng ý kết bạn</div>
                   <span class="msg-item-badge badge-yellow">Nhắc lại</span>
                   <label class="msg-toggle"><input type="checkbox" v-model="form.enableRemind" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableRemind ? 'BẬT' : 'TẮT' }}</span></label>
@@ -317,7 +307,7 @@
                     <div class="msg-delay-input"><label>Nhắc sau</label>
                       <TimeAmountInput v-model="form.remindDelayDays" base-unit="day" :units="['hour','day']" /></div>
                   </div>
-                  <span class="cond-chip">✅ Tự bỏ qua nếu khách đã đồng ý (Tin 2 đã chạy)</span>
+                  <span class="cond-chip"><v-icon size="13">mdi-check-circle-outline</v-icon> Tự bỏ qua nếu khách đã đồng ý (Tin 2 đã chạy)</span>
                   <NotifyOwnerBox v-model="form.notifyOwner.remind" />
                 </template>
               </div>
@@ -325,7 +315,7 @@
               <!-- TIN 4 · KHI TỪ CHỐI -->
               <div class="msg-item" :class="{ 'msg-off': !form.enableRejectedFollowUp }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-orange">🙅</div>
+                  <div class="msg-item-icon icon-orange"><v-icon size="16">mdi-account-cancel-outline</v-icon></div>
                   <div class="msg-item-title">Tin 4 · Khi khách từ chối kết bạn</div>
                   <span class="msg-item-badge badge-gray">Từ chối</span>
                   <label class="msg-toggle"><input type="checkbox" v-model="form.enableRejectedFollowUp" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableRejectedFollowUp ? 'BẬT' : 'TẮT' }}</span></label>
@@ -343,12 +333,12 @@
 
           <!-- THÔNG BÁO KHI KH TƯƠNG TÁC (5 event) -->
           <div class="msg-bundle" style="margin-top:14px">
-            <div class="msg-bundle-header">🔔 Báo nội bộ khi khách tương tác
+            <div class="msg-bundle-header"><v-icon size="16">mdi-bell-outline</v-icon> Báo nội bộ khi khách tương tác
               <span class="bundle-hint">Chọn ai được báo khi khách phản hồi trong lúc chăm sóc.</span>
             </div>
             <div class="msg-bundle-body">
               <div class="ev-notify-item" v-for="ev in interactionEvents" :key="ev.key">
-                <div class="ev-notify-head"><span>{{ ev.ico }}</span> <b>{{ ev.label }}</b></div>
+                <div class="ev-notify-head"><v-icon size="15">{{ ev.ico }}</v-icon> <b>{{ ev.label }}</b></div>
                 <NotifyOwnerBox v-model="form.notifyOwner[ev.key]" />
               </div>
             </div>
@@ -364,9 +354,30 @@
 
         <!-- Chuỗi bám đuổi -->
         <div class="section">
-          <div class="section-title">🔄 Chuỗi bám đuổi (sau khi đã kết bạn)</div>
+          <div class="section-title"><v-icon size="17">mdi-sync</v-icon> Chuỗi bám đuổi</div>
           <div class="section-help">
-            Chạy <strong>sau Tin 3 (chào mừng)</strong> trong kênh bạn bè. Có thể dùng chuỗi có sẵn hoặc tạo mới.
+            Chuỗi tin nhắn gửi tự động <strong>sau Tin chào mừng</strong>. Thời điểm bắt đầu tuỳ chế độ chọn bên dưới. Có thể dùng chuỗi có sẵn hoặc tạo mới.
+          </div>
+
+          <!-- #1 2026-06-06 (Anh chốt): CHỌN 1 TRONG 2 chế độ bám đuổi theo trạng thái kết bạn -->
+          <div class="followup-mode">
+            <div class="fum-label">Khi nào bắt đầu bám đuổi?</div>
+            <label class="fum-row" :class="{ selected: followUpMode === 'stranger' }">
+              <input type="radio" value="stranger" v-model="followUpMode" />
+              <span class="fum-radio"></span>
+              <span class="fum-text">
+                <span class="fum-title">Bám đuổi ngay cả khi chưa là bạn trên Zalo <span class="fum-badge">Mặc định</span></span>
+                <span class="fum-help">Gửi chuỗi bám đuổi qua hộp người lạ ngay sau tin chào, không chờ khách bấm đồng ý kết bạn. Phủ rộng nhất.</span>
+              </span>
+            </label>
+            <label class="fum-row" :class="{ selected: followUpMode === 'friend' }">
+              <input type="radio" value="friend" v-model="followUpMode" />
+              <span class="fum-radio"></span>
+              <span class="fum-text">
+                <span class="fum-title">Bám đuổi chỉ khi ĐÃ là bạn trên Zalo</span>
+                <span class="fum-help">Chỉ bắt đầu chuỗi bám đuổi sau khi khách thật sự bấm Đồng ý kết bạn (gửi qua kênh bạn bè). Lịch sự hơn, tránh làm phiền người chưa duyệt.</span>
+              </span>
+            </label>
           </div>
 
           <div class="radio-group">
@@ -392,7 +403,7 @@
                     </option>
                   </select>
                   <div v-if="isEditMode" class="safety-help" style="margin-top: 4px;">
-                    🔒 Không đổi được chuỗi trong chế độ Sửa.
+                    <v-icon size="13">mdi-lock-outline</v-icon> Không đổi được chuỗi trong chế độ Sửa.
                   </div>
                 </div>
 
@@ -408,13 +419,13 @@
                       v-if="i < sequenceSteps.length - 1"
                       class="chuoi-delay"
                     >
-                      ⏱ Chờ {{ delayLabel(sequenceSteps[i + 1]) }}
+                      <v-icon size="13">mdi-timer-outline</v-icon> Chờ {{ delayLabel(sequenceSteps[i + 1]) }}
                     </div>
                   </template>
                 </div>
 
                 <div v-if="selectedSequence" class="chuoi-total">
-                  📊 <span><span class="strong">Tổng thời gian chuỗi: {{ totalSequenceLabel }}</span> (Bước 1 → Bước {{ sequenceSteps.length }})</span>
+                  <v-icon size="15">mdi-chart-box-outline</v-icon> <span><span class="strong">Tổng thời gian chuỗi: {{ totalSequenceLabel }}</span> (Bước 1 <v-icon size="13">mdi-arrow-right</v-icon> Bước {{ sequenceSteps.length }})</span>
                 </div>
                 <div v-if="selectedSequence" class="chuoi-footnote">
                   Mỗi bước gửi 1 tin nhắn theo template do anh cấu hình ở phần <strong>Luồng kịch bản</strong>.
@@ -433,7 +444,16 @@
         </div>
 
         <div class="flow-explainer">
-          💡 <span class="strong">Cách hoạt động:</span> KH lạ → <strong>Tin 1</strong> (xin KB) → 30 phút sau <strong>Tin 2</strong> (nhắc) → nếu accept → <strong>Tin 3</strong> (chào mừng) → vào <strong>Chuỗi 5 bước</strong>. Nếu sau 3 ngày chưa accept → <strong>Tin 4</strong>. Nếu KH bấm từ chối KB → <strong>Tin 5</strong> → vẫn vào chuỗi 5 bước.
+          <v-icon size="15">mdi-lightbulb-outline</v-icon> <span class="strong">Cách hoạt động:</span>
+          Gửi <strong>Lời mời kết bạn</strong> (kèm lời chào) <v-icon size="13">mdi-arrow-right</v-icon>
+          <strong>Tin 1 Chào mừng</strong>
+          <template v-if="followUpMode === 'stranger'">
+            <v-icon size="13">mdi-arrow-right</v-icon> vào <strong>Chuỗi bám đuổi</strong> ngay (qua hộp người lạ, không chờ khách duyệt).
+          </template>
+          <template v-else>
+            <v-icon size="13">mdi-arrow-right</v-icon> chờ khách <strong>Đồng ý kết bạn</strong> <v-icon size="13">mdi-arrow-right</v-icon> mới vào <strong>Chuỗi bám đuổi</strong> (qua kênh bạn bè).
+          </template>
+          Khi khách đồng ý sẽ gửi <strong>Tin 2 Cảm ơn</strong>; nếu lâu chưa đồng ý gửi <strong>Tin 3 Nhắc</strong>; nếu khách từ chối thì gửi <strong>Tin 4</strong> (nếu bật).
         </div>
 
       </div>
@@ -441,8 +461,8 @@
         <div class="left">Bước 2 / 4</div>
         <div class="right">
           <button class="btn btn-ghost" @click="onCancel">Hủy</button>
-          <button class="btn" @click="goStep(1)">← Quay lại</button>
-          <button class="btn btn-primary" :disabled="!canNextStep2" @click="goStep(3)">Tiếp →</button>
+          <button class="btn" @click="goStep(1)"><v-icon size="16">mdi-arrow-left</v-icon> Quay lại</button>
+          <button class="btn btn-primary" :disabled="!canNextStep2" @click="goStep(3)">Tiếp <v-icon size="16">mdi-arrow-right</v-icon></button>
         </div>
       </div>
     </div>
@@ -457,12 +477,12 @@
       </div>
       <div class="step-card-body">
         <div class="info-banner" style="margin-bottom: 12px;">
-          ℹ️ <strong>Quy tắc gửi an toàn</strong> giữ nick Zalo không bị Zalo cảnh báo. Em đã điền sẵn các giá trị mặc định theo kinh nghiệm — anh có thể chỉnh nếu chiến dịch đặc biệt.
+          <v-icon size="16">mdi-information-outline</v-icon> <strong>Quy tắc gửi an toàn</strong> giữ nick Zalo không bị Zalo cảnh báo. Em đã điền sẵn các giá trị mặc định theo kinh nghiệm — anh có thể chỉnh nếu chiến dịch đặc biệt.
         </div>
 
         <!-- Section 1: Thời gian -->
         <div class="safety-section">
-          <div class="safety-section-title">⏰ Thời gian <span class="badge">2 input</span></div>
+          <div class="safety-section-title"><v-icon size="16">mdi-clock-outline</v-icon> Thời gian <span class="badge">2 input</span></div>
 
           <!-- Input 1: Giờ hoạt động -->
           <div class="safety-row">
@@ -473,7 +493,7 @@
             <div class="safety-input-wrap">
               <div class="time-range">
                 <input type="time" v-model="form.safetyRules.quietHoursStart" class="time-input" />
-                <span class="separator">→</span>
+                <span class="separator"><v-icon size="15">mdi-arrow-right</v-icon></span>
                 <input type="time" v-model="form.safetyRules.quietHoursEnd" class="time-input" />
                 <span class="alert-chip info">{{ workingHoursLabel }}</span>
               </div>
@@ -492,14 +512,33 @@
               <div class="safety-help">Giá trị thấp = gửi nhanh nhưng tăng risk khoá nick. Mặc định 60 giây an toàn cao.</div>
             </div>
           </div>
+
+          <!-- Input 3 (#3 2026-06-06): Nhịp gửi lời mời mỗi nick (min–max phút) -->
+          <!-- Trước đây HARDCODE 20-40 phút trong hệ thống, ô anh nhập bị bỏ qua. -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Nhịp gửi lời mời mỗi nick <span class="req">*</span>
+              <div class="safety-help">Mỗi nick cách nhau ngẫu nhiên trong khoảng này mới gửi 1 lời mời mới</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row" style="gap: 8px; align-items: center;">
+                <span class="unit">Từ</span>
+                <input type="number" v-model.number="form.safetyRules.friendReqIntervalMinMinutes" min="0" max="1440" class="num-input" style="width: 80px;" />
+                <span class="unit">đến</span>
+                <input type="number" v-model.number="form.safetyRules.friendReqIntervalMaxMinutes" min="0" max="1440" class="num-input" style="width: 80px;" />
+                <span class="unit">phút</span>
+              </div>
+              <div class="safety-help">An toàn nick: 20–40 phút. Muốn chạy thử nhanh: đặt cả hai = 1 (gửi mỗi phút). Tối đa = phải ≥ tối thiểu.</div>
+            </div>
+          </div>
         </div>
 
         <!-- Section 2: Cap & Quota (display only) -->
         <div class="safety-section">
-          <div class="safety-section-title">📊 Giới hạn / Ngày / Nick <span class="badge">đọc từ ZaloAccount</span></div>
+          <div class="safety-section-title"><v-icon size="16">mdi-chart-box-outline</v-icon> Giới hạn / Ngày / Nick <span class="badge">đọc từ ZaloAccount</span></div>
 
           <div class="cap-display-banner">
-            ℹ️ <strong>Cap mỗi nick</strong> được cấu hình tại
+            <v-icon size="15">mdi-information-outline</v-icon> <strong>Cap mỗi nick</strong> được cấu hình tại
             <a href="/settings/channels/zalo" target="_blank">/settings/channels/zalo</a> per-nick.
             Mục tiêu này dùng cấu hình hiện tại (mặc định <strong>30 lời mời/ngày</strong> + <strong>300 tin nhắn/ngày</strong> mỗi nick).
           </div>
@@ -524,7 +563,7 @@
 
         <!-- Section 3: Lọc KH thông minh -->
         <div class="safety-section">
-          <div class="safety-section-title">🎯 Lọc khách hàng thông minh <span class="badge">2 input</span></div>
+          <div class="safety-section-title"><v-icon size="16">mdi-target</v-icon> Lọc khách hàng thông minh <span class="badge">2 input</span></div>
 
           <!-- Input 3: Recency -->
           <div class="safety-row">
@@ -537,7 +576,7 @@
                 <TimeAmountInput v-model="form.safetyRules.recencyDays" base-unit="day" :units="['hour','day']" />
                 <span class="alert-chip info">0 = không lọc</span>
               </div>
-              <div class="safety-help">VD: KH X đã được nick A nhắn ngày 25/05 → nick B sẽ bỏ qua nếu &lt; 30 ngày</div>
+              <div class="safety-help">VD: KH X đã được nick A nhắn ngày 25/05 <v-icon size="12">mdi-arrow-right</v-icon> nick B sẽ bỏ qua nếu &lt; 30 ngày</div>
             </div>
           </div>
 
@@ -545,7 +584,7 @@
           <div class="safety-row">
             <div class="safety-label">
               Bỏ qua KH đã kết bạn nhiều nick
-              <div class="safety-help">KH đã là bạn của ≥ N nick → không gửi nữa</div>
+              <div class="safety-help">KH đã là bạn của ≥ N nick <v-icon size="12">mdi-arrow-right</v-icon> không gửi nữa</div>
             </div>
             <div class="safety-input-wrap">
               <div class="num-row">
@@ -560,12 +599,12 @@
 
         <!-- Section 4: Bám đuổi -->
         <div class="safety-section">
-          <div class="safety-section-title">⚡ Bám đuổi (sau lời chào kết bạn) <span class="badge">2 input</span></div>
+          <div class="safety-section-title"><v-icon size="16">mdi-flash-outline</v-icon> Bám đuổi (sau lời chào kết bạn) <span class="badge">2 input</span></div>
 
           <!-- Input 5: Delay sau friend-request -->
           <div class="safety-row">
             <div class="safety-label">
-              Delay sau lời mời → bước 1 bám đuổi <span class="req">*</span>
+              Delay sau lời mời <v-icon size="14">mdi-arrow-right</v-icon> bước 1 bám đuổi <span class="req">*</span>
               <div class="safety-help">Tính từ khi gửi lời mời kết bạn (không phụ thuộc KH đã accept hay chưa)</div>
             </div>
             <div class="safety-input-wrap">
@@ -578,25 +617,25 @@
           <div class="safety-row">
             <div class="safety-label">
               Pause khi KH tương tác <span class="req">*</span>
-              <div class="safety-help">KH reply / react → tạm dừng chuỗi N giờ</div>
+              <div class="safety-help">KH reply / react <v-icon size="12">mdi-arrow-right</v-icon> tạm dừng chuỗi N giờ</div>
             </div>
             <div class="safety-input-wrap">
               <div class="num-row">
                 <TimeAmountInput v-model="form.safetyRules.pauseHoursOnReply" base-unit="hour" :units="['hour','day']" />
-                <span class="alert-chip info">KH reply tiếp → reset</span>
+                <span class="alert-chip info">KH reply tiếp <v-icon size="12">mdi-arrow-right</v-icon> reset</span>
               </div>
-              <div class="safety-help">KH reply giữa chuỗi → cancel job pending + notify KHẨN sale</div>
+              <div class="safety-help">KH reply giữa chuỗi <v-icon size="12">mdi-arrow-right</v-icon> cancel job pending + notify KHẨN sale</div>
             </div>
           </div>
         </div>
 
         <!-- Section 5: Phản ứng cao cấp (2 input fixed, disabled) -->
         <div class="safety-section">
-          <div class="safety-section-title">🔧 Phản ứng nâng cao <span class="badge">2 cố định</span></div>
+          <div class="safety-section-title"><v-icon size="16">mdi-tune-variant</v-icon> Phản ứng nâng cao <span class="badge">2 cố định</span></div>
 
           <div class="safety-row">
             <div class="safety-label">
-              Reaction tích cực (❤️👍🌹)
+              Reaction tích cực (tim, like, hoa)
               <div class="safety-help">Anh chốt 2026-06-01</div>
             </div>
             <div class="safety-input-wrap">
@@ -609,7 +648,7 @@
 
           <div class="safety-row">
             <div class="safety-label">
-              Reaction tiêu cực (😡👎💔)
+              Reaction tiêu cực (giận, dislike, tim vỡ)
               <div class="safety-help">Anh chốt 2026-06-01</div>
             </div>
             <div class="safety-input-wrap">
@@ -626,8 +665,8 @@
         <div class="left">Bước 3 / 4 · Quy tắc này áp dụng riêng cho Mục tiêu này.</div>
         <div class="right">
           <button class="btn btn-ghost" @click="onCancel">Hủy</button>
-          <button class="btn" @click="goStep(2)">← Quay lại</button>
-          <button class="btn btn-primary" :disabled="!canNextStep3" @click="goStep(4)">Tiếp →</button>
+          <button class="btn" @click="goStep(2)"><v-icon size="16">mdi-arrow-left</v-icon> Quay lại</button>
+          <button class="btn btn-primary" :disabled="!canNextStep3" @click="goStep(4)">Tiếp <v-icon size="16">mdi-arrow-right</v-icon></button>
         </div>
       </div>
     </div>
@@ -654,7 +693,7 @@
         <!-- Error state -->
         <div v-else-if="previewError" class="preview-error">
           <div class="big-banner warn">
-            <div class="icon">⚠</div>
+            <div class="icon"><v-icon size="24" color="white">mdi-alert-outline</v-icon></div>
             <div class="text">
               <div class="title">Chưa ước được — sẽ tính khi bắt đầu chạy</div>
               <div class="desc">{{ previewError }}</div>
@@ -665,7 +704,7 @@
           <!-- Fallback local compute -->
           <div v-if="localFallback" class="preview-grid">
             <div class="preview-card">
-              <h3>📊 Phân bổ nick (ước tính client)</h3>
+              <h3><v-icon size="15">mdi-chart-box-outline</v-icon> Phân bổ nick (ước tính client)</h3>
               <table class="alloc-table">
                 <thead><tr><th>Nick</th><th style="text-align:right">Số KH</th></tr></thead>
                 <tbody>
@@ -681,7 +720,7 @@
               </table>
             </div>
             <div class="preview-card">
-              <h3>⏱ Thời gian dự kiến (ước tính client)</h3>
+              <h3><v-icon size="15">mdi-timer-outline</v-icon> Thời gian dự kiến (ước tính client)</h3>
               <div class="time-list">
                 <div class="time-row"><span class="lbl">Hoàn thành Kết bạn</span><span class="val">~ {{ localFallback.etaFriendDays }} ngày</span></div>
                 <div class="time-row"><span class="lbl">Hoàn thành toàn bộ chuỗi</span><span class="val hi">~ {{ localFallback.etaTotalDays }} ngày <span class="hint-badge">ước tính ±20%</span></span></div>
@@ -693,7 +732,7 @@
         <!-- Success state -->
         <div v-else-if="preview">
           <div class="big-banner">
-            <div class="icon">✓</div>
+            <div class="icon"><v-icon size="24" color="white">mdi-check</v-icon></div>
             <div class="text">
               <div class="title">Sẽ chạy với <span class="num">{{ formatNum(preview.willRun) }} / {{ formatNum(preview.totalEntries) }}</span> KH</div>
               <div class="desc">
@@ -706,7 +745,7 @@
           <div class="preview-grid">
             <!-- Phân bổ nick -->
             <div class="preview-card">
-              <h3>📊 Phân bổ nick</h3>
+              <h3><v-icon size="15">mdi-chart-box-outline</v-icon> Phân bổ nick</h3>
               <table class="alloc-table">
                 <thead>
                   <tr><th>Nick</th><th style="text-align:right">Số KH</th></tr>
@@ -733,7 +772,7 @@
 
             <!-- Thời gian dự kiến -->
             <div class="preview-card">
-              <h3>⏱ Thời gian dự kiến</h3>
+              <h3><v-icon size="15">mdi-timer-outline</v-icon> Thời gian dự kiến</h3>
               <div class="time-list">
                 <div class="time-row">
                   <span class="lbl">KH có Zalo (validate xong)</span>
@@ -756,17 +795,17 @@
                 </div>
               </div>
               <div class="prod-line">
-                📊 Năng suất hệ thống: {{ preview.throughputPerDay }} KB/ngày
+                <v-icon size="14">mdi-chart-box-outline</v-icon> Năng suất hệ thống: {{ preview.throughputPerDay }} KB/ngày
                 ({{ preview.allocation.filter(a => a.selected).length }} nick × ~32 KB/ngày × 16h)
               </div>
               <div class="info-banner sm">
-                🕒 Hoạt động giờ 6h–22h (VN). Random delay 20–40 phút. 10 nick = ~5 ngày.
+                <v-icon size="15">mdi-clock-outline</v-icon> Hoạt động giờ 6h–22h (VN). Random delay 20–40 phút. 10 nick = ~5 ngày.
               </div>
             </div>
 
             <!-- Preview 3 KH -->
             <div class="preview-card card-preview-kh">
-              <h3>👁 Preview 3 KH mẫu (số liệu thật)</h3>
+              <h3><v-icon size="15">mdi-eye-outline</v-icon> Preview 3 KH mẫu (số liệu thật)</h3>
 
               <div v-for="(kh, i) in preview.sampleCustomers" :key="i" class="kh-card">
                 <div class="kh-header">
@@ -795,7 +834,7 @@
 
         <!-- M12 — Preview Quy tắc gửi an toàn (read-only, luôn hiển thị kể cả khi preview API fail) -->
         <div class="preview-card preview-card-safety">
-          <h3>🔧 Quy tắc gửi an toàn (đã cấu hình ở Bước 3)</h3>
+          <h3><v-icon size="15">mdi-tune-variant</v-icon> Quy tắc gửi an toàn (đã cấu hình ở Bước 3)</h3>
           <div class="time-list safety-list">
             <div class="time-row">
               <span class="lbl">Giờ hoạt động (giờ VN)</span>
@@ -828,7 +867,7 @@
               <span class="lbl">Bỏ qua KH nhiều nick</span>
               <span class="val">
                 <template v-if="form.safetyRules.multinickThreshold > 0">
-                  ≥ {{ form.safetyRules.multinickThreshold }} nick → bỏ qua
+                  ≥ {{ form.safetyRules.multinickThreshold }} nick <v-icon size="13">mdi-arrow-right</v-icon> bỏ qua
                 </template>
                 <template v-else>
                   <span class="safety-off">— Tắt (không filter)</span>
@@ -852,13 +891,13 @@
             </div>
           </div>
           <div class="info-banner sm safety-info">
-            ℹ Các giá trị này chỉ áp dụng cho Mục tiêu hiện tại — sửa ở Bước 3 nếu cần đổi.
+            <v-icon size="15">mdi-information-outline</v-icon> Các giá trị này chỉ áp dụng cho Mục tiêu hiện tại — sửa ở Bước 3 nếu cần đổi.
           </div>
         </div>
 
         <!-- Thời điểm bắt đầu (chỉ Create mode — edit-mode giữ schedule cũ) -->
         <div v-if="!isEditMode" class="section start-mode-section">
-          <div class="section-title">🚀 Thời điểm bắt đầu <span class="req">*</span></div>
+          <div class="section-title"><v-icon size="17">mdi-rocket-launch-outline</v-icon> Thời điểm bắt đầu <span class="req">*</span></div>
           <div class="section-help">
             Chọn chạy ngay hoặc hẹn lịch một thời điểm trong tương lai (chỉ trong khung 6h–22h giờ VN).
           </div>
@@ -895,10 +934,10 @@
                     :min="scheduledMin"
                   />
                   <div class="hint-row">
-                    🕒 Chỉ cho phép giờ chạy trong khung <strong>6h–22h</strong> (giờ Việt Nam).
+                    <v-icon size="15">mdi-clock-outline</v-icon> Chỉ cho phép giờ chạy trong khung <strong>6h–22h</strong> (giờ Việt Nam).
                     Hệ thống sẽ tự dừng ngoài khung này.
                   </div>
-                  <div v-if="scheduledError" class="schedule-error">⚠ {{ scheduledError }}</div>
+                  <div v-if="scheduledError" class="schedule-error"><v-icon size="14">mdi-alert-outline</v-icon> {{ scheduledError }}</div>
                 </div>
               </div>
             </div>
@@ -911,7 +950,7 @@
           Bước 4 / 4 · Sau khi bắt đầu vẫn có thể tạm dừng/sửa bất cứ lúc nào.
         </div>
         <div class="right">
-          <button class="btn" @click="goStep(3)">← Quay lại</button>
+          <button class="btn" @click="goStep(3)"><v-icon size="16">mdi-arrow-left</v-icon> Quay lại</button>
           <button
             class="btn btn-primary lg"
             :disabled="submitting || !canSubmit"
@@ -935,11 +974,11 @@ import NotifyOwnerBox from '@/components/automation/NotifyOwnerBox.vue';
 
 // I10 2026-06-04 — 5 event tương tác (báo nội bộ khi KH phản hồi trong lúc chăm sóc).
 const interactionEvents = [
-  { key: 'reply',            ico: '💬', label: 'Khách trả lời tin' },
-  { key: 'reactionPositive', ico: '😍', label: 'Khách thả cảm xúc tích cực (❤️ 👍)' },
-  { key: 'reactionNegative', ico: '😡', label: 'Khách thả cảm xúc tiêu cực (😡 👎)' },
-  { key: 'lead',             ico: '💎', label: 'Khách chuyển thành Lead (chốt quan tâm)' },
-  { key: 'block',            ico: '🚫', label: 'Khách chặn nick' },
+  { key: 'reply',            ico: 'mdi-message-reply-text-outline', label: 'Khách trả lời tin' },
+  { key: 'reactionPositive', ico: 'mdi-heart-outline',              label: 'Khách thả cảm xúc tích cực (tim, like)' },
+  { key: 'reactionNegative', ico: 'mdi-emoticon-angry-outline',     label: 'Khách thả cảm xúc tiêu cực (giận, dislike)' },
+  { key: 'lead',             ico: 'mdi-diamond-stone',              label: 'Khách chuyển thành Lead (chốt quan tâm)' },
+  { key: 'block',            ico: 'mdi-cancel',                     label: 'Khách chặn nick' },
 ];
 
 const router = useRouter();
@@ -1001,6 +1040,18 @@ const editingTriggerId = ref<string | null>(null);
 const isEditMode = computed(() => !!editingTriggerId.value);
 const editLoading = ref(false);
 
+// #1 2026-06-06 (Anh chốt): chọn 1 trong 2 chế độ bám đuổi (radio), map sang 2 cột BE.
+//   'stranger' = bám đuổi ngay cả khi chưa là bạn → stranger ON + friend ON (phủ rộng).
+//   'friend'   = chỉ bám đuổi khi đã là bạn      → stranger OFF + friend ON.
+// followUpFriendEnabled luôn ON ở cả 2 chế độ (đã là bạn thì luôn bám đuổi).
+const followUpMode = computed<'stranger' | 'friend'>({
+  get: () => (form.value.followUpStrangerEnabled ? 'stranger' : 'friend'),
+  set: (mode) => {
+    form.value.followUpStrangerEnabled = mode === 'stranger';
+    form.value.followUpFriendEnabled = true;
+  },
+});
+
 const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
 const preview = ref<PreviewResponse | null>(null);
@@ -1030,6 +1081,9 @@ const form = ref({
   enableThankYou: true,           // Tin 2 Cảm ơn (sau khi KH đồng ý KB)
   enableRemind: true,             // Tin 3 Nhắc đồng ý KB sau N ngày (tự bỏ qua nếu đã đồng ý)
   enableRejectedFollowUp: false,  // Tin 4 Khi KH từ chối KB
+  // #1 2026-06-06 — 2 công tắc bám đuổi theo trạng thái kết bạn (Anh chốt).
+  followUpStrangerEnabled: true,  // Bám đuổi cả khi KH CHƯA đồng ý KB (qua hộp người lạ)
+  followUpFriendEnabled: true,    // Bám đuổi khi KH ĐÃ là bạn (chờ accept thật)
   // Thông báo nội bộ per-event: { eventKey: { owner: bool } }. manager/zaloGroup defer.
   notifyOwner: {
     welcome: true, thankYou: true, remind: true, rejected: true,
@@ -1059,6 +1113,15 @@ const form = ref({
     multinickThreshold: 0,          // Input 4 (0 = off)
     delayAfterFriendRequestMin: 60, // Input 5 (~ 1h)
     pauseHoursOnReply: 24,          // Input 6 (P2.1: KH reply → pause 24h)
+    // #3 2026-06-06 (Anh chốt): nhịp gửi lời mời mỗi nick (phút) — trước đây HARDCODE
+    // 20-40 phút trong nick-worker, ô UI bị phớt lờ. Giờ Anh nhập đây, worker đọc thật.
+    // Muốn test nhanh: đặt min=max=1. Default 20-40 = an toàn nick.
+    friendReqIntervalMinMinutes: 20,
+    friendReqIntervalMaxMinutes: 40,
+    // Sàn tối thiểu (giây) trước khi gửi Tin 1 chào — trước đây hardcode 60s.
+    welcomeMinFloorSeconds: 60,
+    // Cửa sổ (ngày) coi KH "ấm" để gửi Tin 1 qua kênh bạn bè — trước đây hardcode 30 ngày.
+    warmWindowDays: 30,
     // Section 5 fixed (display only — không gửi lên BE, server-side default):
     // - reactionPositive: 'no_pause_plus_5_points'
     // - reactionNegative: 'pause_48h_minus_5_points_notify'
@@ -1086,6 +1149,18 @@ const canNextStep1 = computed(() => {
     && !!form.value.listId
     && form.value.nickIds.length > 0;
 });
+
+// 2026-06-05 (Anh chốt) — "Lưu nháp" cần đủ 5 mục cơ bản mà BE create bắt buộc
+// (tên + tệp + nick + luồng + lời chào có {name}). Wizard auto-chọn sẵn nick + luồng
+// + lời chào mặc định nên thực tế sale chỉ cần gõ tên + chọn tệp là lưu nháp được.
+// TODO Đợt 2 (redesign wizard) — nối nút "Lưu nháp" dùng computed này.
+const canSaveDraft = computed(() =>
+  canNextStep1.value
+  && !!form.value.successorSequenceId
+  && form.value.messages.friendRequest.includes('{name}'),
+);
+// Đánh dấu giữ chủ ý (chưa nối nút) để build không báo unused — sẽ dùng ở Đợt 2.
+void canSaveDraft;
 
 const canNextStep2 = computed(() => {
   return form.value.messages.friendRequest.trim().length > 0
@@ -1170,10 +1245,10 @@ const canSubmit = computed(() => {
 
 const submitButtonLabel = computed(() => {
   if (submitting.value) return isEditMode.value ? 'Đang lưu...' : 'Đang khởi tạo...';
-  if (isEditMode.value) return '💾 Lưu thay đổi';
+  if (isEditMode.value) return 'Lưu thay đổi';
   return form.value.startMode === 'scheduled'
-    ? '⏰ Hẹn lịch chạy Mục tiêu'
-    : '▶ Bắt đầu chạy Mục tiêu';
+    ? 'Hẹn lịch chạy Mục tiêu'
+    : 'Bắt đầu chạy Mục tiêu';
 });
 
 function setStartMode(mode: 'now' | 'scheduled') {
@@ -1406,6 +1481,9 @@ function buildSubmitPayload() {
     enableThankYou: form.value.enableThankYou,
     enableRemind: form.value.enableRemind,
     enableRejectedFollowUp: form.value.enableRejectedFollowUp,
+    // #1 2026-06-06 — 2 công tắc bám đuổi theo trạng thái kết bạn.
+    followUpStrangerEnabled: form.value.followUpStrangerEnabled,
+    followUpFriendEnabled: form.value.followUpFriendEnabled,
     // notifyChannels: per-event { owner, manager(defer), zaloGroup(defer) }
     notifyChannels: Object.fromEntries(
       Object.entries(form.value.notifyOwner).map(([k, owner]) => [k, { owner, manager: false, zaloGroup: false }]),
@@ -1438,6 +1516,11 @@ function buildSubmitPayload() {
       multinickThreshold: form.value.safetyRules.multinickThreshold,
       delayAfterFriendRequestMin: form.value.safetyRules.delayAfterFriendRequestMin,
       pauseHoursOnReply: form.value.safetyRules.pauseHoursOnReply,
+      // #3 2026-06-06 — nhịp gửi + sàn welcome + cửa sổ warm (Anh nhập trên UI).
+      friendReqIntervalMinMinutes: form.value.safetyRules.friendReqIntervalMinMinutes,
+      friendReqIntervalMaxMinutes: form.value.safetyRules.friendReqIntervalMaxMinutes,
+      welcomeMinFloorSeconds: form.value.safetyRules.welcomeMinFloorSeconds,
+      warmWindowDays: form.value.safetyRules.warmWindowDays,
     },
     segmentSpec: {
       // I10 2026-06-04 — cấu trúc 5 tin mới. thankYou/remind có cột BE riêng (gửi qua
@@ -1544,6 +1627,9 @@ async function loadForEdit(triggerId: string): Promise<void> {
     if (typeof t.enableThankYou === 'boolean') form.value.enableThankYou = t.enableThankYou;
     if (typeof t.enableRemind === 'boolean') form.value.enableRemind = t.enableRemind;
     if (typeof t.enableRejectedFollowUp === 'boolean') form.value.enableRejectedFollowUp = t.enableRejectedFollowUp;
+    // #1 2026-06-06 — 2 công tắc bám đuổi.
+    if (typeof t.followUpStrangerEnabled === 'boolean') form.value.followUpStrangerEnabled = t.followUpStrangerEnabled;
+    if (typeof t.followUpFriendEnabled === 'boolean') form.value.followUpFriendEnabled = t.followUpFriendEnabled;
     if (t.notifyChannels && typeof t.notifyChannels === 'object') {
       const nc = t.notifyChannels as Record<string, { owner?: boolean }>;
       for (const k of Object.keys(form.value.notifyOwner)) {
@@ -1640,7 +1726,7 @@ onMounted(async () => {
   --bg-hover: var(--brand-softer, #f2f8fc);
   --bg-disabled: var(--surface-3, #f1f4f9);
   --border: var(--line, #e7eaf0);
-  --border-strong: #cdd4e0;
+  --border-strong: var(--line, #cdd4e0);
   --text-1: var(--ink, #141a24);
   --text-2: var(--ink-2, #475066);
   --text-3: var(--ink-3, #6b7488);
@@ -1654,9 +1740,20 @@ onMounted(async () => {
   --warning: var(--warning, #f5a524);
   --warning-bg: var(--warning-soft, #fdf3e2);
   --danger: var(--error, #f04438);
-  --danger-bg: #fdeceb;
-  --purple: #6554C0;
-  --purple-bg: #EAE6FF;
+  --danger-bg: var(--error-soft, #fdeceb);
+  --danger-border: var(--error, #ffbdad);
+  --success-border: #97e5c5;
+  --purple: var(--chip-purple, #6d28d9);
+  --purple-bg: var(--chip-purple-bg, #f1ecfe);
+  /* Amber border tint cho badge cảnh báo (HS không có token border amber riêng) */
+  --amber-text: #b45309;
+  --amber-border: var(--chip-amber, #f4cf8f);
+  /* Indigo (defer/safety badge) — map sang chip purple HS */
+  --indigo-bg: var(--chip-purple-bg, #eef2ff);
+  --indigo-text: var(--chip-purple, #4f46e5);
+  --indigo-border: var(--chip-purple, #c7d2fe);
+  /* Skeleton shimmer mid-stop */
+  --sk-mid: var(--line-2, #eceef1);
   --shadow-1: 0 1px 2px rgba(20, 26, 36, 0.05);
   --shadow-2: 0 4px 12px rgba(20, 26, 36, 0.12);
 
@@ -1670,7 +1767,7 @@ onMounted(async () => {
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.45;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, Arial, sans-serif;
+  font-family: var(--font);
 }
 
 /* HEADER */
@@ -1683,70 +1780,28 @@ onMounted(async () => {
 .topbar h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; color: var(--text-1); }
 .topbar .sub { font-size: 13px; color: var(--text-3); margin: 0; }
 
-/* STEPPER */
-.stepper {
+/* STEPPER — hàng chip HS (Anh chốt 2026-06-06) */
+.stepchips {
   display: flex;
+  gap: 8px;
   align-items: center;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px 20px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-1);
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  flex-wrap: wrap;
+  margin: 16px 0 4px;
+  padding: 0;
 }
-.step-wrap { display: contents; }
-.step-item {
-  display: flex; align-items: center; gap: 10px;
+.step-chip {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+  gap: 7px;
   cursor: pointer;
-  padding: 6px 10px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
-  flex-shrink: 0;
+  border: 0;
 }
-.step-item:hover { background: var(--bg-soft); }
-.step-circle {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
+.step-num {
+  font-family: var(--mono);
   font-weight: 700;
-  background: var(--bg-soft);
-  color: var(--text-3);
-  border: 2px solid var(--border);
-  flex-shrink: 0;
 }
-.step-item.completed .step-circle {
-  background: var(--success);
-  color: white;
-  border-color: var(--success);
-}
-.step-item.active .step-circle {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px var(--primary-bg);
-}
-.step-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-.step-item.completed .step-label { color: var(--success); }
-.step-item.active .step-label { color: var(--primary); font-weight: 600; }
-.step-connector {
-  flex: 1;
-  height: 2px;
-  background: var(--border);
-  margin: 0 16px;
-  min-width: 40px;
-}
-.step-connector.done { background: var(--success); }
+.step-sep { color: var(--ink-4); }
 
 /* STEP CARD */
 .step-card {
@@ -1899,7 +1954,7 @@ onMounted(async () => {
 .nick-avatar {
   width: 36px; height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6554C0, #2D7FF9);
+  background: linear-gradient(135deg, var(--chip-purple), var(--brand));
   color: white;
   display: inline-flex;
   align-items: center;
@@ -1908,10 +1963,10 @@ onMounted(async () => {
   font-weight: 700;
   flex-shrink: 0;
 }
-.nick-avatar.av-2 { background: linear-gradient(135deg, #36B37E, #2D7FF9); }
-.nick-avatar.av-3 { background: linear-gradient(135deg, #FFAB00, #DE350B); }
-.nick-avatar.av-4 { background: linear-gradient(135deg, #97A0AF, #6B778C); }
-.nick-avatar.av-5 { background: linear-gradient(135deg, #DE350B, #6554C0); }
+.nick-avatar.av-2 { background: linear-gradient(135deg, var(--success), var(--brand)); }
+.nick-avatar.av-3 { background: linear-gradient(135deg, var(--warning), var(--error)); }
+.nick-avatar.av-4 { background: linear-gradient(135deg, var(--ink-4), var(--ink-3)); }
+.nick-avatar.av-5 { background: linear-gradient(135deg, var(--error), var(--chip-purple)); }
 .nick-info { flex: 1; min-width: 0; }
 .nick-name { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 2px; }
 .nick-meta { font-size: 11px; color: var(--text-3); display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1976,10 +2031,10 @@ onMounted(async () => {
   margin-top: 16px;
   padding: 12px 16px;
   background: var(--primary-bg);
-  border: 1px solid #9fcfe7;
+  border: 1px solid var(--brand-soft);
   border-radius: 6px;
   font-size: 13px;
-  color: #0b5880;
+  color: var(--brand-700);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2002,29 +2057,10 @@ onMounted(async () => {
 .step-footer .left { color: var(--text-3); font-size: 12px; }
 .step-footer .right { display: flex; gap: 8px; }
 
-/* BTN */
-.btn {
-  padding: 9px 16px;
-  background: white;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  color: var(--text-2);
-  transition: all 0.15s ease;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.btn:hover { background: var(--bg-soft); border-color: var(--text-3); }
+/* BTN — dùng global PART 4 (.btn / .btn-primary / .btn-ghost / .btn-sm).
+   Chỉ giữ modifier .lg riêng cho nút submit lớn (global không có). */
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
-.btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
-.btn-primary.lg { padding: 11px 22px; font-size: 14px; font-weight: 600; }
-.btn-ghost { background: transparent; border-color: transparent; color: var(--text-3); }
-.btn-ghost:hover { background: var(--bg-soft); color: var(--text-2); }
+.btn-primary.lg { height: 44px; padding: 0 22px; font-size: 14px; font-weight: 700; }
 
 /* TEXTAREA */
 textarea.ta {
@@ -2056,10 +2092,10 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-family: var(--mono);
   cursor: pointer;
 }
-.var-chip:hover { background: #DCD6FF; }
+.var-chip:hover { background: var(--chip-purple-bg); }
 
 /* MSG BUNDLE */
 .msg-bundle {
@@ -2087,6 +2123,42 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   border-radius: 6px;
   padding: 14px;
 }
+/* #1 2026-06-06 — chọn 1 trong 2 chế độ bám đuổi (radio) */
+.followup-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.fum-label { font-size: 13px; font-weight: 600; color: var(--text-2, #374151); margin-bottom: 2px; }
+.fum-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.fum-row.selected { border-color: #2563eb; background: #eff6ff; }
+.fum-row input[type="radio"] { display: none; }
+.fum-radio {
+  flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px;
+  border: 2px solid #cbd5e1; border-radius: 50%; position: relative;
+}
+.fum-row.selected .fum-radio { border-color: #2563eb; }
+.fum-row.selected .fum-radio::after {
+  content: ''; position: absolute; inset: 3px; border-radius: 50%; background: #2563eb;
+}
+.fum-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fum-title { font-size: 13.5px; font-weight: 600; color: var(--text-1, #1f2937); }
+.fum-help { font-size: 12px; color: var(--text-3, #6b7280); line-height: 1.45; }
+.fum-badge {
+  display: inline-block; font-size: 10.5px; font-weight: 600; color: #2563eb;
+  background: #dbeafe; border-radius: 4px; padding: 1px 6px; margin-left: 4px; vertical-align: middle;
+}
 .msg-item-head {
   display: flex;
   align-items: center;
@@ -2104,7 +2176,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   font-size: 14px;
   flex-shrink: 0;
 }
-.msg-item-icon.icon-orange { background: #fdf3e2; color: #b45309; }
+.msg-item-icon.icon-orange { background: var(--warning-bg); color: #b45309; }
 .msg-item-icon.icon-green { background: var(--success-bg); color: #157f3c; }
 .msg-item-icon.icon-yellow { background: var(--warning-bg); color: #b45309; }
 .msg-item-title {
@@ -2123,21 +2195,21 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 }
 .badge-blue { background: var(--primary-bg); color: var(--primary); }
 .badge-green { background: var(--success-bg); color: #157f3c; }
-.badge-orange { background: #fdf3e2; color: #b45309; }
+.badge-orange { background: var(--warning-bg); color: #b45309; }
 .badge-yellow { background: var(--warning-bg); color: #b45309; }
 /* I10 2026-06-04 — cấu trúc 5 tin */
-.badge-req { background: #141a24; color: #fff; }
-.badge-gray { background: #eef1f6; color: #475066; }
-.msg-item.msg-locked { border-color: #cfe6f3; background: linear-gradient(0deg,#f2f8fc,#fff); }
+.badge-req { background: var(--ink); color: #fff; }
+.badge-gray { background: var(--line-2); color: var(--ink-2); }
+.msg-item.msg-locked { border-color: var(--brand-soft); background: linear-gradient(0deg, var(--brand-softer), var(--surface)); }
 .icon-blue { background: var(--primary-bg); color: var(--primary); }
 .flow-strip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:14px; padding:9px 13px;
-  background:#fff; border:1px solid var(--border); border-radius:9px; font-size:12px; color:var(--text-3); }
-.flow-strip b { color:var(--text); }
-.flow-strip .fa { color:var(--border-strong,#9297a0); }
-.cond-chip { display:inline-block; font-size:11.5px; color:#0a6b5b; background:#e3f5f1; padding:2px 8px; border-radius:6px; margin-top:7px; }
+  background:var(--surface); border:1px solid var(--border); border-radius:9px; font-size:12px; color:var(--text-3); }
+.flow-strip b { color:var(--text-1); }
+.flow-strip .fa { color:var(--border-strong); }
+.cond-chip { display:inline-block; font-size:11.5px; color:#157f3c; background:var(--success-bg); padding:2px 8px; border-radius:6px; margin-top:7px; }
 .ev-notify-item { padding:8px 0; border-top:1px dashed var(--border); }
 .ev-notify-item:first-child { border-top:none; }
-.ev-notify-head { font-size:13px; color:var(--text); display:flex; align-items:center; gap:7px; }
+.ev-notify-head { font-size:13px; color:var(--text-1); display:flex; align-items:center; gap:7px; }
 .msg-item-help {
   font-size: 12px;
   color: var(--text-3);
@@ -2228,8 +2300,8 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 .defer-badge {
   padding: 2px 6px;
   background: var(--warning-bg);
-  color: #b45309;
-  border: 1px solid #FFD380;
+  color: var(--amber-text);
+  border: 1px solid var(--amber-border);
   border-radius: 4px;
   font-size: 10px;
   font-weight: 600;
@@ -2290,10 +2362,10 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   margin-top: 12px;
   padding: 10px 14px;
   background: var(--primary-soft);
-  border: 1px solid #9fcfe7;
+  border: 1px solid var(--brand-soft);
   border-radius: 6px;
   font-size: 12px;
-  color: #0b5880;
+  color: var(--brand-700);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2306,18 +2378,18 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   margin-top: 20px;
   padding: 14px 18px;
   background: var(--primary-bg);
-  border: 1px solid #9fcfe7;
+  border: 1px solid var(--brand-soft);
   border-radius: 6px;
   font-size: 12px;
-  color: #0b5880;
+  color: var(--brand-700);
   line-height: 1.65;
 }
 .flow-explainer .strong { font-weight: 700; }
 
 /* STEP 3 PREVIEW */
 .big-banner {
-  background: linear-gradient(135deg, #E3FCEF 0%, #e4f1f8 100%);
-  border: 1px solid #97E5C5;
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--brand-soft) 100%);
+  border: 1px solid var(--success-border);
   border-radius: 8px;
   padding: 20px 24px;
   margin-bottom: 20px;
@@ -2326,8 +2398,8 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   gap: 16px;
 }
 .big-banner.warn {
-  background: linear-gradient(135deg, #FFF7E0 0%, #FFEBE6 100%);
-  border-color: #FFD380;
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--error-soft) 100%);
+  border-color: var(--amber-border);
 }
 .big-banner .icon {
   width: 48px; height: 48px;
@@ -2384,9 +2456,9 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   .preview-card-safety .safety-list { grid-template-columns: 1fr; }
 }
 .preview-card-safety .safety-badge {
-  background: #EEF2FF;
-  color: #4F46E5;
-  border-color: #C7D2FE;
+  background: var(--indigo-bg);
+  color: var(--indigo-text);
+  border-color: var(--indigo-border);
   margin-left: 8px;
 }
 .preview-card-safety .safety-off {
@@ -2427,15 +2499,15 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   display: inline-block;
   margin-left: 6px;
   padding: 1px 7px;
-  background: #FFF7E0;
-  color: #b45309;
-  border: 1px solid #FFD380;
+  background: var(--warning-bg);
+  color: var(--amber-text);
+  border: 1px solid var(--amber-border);
   border-radius: 10px;
   font-size: 10px;
   font-weight: 600;
   vertical-align: middle;
 }
-.prod-line { margin-top: 10px; font-size: 12px; color: #6B778C; line-height: 1.5; }
+.prod-line { margin-top: 10px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
 
 .kh-card {
   background: var(--bg-soft);
@@ -2485,7 +2557,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 11px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--mono);
 }
 
 /* SKELETON */
@@ -2497,7 +2569,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 }
 .sk-banner {
   height: 90px;
-  background: linear-gradient(90deg, var(--bg-soft) 0%, #ECEEF1 50%, var(--bg-soft) 100%);
+  background: linear-gradient(90deg, var(--bg-soft) 0%, var(--sk-mid) 50%, var(--bg-soft) 100%);
   border-radius: 8px;
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
@@ -2508,7 +2580,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 }
 .sk-card {
   height: 220px;
-  background: linear-gradient(90deg, var(--bg-soft) 0%, #ECEEF1 50%, var(--bg-soft) 100%);
+  background: linear-gradient(90deg, var(--bg-soft) 0%, var(--sk-mid) 50%, var(--bg-soft) 100%);
   border-radius: 6px;
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
@@ -2547,7 +2619,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   padding: 8px 10px;
   background: var(--danger-bg);
   color: var(--danger);
-  border: 1px solid #FFBDAD;
+  border: 1px solid var(--danger-border);
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;

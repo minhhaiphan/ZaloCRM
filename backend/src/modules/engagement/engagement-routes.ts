@@ -185,7 +185,11 @@ export async function registerEngagementRoutes(app: FastifyInstance): Promise<vo
       }
     }
 
-    return reply.send({ ok: true, updated, total: contacts.length });
+    // /office-hours 2026-06-06 — sync Auto Engagement tag sau khi re-classify (tuần tự).
+    const { syncEngagementTagsAll } = await import('./engagement-tag-service.js');
+    const tagSync = await syncEngagementTagsAll();
+
+    return reply.send({ ok: true, updated, total: contacts.length, engagementTagsSynced: tagSync.synced });
   });
 
   // POST /api/v1/admin/engagement/backfill — one-time backfill from Message history

@@ -23,6 +23,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { updateContactAggregateBatch } from './aggregate-contact.js';
 import { logActivity } from '../activity/activity-logger.js';
 import type { AutoTagKey } from './types.js';
+import { AUTO_TAG_LABELS, AUTO_TAG_ICONS } from './types.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -202,33 +203,58 @@ export async function updateFriendAutoTags(friendId: string): Promise<boolean> {
 
     // M57 Wave 3 /plan-eng-review: route qua tag-service để dual-write junction.
     // Diff added/removed → call addFriendTag/removeFriendTag (source=auto_detect).
-    // dual-write Friend.autoTags atomic trong $transaction (Issue 3A + 5A dedup).
+    //
+    // ⚠️ Việt hóa 2026-06-06: slug PHẢI giữ = key tiếng Anh (active/cold/...) để không
+    // vỡ junction cũ. Nhưng NAME hiển thị = tiếng Việt (AUTO_TAG_LABELS) + icon. Nếu dùng
+    // addFriendTag({tagName:'Đã nguội', autoCreate}) thì slugifyTag('Đã nguội')='da-nguoi'
+    // → tạo tag MỚI lệch slug. → Phải resolve/seed tag def theo slug=key + name Việt, rồi
+    // add bằng tagId (KHÔNG autoCreate). Giống cách engagement-tag-service làm.
     const { addFriendTag, removeFriendTag } = await import('../tags/tag-service.js');
-    const { slugifyTag } = await import('../../shared/tag-slug.js');
-    for (const tagName of added) {
-      try {
-        await addFriendTag({
-          friendId,
-          tagName,
-          source: 'auto_detect',
-          addedBy: null, // worker, không có user
-          autoCreate: true,
+
+    // Helper: resolve tag def theo slug=key (auto_detect), tạo với name Việt nếu chưa có.
+    const resolveDetectTagId = async (key: AutoTagKey): Promise<string | null> => {
+      const existing = await prisma.tag.findFirst({
+        where: { orgId: friend.orgId, scope: 'friend', source: 'auto_detect', slug: key, zaloAccountId: null },
+        select: { id: true },
+      });
+      if (existing) return existing.id;
+      const viName = `${AUTO_TAG_ICONS[key]} ${AUTO_TAG_LABELS[key]}`.trim();
+      const created = await prisma.tag
+        .create({
+          data: { orgId: friend.orgId, name: viName, slug: key, color: '#F59E0B', scope: 'friend', source: 'auto_detect', priority: 3 },
+          select: { id: true },
+        })
+        .catch(async () => {
+          const again = await prisma.tag.findFirst({
+            where: { orgId: friend.orgId, scope: 'friend', source: 'auto_detect', slug: key, zaloAccountId: null },
+            select: { id: true },
+          });
+          return again;
         });
+      return created?.id ?? null;
+    };
+
+    for (const key of added) {
+      try {
+        const tagId = await resolveDetectTagId(key);
+        if (tagId) {
+          await addFriendTag({ friendId, tagId, source: 'auto_detect', addedBy: null });
+        }
       } catch (err) {
-        logger.warn?.(`[auto-tag] addFriendTag fail ${tagName}: ${(err as Error).message}`);
+        logger.warn?.(`[auto-tag] addFriendTag fail ${key}: ${(err as Error).message}`);
       }
     }
-    for (const tagName of removed) {
+    for (const key of removed) {
       try {
-        const slug = slugifyTag(tagName);
         const tag = await prisma.tag.findFirst({
-          where: { orgId: friend.orgId, scope: 'friend', slug, zaloAccountId: null },
+          where: { orgId: friend.orgId, scope: 'friend', source: 'auto_detect', slug: key, zaloAccountId: null },
+          select: { id: true },
         });
         if (tag) {
           await removeFriendTag({ friendId, tagId: tag.id, removedBy: null });
         }
       } catch (err) {
-        logger.warn?.(`[auto-tag] removeFriendTag fail ${tagName}: ${(err as Error).message}`);
+        logger.warn?.(`[auto-tag] removeFriendTag fail ${key}: ${(err as Error).message}`);
       }
     }
 

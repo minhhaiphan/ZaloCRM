@@ -1,219 +1,239 @@
 <template>
   <div class="lists-view">
-    <header class="at-page-header">
+    <!-- ================== TOPBAR (HS .mkt-top scaffold) ================== -->
+    <div class="mkt-top">
       <div>
-        <h1 class="at-page-title">📂 Tệp khách hàng</h1>
-        <p class="at-page-subtitle">
+        <div class="mtt">Tệp khách hàng</div>
+        <div class="mts">
           Paste / Excel / Lead Ads (FB · TikTok · Google · Zalo) đổ về tệp tự động theo <b>#mã</b> trong tên chiến dịch.
-          Tệp KH làm <b>audience source</b> cho Sequence / Broadcast / Campaign.
+          Tệp KH làm <b>nguồn đối tượng</b> cho Sequence / Broadcast / Campaign.
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" disabled title="Nhập danh sách từ tệp CSV">
+          <v-icon size="16">mdi-upload</v-icon> Import CSV
+        </button>
+        <button class="btn btn-primary btn-sm" @click="showCreate = true">
+          <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo tệp
+        </button>
+      </div>
+    </div>
+
+    <div class="mkt-body">
+      <!-- ============ STATS BAND (Atlas .mkt-stats) ============ -->
+      <div class="mkt-stats stats-5">
+        <button class="mstat clickable" :class="{ on: platformFilter === 'all' }" @click="onPlatformFilter('all')">
+          <div class="mv num">{{ stats.totalLists.toLocaleString('vi-VN') }}</div>
+          <div class="ml">Tổng tệp</div>
+        </button>
+        <button class="mstat clickable" :class="{ on: platformFilter === 'leadads' }" @click="onPlatformFilter('leadads')">
+          <div class="mv num">{{ stats.leadAdsLists.toLocaleString('vi-VN') }}</div>
+          <div class="ml"><v-icon size="13">mdi-bullhorn-outline</v-icon> Lead Ads</div>
+        </button>
+        <button class="mstat clickable" :class="{ on: platformFilter === 'paste' }" @click="onPlatformFilter('paste')">
+          <div class="mv num">{{ stats.pasteLists.toLocaleString('vi-VN') }}</div>
+          <div class="ml"><v-icon size="13">mdi-clipboard-text-outline</v-icon> Paste / File</div>
+        </button>
+        <div class="mstat">
+          <div class="mv num">{{ stats.totalEntries.toLocaleString('vi-VN') }}</div>
+          <div class="ml">SĐT trong các tệp</div>
+        </div>
+        <div class="mstat">
+          <div class="mv num">{{ stats.totalHasZalo.toLocaleString('vi-VN') }}</div>
+          <div class="ml">SĐT có Zalo</div>
+        </div>
+      </div>
+
+      <!-- ============ Status tabs: Đang dùng / Lưu trữ ============ -->
+      <div class="status-tabs">
+        <button
+          class="status-tab"
+          :class="{ active: listsStatus === 'active' }"
+          @click="onSwitchStatus('active')"
+        >
+          <v-icon size="16">mdi-folder-account-outline</v-icon>
+          Đang dùng
+          <span class="count num">{{ listsStatus === 'active' ? listsTotal : '' }}</span>
+        </button>
+        <button
+          class="status-tab"
+          :class="{ active: listsStatus === 'archived' }"
+          @click="onSwitchStatus('archived')"
+        >
+          <v-icon size="16">mdi-archive-outline</v-icon>
+          Lưu trữ
+          <span class="count num">{{ listsStatus === 'archived' ? listsTotal : '' }}</span>
+        </button>
+        <button
+          class="status-tab"
+          :class="{ active: listsStatus === 'all' }"
+          @click="onSwitchStatus('all')"
+        >
+          <v-icon size="16">mdi-view-list</v-icon>
+          Tất cả
+        </button>
+        <div class="spacer"></div>
+        <div class="field sm search">
+          <v-icon size="16">mdi-magnify</v-icon>
+          <input
+            v-model="listsSearch"
+            placeholder="Tìm tên tệp..."
+            @input="debouncedFetch"
+          />
+        </div>
+      </div>
+
+      <!-- ============ Empty state ============ -->
+      <div v-if="!loadingLists && lists.length === 0" class="empty">
+        <v-icon size="40">mdi-folder-open-outline</v-icon>
+        <h3 v-if="listsStatus === 'archived'">Chưa có tệp nào lưu trữ</h3>
+        <h3 v-else>Chưa có tệp khách hàng nào</h3>
+        <p v-if="listsStatus === 'active'">
+          Bấm "Tạo tệp" để paste/upload danh sách SĐT đầu tiên.
+        </p>
+        <p v-else-if="listsStatus === 'archived'">
+          Tệp lưu trữ sẽ xuất hiện ở đây sau khi anh bấm "Lưu trữ" trên 1 tệp đang dùng.
         </p>
       </div>
-      <button class="at-btn at-btn--sm at-btn--action" @click="showCreate = true">
-        <v-icon size="18">mdi-plus</v-icon>
-        Tạo tệp mới
-      </button>
-    </header>
 
-    <!-- Phase Multi-Source Lead Ads 2026-05-27 — Stats row -->
-    <div class="stats-row">
-      <button class="stat-card" :class="{ active: platformFilter === 'all' }" @click="onPlatformFilter('all')">
-        <div class="stat-num">{{ stats.totalLists.toLocaleString('vi-VN') }}</div>
-        <div class="stat-label">Tổng tệp</div>
-      </button>
-      <button class="stat-card" :class="{ active: platformFilter === 'leadads' }" @click="onPlatformFilter('leadads')">
-        <div class="stat-num">{{ stats.leadAdsLists.toLocaleString('vi-VN') }}</div>
-        <div class="stat-label">📣 Lead Ads</div>
-      </button>
-      <button class="stat-card" :class="{ active: platformFilter === 'paste' }" @click="onPlatformFilter('paste')">
-        <div class="stat-num">{{ stats.pasteLists.toLocaleString('vi-VN') }}</div>
-        <div class="stat-label">📋 Paste / File</div>
-      </button>
-      <div class="stat-card stat-card-readonly">
-        <div class="stat-num">{{ stats.totalEntries.toLocaleString('vi-VN') }}</div>
-        <div class="stat-label">SĐT trong các tệp</div>
-      </div>
-      <div class="stat-card stat-card-readonly">
-        <div class="stat-num">{{ stats.totalHasZalo.toLocaleString('vi-VN') }}</div>
-        <div class="stat-label">SĐT có Zalo</div>
-      </div>
-    </div>
-
-    <!-- Status tabs: Đang dùng / Lưu trữ -->
-    <div class="status-tabs">
-      <button
-        class="status-tab"
-        :class="{ active: listsStatus === 'active' }"
-        @click="onSwitchStatus('active')"
-      >
-        <v-icon size="16">mdi-folder-account-outline</v-icon>
-        Đang dùng
-        <span class="count">{{ listsStatus === 'active' ? listsTotal : '' }}</span>
-      </button>
-      <button
-        class="status-tab"
-        :class="{ active: listsStatus === 'archived' }"
-        @click="onSwitchStatus('archived')"
-      >
-        <v-icon size="16">mdi-archive-outline</v-icon>
-        Lưu trữ
-        <span class="count">{{ listsStatus === 'archived' ? listsTotal : '' }}</span>
-      </button>
-      <button
-        class="status-tab"
-        :class="{ active: listsStatus === 'all' }"
-        @click="onSwitchStatus('all')"
-      >
-        <v-icon size="16">mdi-view-list</v-icon>
-        Tất cả
-      </button>
-      <div class="spacer"></div>
-      <div class="search">
-        <v-icon size="14">mdi-magnify</v-icon>
-        <input
-          v-model="listsSearch"
-          placeholder="Tìm tên tệp..."
-          @input="debouncedFetch"
-        />
-      </div>
-    </div>
-
-    <!-- Empty state -->
-    <div v-if="!loadingLists && lists.length === 0" class="empty-state">
-      <div class="empty-icon">📂</div>
-      <h3 v-if="listsStatus === 'archived'">Chưa có tệp nào lưu trữ</h3>
-      <h3 v-else>Chưa có tệp khách hàng nào</h3>
-      <p v-if="listsStatus === 'active'">
-        Bấm "Tạo tệp mới" để paste/upload danh sách SĐT đầu tiên.
-      </p>
-      <p v-else-if="listsStatus === 'archived'">
-        Tệp lưu trữ sẽ xuất hiện ở đây sau khi anh bấm "Lưu trữ" trên 1 tệp đang dùng.
-      </p>
-    </div>
-
-    <!-- Lists table -->
-    <div v-else class="lists-table-wrap">
-      <table class="lists-table">
-        <thead>
-          <tr>
-            <th>Tên tệp</th>
-            <th>Nguồn</th>
-            <th>Mã đồng bộ</th>
-            <th>Chia sẻ</th>
-            <th>Ngày tạo</th>
-            <th class="right">Tổng</th>
-            <th class="right">Hợp lệ</th>
-            <th class="right">Trùng</th>
-            <th class="right">Có Zalo</th>
-            <th>Tiến độ</th>
-            <th>Trạng thái</th>
-            <th class="right">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="list in filteredLists"
-            :key="list.id"
-            class="row-clickable"
-            @click="goToDetail(list.id)"
-          >
-            <td>
-              <div class="list-name-cell">
-                <span class="icon-em">{{ list.iconEmoji || '📂' }}</span>
-                <div>
-                  <div class="nm">{{ list.name }}</div>
-                  <div class="sub">{{ list.totalEntries.toLocaleString('vi-VN') }} SĐT · {{ list.createdBy?.fullName ?? list.createdBy?.email ?? '—' }}</div>
+      <!-- ============ Lists table ============ -->
+      <div v-else class="card table-card">
+        <table class="tbl lists-table">
+          <thead>
+            <tr>
+              <th>Tên tệp</th>
+              <th>Số khách</th>
+              <th>Nguồn</th>
+              <th>Mã đồng bộ</th>
+              <th>Chia sẻ</th>
+              <th>Cập nhật</th>
+              <th class="right">Hợp lệ</th>
+              <th class="right">Trùng</th>
+              <th class="right">Có Zalo</th>
+              <th>Tiến độ</th>
+              <th>Trạng thái</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="list in filteredLists"
+              :key="list.id"
+              class="row-clickable"
+              @click="goToDetail(list.id)"
+            >
+              <td>
+                <div class="list-name-cell">
+                  <div class="tev">
+                    <v-icon size="18">mdi-folder-outline</v-icon>
+                  </div>
+                  <div class="nst">
+                    <div class="nm cell-strong">{{ list.name }}</div>
+                    <div class="sub t-cap">{{ list.createdBy?.fullName ?? list.createdBy?.email ?? '—' }}</div>
+                  </div>
                 </div>
-              </div>
-            </td>
-            <td>
-              <span class="source-chip" :class="sourceClass(list.sourceType)">{{ sourceLabel(list.sourceType) }}</span>
-            </td>
-            <td>
-              <span v-if="list.integrationKey === '__UNROUTED__'" class="key-chip unrouted" title="Lead chảy về tệp này vì không khớp #mã nào — anh nên đổi tên chiến dịch hoặc tạo tệp mới có mã đó.">
-                🚨 UNROUTED
-              </span>
-              <span v-else-if="list.integrationKey" class="key-chip" :title="`Đặt tên chiến dịch FB/TikTok kèm #${list.integrationKey} để lead chảy về tệp này`">
-                #{{ list.integrationKey }}
-              </span>
-              <span v-else class="muted">—</span>
-            </td>
-            <td>
-              <span v-if="list.shareableToPool" class="share-chip" title="Tệp này đã chia sẻ vào Lead Pool — sale có quyền có thể nhận lead">
-                <v-icon size="11">mdi-account-multiple</v-icon> Pool
-              </span>
-              <span v-else class="muted">—</span>
-            </td>
-            <td class="date">{{ formatDate(list.createdAt) }}</td>
-            <td class="num-cell">{{ list.totalEntries.toLocaleString('vi-VN') }}</td>
-            <td class="num-cell green">{{ list.validEntries.toLocaleString('vi-VN') }}</td>
-            <td class="num-cell" :class="dupTotal(list) > 0 ? 'amber' : 'muted'">{{ dupTotal(list).toLocaleString('vi-VN') }}</td>
-            <td class="num-cell" :class="list.hasZaloEntries > 0 ? 'blue' : 'muted'">
-              <template v-if="list.status === 'processing' && list.pendingLookupEntries > 0">
-                <span class="muted">— /{{ list.validEntries.toLocaleString('vi-VN') }}</span>
-              </template>
-              <template v-else>
-                {{ list.hasZaloEntries.toLocaleString('vi-VN') }}
-              </template>
-            </td>
-            <td class="progress-cell">
-              <div class="progress-bar" :title="`Hợp lệ ${progressPct(list, 'valid')}% · Lỗi ${progressPct(list, 'invalid')}% · Trùng ${progressPct(list, 'dup')}%`">
-                <i class="ok" :style="{ width: progressPct(list, 'valid') + '%' }"></i>
-                <i class="warn" :style="{ width: progressPct(list, 'dup') + '%' }"></i>
-                <i class="bad" :style="{ width: progressPct(list, 'invalid') + '%' }"></i>
-              </div>
-            </td>
-            <td>
-              <span v-if="list.status === 'processing'" class="status-chip processing">
-                <v-icon size="12">mdi-progress-clock</v-icon> Đang quét
-              </span>
-              <span v-else-if="list.status === 'archived'" class="status-chip archived">
-                <v-icon size="12">mdi-archive</v-icon> Lưu trữ
-              </span>
-              <span v-else class="status-chip done">
-                <v-icon size="12">mdi-check-circle</v-icon> Hoàn tất
-              </span>
-            </td>
-            <td class="row-actions" @click.stop>
-              <button class="icon-btn" title="Tạo campaign từ tệp này">
-                <v-icon size="14">mdi-send</v-icon>
-              </button>
-              <button class="icon-btn" title="Export CSV">
-                <v-icon size="14">mdi-download</v-icon>
-              </button>
-              <v-menu :close-on-content-click="true">
-                <template #activator="{ props: act }">
-                  <button v-bind="act" class="icon-btn" title="More">
-                    <v-icon size="14">mdi-dots-vertical</v-icon>
-                  </button>
+              </td>
+              <td>
+                <span class="num cell-strong">{{ list.totalEntries.toLocaleString('vi-VN') }}</span>
+              </td>
+              <td>
+                <span
+                  v-if="isAutoSource(list.sourceType)"
+                  class="chip chip-blue"
+                >
+                  <v-icon size="12">mdi-lightning-bolt</v-icon> {{ sourceLabel(list.sourceType) }}
+                </span>
+                <span v-else class="t-sub">{{ sourceLabel(list.sourceType) }}</span>
+              </td>
+              <td>
+                <span v-if="list.integrationKey === '__UNROUTED__'" class="key-chip unrouted" title="Lead chảy về tệp này vì không khớp #mã nào — anh nên đổi tên chiến dịch hoặc tạo tệp mới có mã đó.">
+                  <v-icon size="12">mdi-alert</v-icon> UNROUTED
+                </span>
+                <span v-else-if="list.integrationKey" class="key-chip" :title="`Đặt tên chiến dịch FB/TikTok kèm #${list.integrationKey} để lead chảy về tệp này`">
+                  #{{ list.integrationKey }}
+                </span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td>
+                <span v-if="list.shareableToPool" class="chip chip-green" title="Tệp này đã chia sẻ vào Lead Pool — sale có quyền có thể nhận lead">
+                  <v-icon size="12">mdi-account-multiple</v-icon> Pool
+                </span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td class="date t-cap">{{ formatDate(list.createdAt) }}</td>
+              <td class="num-cell green">{{ list.validEntries.toLocaleString('vi-VN') }}</td>
+              <td class="num-cell" :class="dupTotal(list) > 0 ? 'amber' : 'muted'">{{ dupTotal(list).toLocaleString('vi-VN') }}</td>
+              <td class="num-cell" :class="list.hasZaloEntries > 0 ? 'blue' : 'muted'">
+                <template v-if="list.status === 'processing' && list.pendingLookupEntries > 0">
+                  <span class="muted">— /{{ list.validEntries.toLocaleString('vi-VN') }}</span>
                 </template>
-                <v-list density="compact" min-width="180">
-                  <v-list-item @click="onRescan(list.id)" prepend-icon="mdi-refresh">
-                    <v-list-item-title>Quét lại Zalo</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item
-                    v-if="list.archivedAt"
-                    @click="onUnarchive(list.id)"
-                    prepend-icon="mdi-archive-arrow-up-outline"
-                  >
-                    <v-list-item-title>Đưa khỏi lưu trữ</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item
-                    v-else
-                    @click="onArchive(list.id)"
-                    prepend-icon="mdi-archive-outline"
-                  >
-                    <v-list-item-title>Lưu trữ</v-list-item-title>
-                  </v-list-item>
-                  <v-divider />
-                  <v-list-item @click="onDelete(list.id)" prepend-icon="mdi-delete-outline" class="danger">
-                    <v-list-item-title style="color: var(--error, #f04438)">Xoá tệp</v-list-item-title>
-                  </v-list-item>
-                </v-list>
-              </v-menu>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                <template v-else>
+                  {{ list.hasZaloEntries.toLocaleString('vi-VN') }}
+                </template>
+              </td>
+              <td class="progress-cell">
+                <div class="bar split" :title="`Hợp lệ ${progressPct(list, 'valid')}% · Lỗi ${progressPct(list, 'invalid')}% · Trùng ${progressPct(list, 'dup')}%`">
+                  <i class="ok" :style="{ width: progressPct(list, 'valid') + '%' }"></i>
+                  <i class="warn" :style="{ width: progressPct(list, 'dup') + '%' }"></i>
+                  <i class="bad" :style="{ width: progressPct(list, 'invalid') + '%' }"></i>
+                </div>
+              </td>
+              <td>
+                <span v-if="list.status === 'processing'" class="chip chip-amber">
+                  <v-icon size="12">mdi-progress-clock</v-icon> Đang quét
+                </span>
+                <span v-else-if="list.status === 'archived'" class="chip chip-grey">
+                  <v-icon size="12">mdi-archive</v-icon> Lưu trữ
+                </span>
+                <span v-else class="chip chip-green">
+                  <v-icon size="12">mdi-check-circle</v-icon> Hoàn tất
+                </span>
+              </td>
+              <td class="row-actions" @click.stop>
+                <button class="btn btn-ghost btn-icon btn-sm" title="Tạo campaign từ tệp này">
+                  <v-icon size="15">mdi-send</v-icon>
+                </button>
+                <button class="btn btn-ghost btn-icon btn-sm" title="Export CSV">
+                  <v-icon size="15">mdi-download</v-icon>
+                </button>
+                <v-menu :close-on-content-click="true">
+                  <template #activator="{ props: act }">
+                    <button v-bind="act" class="btn btn-ghost btn-icon btn-sm" title="More">
+                      <v-icon size="15">mdi-dots-vertical</v-icon>
+                    </button>
+                  </template>
+                  <v-list density="compact" min-width="180">
+                    <v-list-item @click="onRescan(list.id)" prepend-icon="mdi-refresh">
+                      <v-list-item-title>Quét lại Zalo</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-if="list.archivedAt"
+                      @click="onUnarchive(list.id)"
+                      prepend-icon="mdi-archive-arrow-up-outline"
+                    >
+                      <v-list-item-title>Đưa khỏi lưu trữ</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-else
+                      @click="onArchive(list.id)"
+                      prepend-icon="mdi-archive-outline"
+                    >
+                      <v-list-item-title>Lưu trữ</v-list-item-title>
+                    </v-list-item>
+                    <v-divider />
+                    <v-list-item @click="onDelete(list.id)" prepend-icon="mdi-delete-outline" class="danger">
+                      <v-list-item-title style="color: var(--error)">Xoá tệp</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+                <button class="btn btn-icon btn-sm go-arrow" title="Mở tệp">
+                  <v-icon size="15">mdi-arrow-right</v-icon>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <CreateListModal v-model="showCreate" @created="onCreated" />
@@ -226,7 +246,6 @@ import { useRouter } from 'vue-router';
 import { useCustomerLists, type CustomerListSummary, type ListStatusFilter } from '@/composables/use-customer-lists';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import CreateListModal from '@/components/automation/lists/CreateListModal.vue';
-import '@/components/automation/phase7/airtable.css';
 
 // Phase Multi-Source Lead Ads 2026-05-27 — platform filter
 type PlatformFilter = 'all' | 'leadads' | 'paste';
@@ -302,19 +321,18 @@ function formatDate(iso: string): string {
 
 function sourceLabel(s: string): string {
   switch (s) {
-    case 'paste': return '📋 Paste';
-    case 'csv': return '📄 CSV';
-    case 'excel': return '📊 Excel';
-    case 'leadads': return '📣 Lead Ads';
-    case 'api': return '🔌 API';
+    case 'paste': return 'Paste';
+    case 'csv': return 'CSV';
+    case 'excel': return 'Excel';
+    case 'leadads': return 'Lead Ads';
+    case 'api': return 'API';
     default: return s;
   }
 }
 
-// Phase Multi-Source Lead Ads 2026-05-27 — pill color theo source kind
-function sourceClass(s: string): string {
-  if (s === 'leadads' || s === 'api') return 'source-leadads';
-  return 'source-import';
+// Phase Multi-Source Lead Ads 2026-05-27 — nguồn tự động (leadads/api) hiển thị chip-blue + tia chớp
+function isAutoSource(s: string): boolean {
+  return s === 'leadads' || s === 'api';
 }
 
 const filteredLists = computed(() => {
@@ -360,210 +378,104 @@ function progressPct(l: CustomerListSummary, kind: 'valid' | 'invalid' | 'dup'):
   if (kind === 'dup') return (dupTotal(l) / l.totalEntries) * 100;
   return 0;
 }
-
-function initials(name: string): string {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
-const GRADIENTS: [string, string][] = [
-  ['#6366F1', '#A855F7'],
-  ['#10B981', '#059669'],
-  ['#F59E0B', '#D97706'],
-  ['#EC4899', '#BE185D'],
-  ['#3B82F6', '#1D4ED8'],
-];
-function hashIdx(s: string, mod: number): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h % mod;
-}
-function avatarStyle(name: string): Record<string, string> {
-  const [c1, c2] = GRADIENTS[hashIdx(name || '?', GRADIENTS.length)];
-  return { background: `linear-gradient(135deg, ${c1}, ${c2})` };
-}
-void initials; void avatarStyle; // legacy helpers kept for ref after table refactor
 </script>
 
 <style scoped>
-.lists-view {
-  /* 2026-06-04 v2 — Unified Marketing theme */
-  padding: var(--at-s-lg, 24px);
-  max-width: 100%;
-}
+/* ════════════════════════════════════════════════════════════
+   Tệp khách hàng (ListsView) — Atlas HS Holding re-skin 2026-06-06
+   Scaffold dùng .mkt-top / .mkt-body / .mkt-stats từ hs-crm-theme.css.
+   CSS-only override cho phần custom: status-tabs, key-chip, bar split,
+   num-cell màu. Token hoá toàn bộ — KHÔNG hardcode hex lạ.
+   ════════════════════════════════════════════════════════════ */
+.lists-view { background: var(--surface-2); min-height: 100%; }
 
-/* HS re-skin 2026-06-05 — ListsView hardcode Tailwind-gray → token HS Holding.
-   CSS-only, template/logic giữ nguyên. Tab active dùng --ink (navy) như
-   .at-primary, action/stat-card active dùng --brand. */
+/* stats band — 5 cột thay vì 4 mặc định */
+.mkt-stats.stats-5 { grid-template-columns: repeat(5, 1fr); }
+.mstat.clickable { text-align: left; cursor: pointer; transition: border-color .12s, background .12s; }
+.mstat.clickable:hover { border-color: var(--brand-soft); }
+.mstat.clickable.on { border-color: var(--brand); background: var(--brand-softer); }
+.mstat .ml { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ───── Status tabs ───── */
 .status-tabs {
   display: flex; align-items: center; gap: 4px;
-  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0); border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
   padding: 6px; margin-bottom: 14px;
 }
 .status-tab {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 6px;
+  padding: 7px 12px; border-radius: var(--r-xs);
   background: transparent; border: none; cursor: pointer;
-  font-size: 12.5px; font-weight: 500; color: var(--ink-2, #475066);
-  font-family: inherit;
+  font-size: 12.5px; font-weight: 500; color: var(--ink-2);
 }
-.status-tab:hover { background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24); }
-.status-tab.active { background: var(--ink, #141a24); color: #fff; }
+.status-tab:hover { background: var(--surface-3); color: var(--ink); }
+.status-tab.active { background: var(--ink); color: #fff; }
 .status-tab .count {
-  background: rgba(20,26,36,.06); color: var(--ink-2, #475066);
-  padding: 0 6px; border-radius: 99px;
+  background: var(--surface-3); color: var(--ink-2);
+  padding: 0 6px; border-radius: var(--r-pill);
   font-size: 10.5px; font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
-.status-tab.active .count {
-  background: rgba(255,255,255,.18); color: #fff;
-}
+.status-tab.active .count { background: rgba(255,255,255,.18); color: #fff; }
 .spacer { flex: 1; }
-.search {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: var(--surface-3, #f1f4f9); border: 1px solid var(--line-2, #eef1f6);
-  border-radius: 7px; padding: 0 9px;
-  min-width: 220px; height: 32px;
-}
-.search input {
-  border: none; background: transparent; outline: none;
-  font-size: 12.5px; color: var(--ink, #141a24);
-  font-family: inherit; width: 100%;
-}
-.search input::placeholder { color: var(--ink-4, #97a0b3); }
+.search { min-width: 220px; }
 
-.empty-state {
-  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0);
-  border-radius: 12px; padding: 64px 24px;
-  text-align: center; color: var(--ink-3, #6b7488);
-}
-.empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
-.empty-state h3 { margin: 0 0 8px; color: var(--ink, #141a24); font-size: 16px; }
-.empty-state p { margin: 0; font-size: 13px; }
+/* ───── Table ───── */
+.table-card { overflow: auto; padding: 0; }
+.lists-table th.right, .lists-table td.right { text-align: right; }
 
-.lists-table-wrap {
-  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0);
-  border-radius: 10px; overflow: auto;
+.list-name-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* .tev trong theme scope dưới .tgt — định nghĩa base ở đây cho icon folder 32px */
+.list-name-cell .tev {
+  width: 32px; height: 32px; border-radius: var(--r-sm); flex: none;
+  background: var(--brand-soft); color: var(--brand);
+  display: flex; align-items: center; justify-content: center;
 }
-.lists-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.lists-table thead th {
-  background: var(--surface-3, #f1f4f9);
-  font-size: 10.5px; font-weight: 600; color: var(--ink-3, #6b7488);
-  text-transform: uppercase; letter-spacing: .04em;
-  padding: 10px 10px; text-align: left;
-  border-bottom: 1px solid var(--line, #e7eaf0); white-space: nowrap;
-}
-.lists-table thead th.right { text-align: right; }
-.lists-table tbody td {
-  padding: 11px 10px;
-  border-bottom: 1px solid var(--line-2, #eef1f6);
-  vertical-align: middle; color: var(--ink, #141a24);
-}
-.lists-table tbody tr.row-clickable { cursor: pointer; transition: background .1s; }
-.lists-table tbody tr.row-clickable:hover { background: var(--brand-softer, #f2f8fc); }
-.lists-table tbody tr:last-child td { border-bottom: none; }
+.list-name-cell .nst { min-width: 0; }
+.list-name-cell .nm { font-size: 13px; }
+.list-name-cell .sub { margin-top: 1px; }
 
-.list-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.list-name-cell .icon-em { font-size: 18px; flex-shrink: 0; }
-.list-name-cell .nm { font-weight: 600; color: var(--ink, #141a24); font-size: 13px; }
-.list-name-cell .sub { font-size: 11px; color: var(--ink-3, #6b7488); margin-top: 1px; }
-
-.date { color: var(--ink-2, #475066); font-size: 12px; white-space: nowrap; }
-
-.author-cell { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2, #475066); font-size: 12px; }
-.author-cell .av {
-  width: 22px; height: 22px; border-radius: 50%;
-  color: #fff; font-size: 10px; font-weight: 700;
-  display: inline-flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-
-.source-chip {
-  display: inline-flex; align-items: center;
-  font-size: 11px; color: var(--ink-3, #6b7488);
-  background: var(--surface-3, #f1f4f9); padding: 2px 7px; border-radius: 5px;
-}
+.date { white-space: nowrap; }
 
 .num-cell {
-  font-family: "Roboto Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums; text-align: right;
 }
 .num-cell.green { color: #157f3c; }
-.num-cell.red { color: #b42318; }
 .num-cell.amber { color: #b45309; }
-.num-cell.blue { color: var(--brand-700, #0b5880); }
-.num-cell.muted { color: var(--ink-4, #97a0b3); font-weight: 400; }
+.num-cell.blue { color: var(--brand-700); }
+.num-cell.muted { color: var(--ink-4); font-weight: 400; }
 
+/* progress bar — reuse .bar, split thành 3 đoạn ok/warn/bad */
 .progress-cell { min-width: 120px; }
-.progress-bar {
-  display: flex; height: 6px; border-radius: 99px;
-  overflow: hidden; background: var(--surface-3, #f1f4f9);
-}
-.progress-bar > i { display: block; height: 100%; }
-.progress-bar .ok { background: var(--success, #12b76a); }
-.progress-bar .warn { background: var(--warning, #f5a524); }
-.progress-bar .bad { background: var(--error, #f04438); }
+.bar.split { display: flex; }
+.bar.split > i { display: block; height: 100%; }
+.bar.split .ok { background: var(--success); }
+.bar.split .warn { background: var(--warning); }
+.bar.split .bad { background: var(--error); }
 
-.status-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px; border-radius: 99px;
-  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+/* key-chip (mã đồng bộ) — mono pill */
+.key-chip {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+  font-family: var(--mono); font-weight: 600;
+  font-size: 11px; background: var(--surface-3); color: var(--ink);
+  border-radius: var(--r-xs); letter-spacing: .5px;
 }
-.status-chip.done { background: var(--success-soft, #e7f7ef); color: #157f3c; }
-.status-chip.processing { background: var(--warning-soft, #fdf3e2); color: #b45309; }
-.status-chip.archived { background: var(--surface-3, #f1f4f9); color: var(--ink-2, #475066); }
+.key-chip.unrouted { background: var(--error-soft); color: #b42318; }
+
+.muted { color: var(--ink-4); font-size: 12px; }
 
 .row-actions { text-align: right; white-space: nowrap; }
-.icon-btn {
-  width: 26px; height: 26px; border-radius: 5px;
-  border: none; background: transparent; color: var(--ink-3, #6b7488);
-  cursor: pointer; margin-left: 2px;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.icon-btn:hover { background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24); }
+.row-actions .btn { margin-left: 2px; }
+.go-arrow { background: var(--brand-soft); color: var(--brand-700); }
+.go-arrow:hover { background: #d6e8f5; }
 
-/* ───── Phase Multi-Source Lead Ads 2026-05-27 ───── */
-.stats-row {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
-  margin-bottom: 12px;
+/* empty state — reuse .empty từ theme + heading riêng */
+.empty {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 56px 24px; margin-top: 4px;
 }
-.stat-card {
-  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0); border-radius: 10px;
-  padding: 12px 14px; text-align: left; cursor: pointer;
-  font-family: inherit; transition: all 120ms;
-}
-.stat-card:hover { border-color: var(--brand-soft, #cfe6f3); }
-.stat-card.active { border-color: var(--brand, #1786be); background: var(--brand-softer, #f2f8fc); }
-.stat-card-readonly { cursor: default; }
-.stat-card-readonly:hover { border-color: var(--line, #e7eaf0); }
-.stat-num {
-  font-size: 22px; font-weight: 700; color: var(--ink, #141a24);
-  font-variant-numeric: tabular-nums; line-height: 1.1;
-}
-.stat-label { font-size: 11px; color: var(--ink-3, #6b7488); margin-top: 4px; }
-
-.source-chip.source-leadads {
-  background: var(--warning-soft, #fdf3e2); color: #92400e; border: 1px solid #f1c97a;
-}
-.source-chip.source-import {
-  background: var(--brand-soft, #e4f1f8); color: var(--brand-700, #0b5880); border: 1px solid #9fcfe7;
-}
-.key-chip {
-  display: inline-flex; align-items: center; padding: 2px 8px;
-  font-family: "Roboto Mono", 'Courier New', monospace; font-weight: 600;
-  font-size: 11px; background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24);
-  border-radius: 4px; letter-spacing: .5px;
-}
-.key-chip.unrouted {
-  background: #fdeceb; color: #b42318;
-}
-.share-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 11px; padding: 2px 7px; border-radius: 99px;
-  background: var(--success-soft, #e7f7ef); color: #157f3c; font-weight: 500;
-}
-.muted { color: var(--ink-4, #97a0b3); font-size: 12px; }
+.empty .v-icon { color: var(--ink-4); }
+.empty h3 { margin: 12px 0 6px; color: var(--ink); font-size: 16px; font-weight: 700; }
+.empty p { margin: 0; font-size: 13px; color: var(--ink-3); }
 </style>

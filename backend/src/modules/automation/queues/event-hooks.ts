@@ -268,19 +268,13 @@ export async function onFriendAccepted(input: {
     return;
   }
 
-  // Write event log
-  await prisma.automationEventLog.create({
-    data: {
-      orgId,
-      triggerId,
-      contactId,
-      nickId,
-      eventType: 'friend_accepted',
-      detail: `at ${(acceptedAt ?? new Date()).toISOString()}`,
-    },
-  });
+  // #1 2026-06-06 — KHÔNG tạo eventLog 'friend_accepted' ở đây nữa: caller
+  // (friend-event-handler) đã logEvent('friend_accepted') trước khi gọi hook này,
+  // tạo thêm sẽ double dòng trong timeline Mục tiêu.
 
-  // Enqueue sequence start (Section 6.4 chain pattern)
+  // Enqueue sequence start (Section 6.4 chain pattern).
+  // jobId dedup (triggerId-contactId-0) → nếu luồng stranger (drainer) đã enroll
+  // rồi thì lần này no-op, không double sequence.
   const sequenceId = trigger.successorSequenceId ?? trigger.sequenceId;
   if (sequenceId) {
     await enqueueSequenceStart({

@@ -123,7 +123,8 @@ const routes: RouteRecordRaw[] = [
       // Phase Multi-Source Lead Ads 2026-05-27
       { path: 'channels/facebook-leadads', name: 'Settings.FacebookLeadAds', component: () => import('@/views/settings/FacebookLeadAdsPage.vue') },
       { path: 'channels/rate-limit',       name: 'Settings.RateLimit',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'rate-limit' } },
-      { path: 'channels/automation',       name: 'Settings.Automation',      component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'automation' } },
+      // #3 2026-06-06 (Anh chốt) — trang Cài đặt kỹ thuật automation (nhịp quét, ngưỡng kẹt/timeout)
+      { path: 'channels/automation',       name: 'Settings.Automation',      component: () => import('@/views/settings/AutomationTechSettingsPage.vue') },
       { path: 'channels/integrations',     name: 'Settings.Integrations',    component: () => import('@/views/IntegrationsView.vue') },
 
       // 🛠 Dev & API

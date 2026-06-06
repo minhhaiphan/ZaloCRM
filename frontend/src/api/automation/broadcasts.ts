@@ -9,6 +9,14 @@ export interface BroadcastPacing {
   hourEnd?: number;   // 22
   nickDayCap?: number; // 300
   excludeBlocked?: boolean;
+  // Đợt 1 v2 2026-06-05 — Anh chốt 2-phase pipeline
+  selectedNickIds?: string[];            // Wizard Step 3 chọn nick gửi (≥1)
+  allowStrangerSend?: boolean;           // Phase 2 toggle
+  strangerFindUserCapPerNick?: number;   // default 30/day
+  strangerFindUserCapPerHour?: number;   // default 5/hour
+  strangerCooldownMs?: number;           // default 20s
+  strangerSkipIfNoZaloDays?: number;     // default 30 days
+  strangerMaxPerBroadcast?: number;      // default 100
   // Legacy fields (vẫn accept backward compat)
   distributeAcrossNicks?: boolean;
   maxPerNickPerHour?: number;
@@ -49,6 +57,9 @@ export interface Broadcast {
   updatedAt: string;
   createdBy?: { id: string; fullName: string };
   block?: { id: string; name: string; actionType: string; content: Record<string, unknown>; archivedAt: string | null } | null;
+  // Đợt 1 v2 2026-06-05 — query Message theo automationTaskId pattern bc-{id}-*
+  // (deliveredCount đã khai ở trên — dòng trùng đã gỡ 2026-06-06)
+  seenCount?: number;       // Zalo SDK seen_messages event
 }
 
 const BASE = '/automation/broadcasts';
@@ -180,4 +191,18 @@ export interface TagSummary {
 export async function listTagsForBroadcast(): Promise<TagSummary[]> {
   const { data } = await api.get<{ tags: TagSummary[] }>(`${BASE}/helpers/tags`);
   return data.tags;
+}
+
+export interface NickSummary {
+  id: string;
+  displayName: string | null;
+  status: string; // connected | disconnected | qr_pending
+  phone: string | null;
+  avatarUrl: string | null;
+  sentToday: number;
+}
+
+export async function listNicksForBroadcast(): Promise<NickSummary[]> {
+  const { data } = await api.get<{ nicks: NickSummary[] }>(`${BASE}/helpers/nicks`);
+  return data.nicks;
 }

@@ -1,8 +1,9 @@
 <template>
   <!-- Refactor 2026-06-01 — thanh tag Friend-row cấp (per-pair sale-nick × KH).
-       Layout 3 nhóm tách bằng "|":
-       [Zalo Real (R/O)] | [Auto: detect+score+engagement (R/O)] | [Manual per Nick (sale gắn)]
-       Nút "+ Thêm tag" CHỈ gắn manual_per_nick. -->
+       /office-hours 2026-06-06 — gom auto-tag 3→2 nhóm (BỎ Auto Score Tier khỏi thanh;
+       điểm Lead vẫn ở ScoreBanner). Layout tách bằng "|":
+       [Zalo Real (R/O)] | [Auto Detect: trạng thái] | [Auto Engagement: độ chăm] | [Manual]
+       Auto Detect + Auto Engagement đều SỐNG (tự cập nhật). Nút "+ Thêm tag" CHỈ gắn manual. -->
   <div class="tag-crm-bar" v-if="friendId">
     <span class="bar-label">🏷</span>
 
@@ -21,14 +22,31 @@
       <span class="tag-divider">|</span>
     </template>
 
-    <!-- 2. Auto (auto_detect / auto_score / auto_engagement, READ-ONLY) -->
-    <template v-if="autoTagsList.length">
+    <!-- 2. Auto Detect — trạng thái KH (🔥 hoạt động / ⏰ đình trệ / 📅 có hẹn / 🧊 nguội), READ-ONLY.
+         2026-06-06: nền THỐNG NHẤT màu VÀNG (giống Lead score). Chữ = bản đậm của tag.color. -->
+    <template v-if="detectTags.length">
       <span
-        v-for="tag in autoTagsList"
-        :key="'auto-' + tag.id"
-        class="t2-tag-pill is-auto"
-        :style="{ '--tag-color': tag.color }"
-        :title="`Auto-tag (${getAutoSourceLabel(tag.source)}) — system gắn tự động`"
+        v-for="tag in detectTags"
+        :key="'detect-' + tag.id"
+        class="t2-tag-pill is-auto group-detect"
+        :style="{ '--tag-color': tag.color, '--bar-bg': DETECT_BG }"
+        :title="'Auto Detect — trạng thái KH, hệ thống tự cập nhật'"
+      >
+        <span v-if="tag.emoji" class="t2-pill-emoji">{{ tag.emoji }}</span>
+        <span class="t2-pill-text">{{ tag.name }}</span>
+      </span>
+      <span class="tag-divider">|</span>
+    </template>
+
+    <!-- 3. Auto Engagement — độ chăm chat 28 ngày (Hot/Champion/Cooling/Cold), READ-ONLY.
+         2026-06-06: nền THỐNG NHẤT màu XANH DƯƠNG (khớp Engagement score). Chữ = bản đậm tag.color. -->
+    <template v-if="engagementTags.length">
+      <span
+        v-for="tag in engagementTags"
+        :key="'engagement-' + tag.id"
+        class="t2-tag-pill is-auto group-engagement"
+        :style="{ '--tag-color': tag.color, '--bar-bg': ENGAGEMENT_BG }"
+        :title="'Auto Engagement — mức độ tương tác 28 ngày, hệ thống tự cập nhật'"
       >
         <span v-if="tag.emoji" class="t2-pill-emoji">{{ tag.emoji }}</span>
         <span class="t2-pill-text">{{ tag.name }}</span>
@@ -178,19 +196,21 @@ watch(() => props.friendId, () => {
   loadFriendTags();
 });
 
-// Group tags theo source — render order: zalo_real → auto_* → manual_per_nick
-const zaloRealTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'zalo_real').map(ft => ft.tag));
-const autoTagsList = computed(() => friendTags.value.filter(ft => ['auto_detect', 'auto_score', 'auto_engagement'].includes(ft.tag.source)).map(ft => ft.tag));
-const manualTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'manual_per_nick').map(ft => ft.tag));
+// Màu NỀN thống nhất theo nhóm (đồng bộ ScoreBanner để dễ phân biệt ở UI Chat — Anh chốt
+// 2026-06-06). Nền cố định theo nhóm; CHỮ = bản đậm của tag.color (đổi được trong setting).
+//   Auto Detect    → vàng giống Lead score   (#F59E0B)
+//   Auto Engagement→ xanh dương Engagement   (#3B82F6)
+//   Zalo Real      → tự do theo tag.color (đồng bộ Zalo)
+const DETECT_BG = '#F59E0B';
+const ENGAGEMENT_BG = '#3B82F6';
 
-function getAutoSourceLabel(src: string): string {
-  switch (src) {
-    case 'auto_detect': return 'Auto Detect';
-    case 'auto_score': return 'Auto Score';
-    case 'auto_engagement': return 'Auto Engagement';
-    default: return src;
-  }
-}
+// Group tags theo source — render order: zalo_real → Auto Detect → Auto Engagement → manual_per_nick
+// /office-hours 2026-06-06: gom auto-tag 3→2 nhóm. BỎ auto_score (Tier) khỏi thanh.
+// 2 nhóm SỐNG (tự cập nhật): Auto Detect (trạng thái) + Auto Engagement (độ chăm 28 ngày).
+const zaloRealTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'zalo_real').map(ft => ft.tag));
+const detectTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'auto_detect').map(ft => ft.tag));
+const engagementTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'auto_engagement').map(ft => ft.tag));
+const manualTags = computed(() => friendTags.value.filter(ft => ft.tag.source === 'manual_per_nick').map(ft => ft.tag));
 
 // Dropdown state
 const dropdownOpen = ref(false);
@@ -323,6 +343,15 @@ function goToSettings() {
   border-color: color-mix(in srgb, var(--tag-color) 60%, white);
   font-weight: 600;
   cursor: help;
+}
+
+/* Nền THỐNG NHẤT theo nhóm (Anh chốt 2026-06-06): nền + viền lấy từ --bar-bg (màu nhóm),
+   CHỮ vẫn lấy từ --tag-color (màu tag trong setting) nhưng làm ĐẬM để luôn đọc rõ trên nền nhạt. */
+.t2-tag-pill.group-detect,
+.t2-tag-pill.group-engagement {
+  background: color-mix(in srgb, var(--bar-bg) 14%, white);
+  border-color: color-mix(in srgb, var(--bar-bg) 55%, white);
+  color: color-mix(in srgb, var(--tag-color) 82%, black);
 }
 .t2-tag-pill.is-manual {
   /* Sale gắn được — hiển thị X button */

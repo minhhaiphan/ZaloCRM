@@ -70,9 +70,16 @@ export async function runEngagementCron(): Promise<{
     if (result !== null) prioritiesUpdated++;
   }
 
+  // 4. /office-hours 2026-06-06 — Sync Auto Engagement TAG (Hot/Cold) theo pattern mới.
+  // Chạy TUẦN TỰ (1 contact / 1 tx) sau classification để tag engagement "sống" tự đổi,
+  // giống Auto Detect. KHÔNG fire-and-forget trong loop recompute (tránh cạn pool).
+  const { syncEngagementTagsAll } = await import('./engagement-tag-service.js');
+  const tagSync = await syncEngagementTagsAll();
+
   const result = {
     contactsReclassified,
     prioritiesUpdated,
+    engagementTagsSynced: tagSync.synced,
     rowsCleaned: cleanup.count,
     durationMs: Date.now() - start,
   };

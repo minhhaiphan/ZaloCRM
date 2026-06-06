@@ -437,6 +437,31 @@ export async function handleFriendEvent(
               summary: `${contactDisplay} đã đồng ý kết bạn với nick ${nickDisplay}`,
               metadata: { friendUid },
             });
+
+            // ── #1 2026-06-06 (Anh chốt): Công tắc 2 "Bám đuổi khi ĐÃ là bạn" ──
+            // Trước đây onFriendAccepted là CODE CHẾT (0 caller) → KH duyệt KB không
+            // tự kích bám đuổi, chỉ luồng stranger (drainer) lo. Giờ nối lại: khi KH
+            // accept thật VÀ followUpFriendEnabled → gọi onFriendAccepted (tự enqueue
+            // bám đuổi + Tin 2 Cảm ơn). enqueueSequenceStart dedup theo jobId
+            // (triggerId-contactId-0) nên nếu luồng stranger đã enroll thì KHÔNG double.
+            try {
+              const trg = await prisma.automationTrigger.findUnique({
+                where: { id: outbox.triggerId },
+                select: { followUpFriendEnabled: true },
+              });
+              if (trg?.followUpFriendEnabled) {
+                const { onFriendAccepted } = await import('../automation/queues/event-hooks.js');
+                await onFriendAccepted({
+                  orgId,
+                  triggerId: outbox.triggerId,
+                  contactId: contact.id,
+                  nickId: accountId,
+                  acceptedAt: new Date(),
+                });
+              }
+            } catch (err) {
+              logger.warn(`[friend-event:${accountId}] onFriendAccepted hook failed contact=${contact.id}:`, err);
+            }
           } else {
             void logEvent({
               orgId,

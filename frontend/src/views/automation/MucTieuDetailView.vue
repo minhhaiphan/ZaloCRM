@@ -11,14 +11,14 @@
         <span class="current">{{ data.trigger.name }}</span>
       </div>
 
-      <a href="#" class="back-link" @click.prevent="router.push('/marketing/triggers')">← Mục tiêu</a>
+      <a href="#" class="back-link" @click.prevent="router.push('/marketing/triggers')"><v-icon size="14">mdi-arrow-left</v-icon> Mục tiêu</a>
 
       <div class="topbar">
         <div class="left">
           <h1>
             {{ data.trigger.name }}
             <span class="status" :class="`s-${data.trigger.state}`">
-              {{ stateLabel(data.trigger.state) }}
+              <span class="dot"></span>{{ stateLabel(data.trigger.state) }}
             </span>
           </h1>
           <p class="sub">
@@ -40,37 +40,37 @@
                  - "Dừng hẳn" (cancel terminal) → "🛑 Kết thúc"
                  - "Tạm dừng 24h" giữ nguyên text khi active. State paused 24h sẽ hiện
                    "⏸ Đang dừng (countdown)" và hover→ "▶️ Tiếp tục" (xem branch paused). -->
-            <button class="btn" @click="pause24h">⏸ Tạm dừng 24h</button>
-            <button class="btn" @click="pauseForever">⏯️ Tạm dừng</button>
-            <button class="btn btn-danger" @click="onCancel">🛑 Kết thúc</button>
+            <button class="btn" @click="pause24h"><v-icon size="15">mdi-pause-circle-outline</v-icon> Tạm dừng 24h</button>
+            <button class="btn" @click="pauseForever"><v-icon size="15">mdi-pause</v-icon> Tạm dừng</button>
+            <button class="btn btn-danger" @click="onCancel"><v-icon size="15">mdi-stop-circle-outline</v-icon> Kết thúc</button>
           </template>
           <template v-else-if="data.trigger.state === 'paused'">
             <!-- 2026-06-03 — Pause card mới: text mặc định "Đang dừng (Xh Ym)" với countdown
                  nếu paused_until set; hover → "▶️ Tiếp tục". Pause vô hạn (không TTL) thì
                  text mặc định "⏸ Đang dừng" (không countdown), hover same. -->
             <button class="btn btn-pause-hover" @click="resume" :title="pauseTooltip">
-              <span class="pause-label-default">{{ pauseLabel }}</span>
-              <span class="pause-label-hover">▶️ Tiếp tục</span>
+              <span class="pause-label-default"><v-icon size="15">mdi-pause</v-icon> {{ pauseLabel }}</span>
+              <span class="pause-label-hover"><v-icon size="15">mdi-play</v-icon> Tiếp tục</span>
             </button>
-            <button class="btn btn-danger" @click="onCancel">🛑 Kết thúc</button>
+            <button class="btn btn-danger" @click="onCancel"><v-icon size="15">mdi-stop-circle-outline</v-icon> Kết thúc</button>
           </template>
           <template v-else-if="data.trigger.state === 'draft'">
-            <button class="btn btn-primary" @click="onActivate">▶ Kích hoạt</button>
-            <button class="btn btn-danger" @click="onCancel">🗑 Xoá</button>
+            <button class="btn btn-primary" @click="onActivate"><v-icon size="15">mdi-play</v-icon> Kích hoạt</button>
+            <button class="btn btn-danger" @click="onCancel"><v-icon size="15">mdi-trash-can-outline</v-icon> Xoá</button>
           </template>
           <template v-else-if="data.trigger.state === 'cancelling'">
-            <button class="btn" disabled>⏳ Đang huỷ…</button>
+            <button class="btn" disabled><v-icon size="15">mdi-timer-sand</v-icon> Đang huỷ…</button>
           </template>
           <template v-else>
             <!-- cancelled | completed → chỉ xem lịch sử + sao chép -->
-            <button class="btn" @click="setTab('log')">📊 Xem lịch sử</button>
+            <button class="btn" @click="setTab('log')"><v-icon size="15">mdi-chart-box-outline</v-icon> Xem lịch sử</button>
           </template>
-          <button class="btn" @click="onEdit">✏ Sửa</button>
+          <button class="btn" @click="onEdit"><v-icon size="15">mdi-pencil-outline</v-icon> Sửa</button>
           <div class="menu-wrap" ref="menuWrapRef">
-            <button class="btn btn-icon" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen">⋯</button>
+            <button class="btn btn-icon" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen"><v-icon size="18">mdi-dots-horizontal</v-icon></button>
             <div v-show="menuOpen" class="menu">
-              <div class="menu-item" @click="onDuplicate">📋 Sao chép</div>
-              <div class="menu-item" @click="exportExcel">📤 Xuất Excel</div>
+              <div class="menu-item" @click="onDuplicate"><v-icon size="16">mdi-content-copy</v-icon> Sao chép</div>
+              <div class="menu-item" @click="exportExcel"><v-icon size="16">mdi-tray-arrow-up</v-icon> Xuất Excel</div>
             </div>
           </div>
         </div>
@@ -84,7 +84,7 @@
           role="tab"
           @click="setTab('dashboard')"
         >
-          📊 Dashboard
+          <v-icon size="15">mdi-view-dashboard-outline</v-icon> Dashboard
         </button>
         <button
           class="tab"
@@ -92,7 +92,7 @@
           role="tab"
           @click="setTab('log')"
         >
-          📋 Log sự kiện
+          <v-icon size="15">mdi-format-list-bulleted</v-icon> Log sự kiện
         </button>
       </div>
 
@@ -104,16 +104,17 @@
         <div class="monitor">
           <div class="monitor-head">
             <h3>
-              📺 Theo dõi trực tiếp
+              <v-icon size="16">mdi-monitor-eye</v-icon> Theo dõi trực tiếp
               <span class="head-hint-inline">20 sự kiện mới nhất · tự làm mới mỗi 5 giây · Giờ VN (UTC+7)</span>
             </h3>
             <div class="monitor-head-actions">
               <span class="live-chip" :class="{ paused: monitorPaused }">
                 <span class="live-dot"></span>
-                {{ monitorPaused ? '⏸ TẠM DỪNG' : '🟢 LIVE' }}
+                {{ monitorPaused ? 'TẠM DỪNG' : 'LIVE' }}
               </span>
               <button class="btn btn-sm" @click="toggleMonitor">
-                {{ monitorPaused ? '▶ Tiếp tục' : '⏸ Tạm dừng' }}
+                <v-icon size="14">{{ monitorPaused ? 'mdi-play' : 'mdi-pause' }}</v-icon>
+                {{ monitorPaused ? 'Tiếp tục' : 'Tạm dừng' }}
               </button>
             </div>
           </div>
@@ -123,31 +124,32 @@
               Tất cả <span class="mon-chip-count">{{ monitorChipCounts.all }}</span>
             </span>
             <span class="mon-chip" :class="{ active: monitorFilter === 'rescue' }" @click="monitorFilter = 'rescue'">
-              🔥 KH cần cứu <span class="mon-chip-count">{{ monitorChipCounts.rescue }}</span>
+              <v-icon size="13">mdi-fire</v-icon> KH cần cứu <span class="mon-chip-count">{{ monitorChipCounts.rescue }}</span>
             </span>
             <span class="mon-chip" :class="{ active: monitorFilter === 'lead' }" @click="monitorFilter = 'lead'">
-              💎 Lead <span class="mon-chip-count">{{ monitorChipCounts.lead }}</span>
+              <v-icon size="13">mdi-diamond-stone</v-icon> Lead <span class="mon-chip-count">{{ monitorChipCounts.lead }}</span>
             </span>
             <span class="mon-chip" :class="{ active: monitorFilter === 'reply' }" @click="monitorFilter = 'reply'">
-              💬 KH trả lời <span class="mon-chip-count">{{ monitorChipCounts.reply }}</span>
+              <v-icon size="13">mdi-message-text-outline</v-icon> KH trả lời <span class="mon-chip-count">{{ monitorChipCounts.reply }}</span>
             </span>
             <span class="mon-chip" :class="{ active: monitorFilter === 'block' }" @click="monitorFilter = 'block'">
-              🛑 Chặn <span class="mon-chip-count">{{ monitorChipCounts.block }}</span>
+              <v-icon size="13">mdi-cancel</v-icon> Chặn <span class="mon-chip-count">{{ monitorChipCounts.block }}</span>
             </span>
             <span class="mon-chip" :class="{ active: monitorFilter === 't23h' }" @click="monitorFilter = 't23h'">
-              ⏰ T+23h <span class="mon-chip-count">{{ monitorChipCounts.t23h }}</span>
+              <v-icon size="13">mdi-clock-alert-outline</v-icon> T+23h <span class="mon-chip-count">{{ monitorChipCounts.t23h }}</span>
             </span>
             <button class="sound-toggle" :class="{ on: soundEnabled }" @click="toggleSound" :title="soundEnabled ? 'Tắt âm' : 'Bật âm cảnh báo'">
-              {{ soundEnabled ? '🔔 Âm: BẬT' : '🔕 Âm: Tắt' }}
+              <v-icon size="14">{{ soundEnabled ? 'mdi-bell-ring-outline' : 'mdi-bell-off-outline' }}</v-icon>
+              {{ soundEnabled ? 'Âm: BẬT' : 'Âm: Tắt' }}
             </button>
           </div>
           <div ref="monitorBodyRef" class="ev-table-wrap mon-table-wrap" @scroll="onMonitorScroll">
             <table class="ev-table mon-table">
               <thead>
                 <tr>
-                  <th class="col-time">⏱ Giờ VN</th>
-                  <th class="col-nick">📱 Nick chăm</th>
-                  <th class="col-kh">👤 Khách hàng</th>
+                  <th class="col-time"><v-icon size="13">mdi-clock-outline</v-icon> Giờ VN</th>
+                  <th class="col-nick"><v-icon size="13">mdi-cellphone</v-icon> Nick chăm</th>
+                  <th class="col-kh"><v-icon size="13">mdi-account-outline</v-icon> Khách hàng</th>
                   <th class="col-phase">Loại sự kiện</th>
                   <th class="col-status">Chi tiết</th>
                   <th class="col-ago">Cách đây</th>
@@ -170,7 +172,7 @@
                   </td>
                   <td class="col-phase">
                     <span class="phase-pill" :class="'phase-' + phaseTone(ev.type)">
-                      <span class="phase-ico">{{ ev.icon }}</span>
+                      <v-icon class="phase-ico" size="13">{{ phaseMdi(ev.type) }}</v-icon>
                       {{ phaseLabel(ev.type) }}
                     </span>
                   </td>
@@ -200,13 +202,13 @@
           role="alert"
         >
           <span class="nhb-icon">
-            {{ nickHealthBanner.level === 'danger' ? '🔴' : '🟡' }}
+            <v-icon size="18" :color="nickHealthBanner.level === 'danger' ? '#f04438' : '#f5a524'">{{ nickHealthBanner.level === 'danger' ? 'mdi-alert-circle' : 'mdi-alert' }}</v-icon>
           </span>
           <div class="nhb-msg">
             <strong>{{ nickHealthBanner.text }}</strong>
           </div>
           <a href="#" class="nhb-link" @click.prevent="router.push('/settings/channels/zalo')">
-            Mở Zalo Accounts →
+            Mở Zalo Accounts <v-icon size="13">mdi-arrow-right</v-icon>
           </a>
         </div>
 
@@ -216,19 +218,21 @@
              - hasBreakdown → "Còn N KH đang xử lý (M bám đuổi + K chờ gửi) ~ Y giờ"
              - fallback     → "Còn X KH ~ Y giờ" (BE cũ chưa rebuild) -->
         <div class="eta-bar">
-          <span class="eta-icon">{{ etaInfo.isDone ? '✅' : '⏱' }}</span>
+          <span class="eta-icon">
+            <v-icon size="16" :color="etaInfo.isDone ? '#12b76a' : 'var(--brand)'">{{ etaInfo.isDone ? 'mdi-check-circle' : 'mdi-clock-outline' }}</v-icon>
+          </span>
           <span v-if="etaInfo.isDone">
             <strong>Đã xử lý hết KH</strong>
           </span>
           <span v-else-if="etaInfo.hasBreakdown">
-            Còn <strong>{{ formatNum(etaInfo.remaining) }} KH đang xử lý</strong>
-            (<strong>{{ formatNum(etaInfo.phase2Running) }}</strong> bám đuổi
-            + <strong>{{ formatNum(etaInfo.phase1Pending) }}</strong> chờ gửi)
-            ~ <strong>{{ etaInfo.daysText }}</strong>
+            Còn <strong class="num">{{ formatNum(etaInfo.remaining) }} KH đang xử lý</strong>
+            (<strong class="num">{{ formatNum(etaInfo.phase2Running) }}</strong> bám đuổi
+            + <strong class="num">{{ formatNum(etaInfo.phase1Pending) }}</strong> chờ gửi)
+            ~ <strong class="num">{{ etaInfo.daysText }}</strong>
           </span>
           <span v-else>
-            Còn <strong>{{ formatNum(etaInfo.remaining) }} KH</strong>
-            ~ <strong>{{ etaInfo.daysText }}</strong>
+            Còn <strong class="num">{{ formatNum(etaInfo.remaining) }} KH</strong>
+            ~ <strong class="num">{{ etaInfo.daysText }}</strong>
           </span>
           <span v-if="!etaInfo.isDone" class="eta-sep">·</span>
           <span v-if="!etaInfo.isDone">
@@ -241,15 +245,15 @@
         <!-- Fallback: nếu BE chưa rebuild (safetyRules undefined) → empty-state "Chưa cấu hình". -->
         <section class="safety-card" aria-label="Quy tắc gửi an toàn">
           <header class="safety-head">
-            <h3>🛡 Quy tắc gửi an toàn</h3>
-            <button class="btn btn-sm" @click="onEdit">✏ Sửa</button>
+            <h3><v-icon size="16">mdi-shield-check-outline</v-icon> Quy tắc gửi an toàn</h3>
+            <button class="btn btn-sm" @click="onEdit"><v-icon size="14">mdi-pencil-outline</v-icon> Sửa</button>
           </header>
           <div v-if="data.trigger.safetyRules" class="safety-grid">
             <div class="safety-tile">
-              <div class="st-icon">⏰</div>
+              <div class="st-icon"><v-icon size="18">mdi-clock-time-four-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Giờ làm việc</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ pad2(data.trigger.safetyRules.sendHourStart) }}:00 –
                   {{ pad2(data.trigger.safetyRules.sendHourEnd) }}:00
                 </div>
@@ -257,20 +261,20 @@
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">⏱</div>
+              <div class="st-icon"><v-icon size="18">mdi-timer-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Khoảng cách gửi</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ Math.round(data.trigger.safetyRules.minFriendReqGapMs / 1000) }} giây
                 </div>
                 <div class="st-hint">Tối thiểu giữa 2 lời mời / nick</div>
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">📅</div>
+              <div class="st-icon"><v-icon size="18">mdi-calendar-range-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Lọc recency</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ data.trigger.safetyRules.recencySkipDays === 0
                       ? 'Tắt'
                       : `${data.trigger.safetyRules.recencySkipDays} ngày` }}
@@ -279,10 +283,10 @@
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">👥</div>
+              <div class="st-icon"><v-icon size="18">mdi-account-group-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Multi-nick threshold</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ data.trigger.safetyRules.multiNickThreshold === 0
                       ? 'Tắt'
                       : `> ${data.trigger.safetyRules.multiNickThreshold} nick` }}
@@ -291,30 +295,30 @@
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">🤝</div>
+              <div class="st-icon"><v-icon size="18">mdi-handshake-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Delay sau friend-request</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ data.trigger.safetyRules.sequenceStartDelayMinutes }} phút
                 </div>
                 <div class="st-hint">Chờ trước khi bắt đầu chuỗi</div>
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">⏸</div>
+              <div class="st-icon"><v-icon size="18">mdi-pause-circle-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Pause khi KH reply</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ data.trigger.safetyRules.pauseOnActivityHours }} giờ
                 </div>
                 <div class="st-hint">Reset chuỗi khi KH có tương tác</div>
               </div>
             </div>
             <div class="safety-tile">
-              <div class="st-icon">⚡</div>
+              <div class="st-icon"><v-icon size="18">mdi-lightning-bolt-outline</v-icon></div>
               <div class="st-body">
                 <div class="st-label">Concurrency</div>
-                <div class="st-value">
+                <div class="st-value num">
                   {{ data.trigger.safetyRules.concurrencyPerNickPerMinute }} / phút / nick
                 </div>
                 <div class="st-hint">Trần xử lý song song mỗi nick</div>
@@ -323,7 +327,7 @@
           </div>
           <div v-else class="safety-empty">
             <span>Chưa cấu hình quy tắc gửi an toàn.</span>
-            <a href="#" @click.prevent="onEdit">Mở wizard để thiết lập →</a>
+            <a href="#" @click.prevent="onEdit">Mở wizard để thiết lập <v-icon size="13">mdi-arrow-right</v-icon></a>
           </div>
         </section>
 
@@ -335,69 +339,69 @@
         <div class="stats-row">
           <div class="stat-card accent-blue">
             <div class="stat-label">Trong tệp</div>
-            <div class="stat-value">{{ formatNum(stats.total) }}</div>
+            <div class="stat-value num">{{ formatNum(stats.total) }}</div>
             <div class="stat-hint">Tổng KH gốc nhập từ tệp</div>
           </div>
           <div class="stat-card accent-green">
             <div class="stat-label">Đã xử lý</div>
-            <div class="stat-value">{{ formatNum(stats.processed) }}</div>
+            <div class="stat-value num">{{ formatNum(stats.processed) }}</div>
             <div class="stat-hint">
-              {{ pct(stats.processed, stats.total) }}% — đã qua bước kiểm Zalo
+              <span class="num">{{ pct(stats.processed, stats.total) }}%</span> — đã qua bước kiểm Zalo
             </div>
           </div>
           <div class="stat-card accent-orange">
-            <div class="stat-label">🎯 Đang bám đuổi</div>
-            <div class="stat-value">{{ formatNum(stats.enrollingSequence) }}</div>
+            <div class="stat-label"><v-icon size="13">mdi-target</v-icon> Đang bám đuổi</div>
+            <div class="stat-value num">{{ formatNum(stats.enrollingSequence) }}</div>
             <div class="stat-hint">KH đang chăm sóc qua sequence</div>
           </div>
           <div class="stat-card accent-teal">
-            <div class="stat-label">✅ Hoàn tất sequence</div>
-            <div class="stat-value">{{ formatNum(stats.completedSequence) }}</div>
+            <div class="stat-label"><v-icon size="13">mdi-check-circle-outline</v-icon> Hoàn tất sequence</div>
+            <div class="stat-value num">{{ formatNum(stats.completedSequence) }}</div>
             <div class="stat-hint">KH đã xong toàn bộ chuỗi</div>
           </div>
           <div class="stat-card accent-purple">
             <div class="stat-label">Có Zalo</div>
-            <div class="stat-value">{{ formatNum(stats.hasZalo) }}</div>
+            <div class="stat-value num">{{ formatNum(stats.hasZalo) }}</div>
             <div class="stat-hint">
-              {{ pct(stats.hasZalo, stats.processed) }}% trong số đã xử lý — vào Phase 1
+              <span class="num">{{ pct(stats.hasZalo, stats.processed) }}%</span> trong số đã xử lý — vào Phase 1
             </div>
           </div>
           <div class="stat-card accent-red">
             <div class="stat-label">Không có Zalo</div>
-            <div class="stat-value">{{ formatNum(stats.noZalo) }}</div>
+            <div class="stat-value num">{{ formatNum(stats.noZalo) }}</div>
             <div class="stat-hint">Chuyển Lead Pool — gọi điện trực tiếp</div>
           </div>
         </div>
 
         <!-- ============ CTA RED BANNER ============ -->
         <div v-if="stats.noZalo > 0" class="cta-red">
-          <span class="cta-bullet">🔴</span>
+          <span class="cta-bullet"><v-icon size="18" color="#f04438">mdi-phone-alert</v-icon></span>
           <div class="cta-msg">
-            <strong>Không có Zalo ({{ formatNum(stats.noZalo) }} KH)</strong>
+            <strong>Không có Zalo (<span class="num">{{ formatNum(stats.noZalo) }}</span> KH)</strong>
             — gợi ý gọi điện qua Lead Pool, đừng để rơi rớt
           </div>
-          <a href="#" class="cta-link" @click.prevent="goLeadPool">Xem danh sách →</a>
+          <a href="#" class="cta-link" @click.prevent="goLeadPool">Xem danh sách <v-icon size="13">mdi-arrow-right</v-icon></a>
         </div>
 
         <!-- ============ 2-COL PHASE ============ -->
         <div class="phase-row">
           <div class="phase-card">
-            <h3>📤 Phase 1: Mời kết bạn</h3>
+            <h3><v-icon size="15">mdi-send-outline</v-icon> Phase 1: Mời kết bạn</h3>
             <div class="mini-grid">
               <div class="mini-card blue">
-                <div class="mini-value">{{ formatNum(phase1.sent) }}</div>
+                <div class="mini-value num">{{ formatNum(phase1.sent) }}</div>
                 <div class="mini-label">Đã gửi</div>
               </div>
               <div class="mini-card green">
-                <div class="mini-value">{{ formatNum(phase1.accepted) }}</div>
+                <div class="mini-value num">{{ formatNum(phase1.accepted) }}</div>
                 <div class="mini-label">Đồng ý</div>
               </div>
               <div class="mini-card red">
-                <div class="mini-value">{{ formatNum(phase1.rejected) }}</div>
+                <div class="mini-value num">{{ formatNum(phase1.rejected) }}</div>
                 <div class="mini-label">Từ chối</div>
               </div>
               <div class="mini-card orange">
-                <div class="mini-value">{{ formatNum(phase1.pending) }}</div>
+                <div class="mini-value num">{{ formatNum(phase1.pending) }}</div>
                 <div class="mini-label">Đang chờ</div>
               </div>
             </div>
@@ -405,31 +409,31 @@
 
           <div class="phase-card">
             <h3>
-              📨 Phase 2: Bám đuổi
+              <v-icon size="15">mdi-email-fast-outline</v-icon> Phase 2: Bám đuổi
               <span class="phase-hint">(stranger inbox — gửi luôn không chờ accept)</span>
             </h3>
             <div class="mini-grid">
               <div class="mini-card blue">
-                <div class="mini-value">{{ formatNum(phase2.welcome) }}</div>
+                <div class="mini-value num">{{ formatNum(phase2.welcome) }}</div>
                 <div class="mini-label">Welcome</div>
               </div>
               <div class="mini-card green">
-                <div class="mini-value">{{ formatNum(phase2.running) }}</div>
+                <div class="mini-value num">{{ formatNum(phase2.running) }}</div>
                 <div class="mini-label">Đang chạy</div>
               </div>
               <div class="mini-card">
-                <div class="mini-value">{{ formatNum(phase2.done) }}</div>
+                <div class="mini-value num">{{ formatNum(phase2.done) }}</div>
                 <div class="mini-label">Hoàn tất</div>
               </div>
               <div class="mini-card red">
-                <div class="mini-value">{{ formatNum(phase2.stopped) }}</div>
+                <div class="mini-value num">{{ formatNum(phase2.stopped) }}</div>
                 <div class="mini-label">Dừng</div>
               </div>
             </div>
             <div class="phase-sub">
-              <span class="sub-pill">🛑 <strong>{{ formatNum(phase2.reply) }}</strong> KH reply</span>
-              <span class="sub-pill">🚫 <strong>{{ formatNum(phase2.block) }}</strong> KH block</span>
-              <span class="sub-pill">💎 <strong>{{ formatNum(phase2.lead) }}</strong> KH đã thành Lead</span>
+              <span class="sub-pill"><v-icon size="13" color="#f04438">mdi-hand-back-right-off-outline</v-icon> <strong class="num">{{ formatNum(phase2.reply) }}</strong> KH reply</span>
+              <span class="sub-pill"><v-icon size="13" color="#6b7488">mdi-cancel</v-icon> <strong class="num">{{ formatNum(phase2.block) }}</strong> KH block</span>
+              <span class="sub-pill"><v-icon size="13" color="#6554c0">mdi-diamond-stone</v-icon> <strong class="num">{{ formatNum(phase2.lead) }}</strong> KH đã thành Lead</span>
             </div>
           </div>
         </div>
@@ -437,19 +441,19 @@
         <!-- ============ NICK PERFORMANCE TABLE ============ -->
         <div class="section">
           <div class="section-head">
-            <h3>🎯 Hiệu quả theo nick</h3>
+            <h3><v-icon size="16">mdi-target</v-icon> Hiệu quả theo nick</h3>
             <div class="head-hint">
-              {{ data.nicks.length }} nick đang chạy · sort theo % Accept
+              <span class="num">{{ data.nicks.length }}</span> nick đang chạy · sort theo % Accept
             </div>
           </div>
           <table>
             <thead>
               <tr>
                 <th style="width: 28%;">Nick</th>
-                <th class="num">Gửi <span class="sort-arrow">↕</span></th>
-                <th class="num">Đồng ý <span class="sort-arrow">↕</span></th>
+                <th class="num">Gửi <v-icon class="sort-arrow" size="13">mdi-unfold-more-horizontal</v-icon></th>
+                <th class="num">Đồng ý <v-icon class="sort-arrow" size="13">mdi-unfold-more-horizontal</v-icon></th>
                 <th class="sorted">
-                  % Accept <span class="sort-arrow">↓</span>
+                  % Accept <v-icon class="sort-arrow" size="13">mdi-menu-down</v-icon>
                 </th>
                 <th>Quota hôm nay</th>
                 <th>Status</th>
@@ -469,13 +473,13 @@
                 <td class="num">{{ formatNum(n.acceptedTotal ?? 0) }}</td>
                 <td>
                   <span
-                    class="pct"
+                    class="pct num"
                     :class="n.acceptPct >= 10 ? 'hi' : n.acceptPct < 5 ? 'lo' : ''"
                   >
                     {{ n.acceptPct.toFixed(1) }}%
                   </span>
-                  <span v-if="i === 0 && nicksByAccept.length > 1" class="medal">🥇</span>
-                  <span v-else-if="i === nicksByAccept.length - 1 && nicksByAccept.length > 2" class="medal">🥉</span>
+                  <v-icon v-if="i === 0 && nicksByAccept.length > 1" class="medal" size="14" color="#d4a017">mdi-medal</v-icon>
+                  <v-icon v-else-if="i === nicksByAccept.length - 1 && nicksByAccept.length > 2" class="medal" size="14" color="#b87333">mdi-medal-outline</v-icon>
                 </td>
                 <td>
                   <div class="quota-cell">
@@ -524,21 +528,21 @@
         <div class="section">
           <div class="section-head">
             <h3>
-              👥 Khách hàng
+              <v-icon size="16">mdi-account-group-outline</v-icon> Khách hàng
               <span class="head-hint">
-                ({{ formatNum(stats.hasZalo) }} đang chạy + {{ formatNum(stats.noZalo) }} không Zalo)
+                (<span class="num">{{ formatNum(stats.hasZalo) }}</span> đang chạy + <span class="num">{{ formatNum(stats.noZalo) }}</span> không Zalo)
               </span>
             </h3>
             <div class="head-actions">
-              <button class="btn btn-sm" @click="exportEntries">📤 Xuất Excel</button>
-              <button class="btn btn-sm" disabled title="Defer Wave 4">⚙ Cột hiển thị</button>
+              <button class="btn btn-sm" @click="exportEntries"><v-icon size="14">mdi-tray-arrow-up</v-icon> Xuất Excel</button>
+              <button class="btn btn-sm" disabled title="Defer Wave 4"><v-icon size="14">mdi-cog-outline</v-icon> Cột hiển thị</button>
             </div>
           </div>
 
           <!-- filter bar -->
           <div class="filter-bar">
             <div class="search-wrap">
-              <span class="search-icon">🔍</span>
+              <v-icon class="search-icon" size="16">mdi-magnify</v-icon>
               <input
                 v-model="searchInput"
                 class="search-input"
@@ -554,7 +558,7 @@
                 :data-tooltip="chip.tooltip || null"
                 @click="setEntryFilter(chip.key)"
               >
-                {{ chip.label }} <span class="count">{{ formatNum(chip.count) }}</span>
+                {{ chip.label }} <span class="count num">{{ formatNum(chip.count) }}</span>
               </span>
             </div>
           </div>
@@ -563,13 +567,13 @@
             <thead>
               <tr>
                 <th class="col-num">#</th>
-                <th class="col-kh">KH <span class="sort-arrow">↕</span></th>
+                <th class="col-kh">KH <v-icon class="sort-arrow" size="13">mdi-unfold-more-horizontal</v-icon></th>
                 <th class="col-phone">SĐT</th>
                 <th class="col-nickpin">Nick PIN</th>
                 <th class="col-step">Bước hiện tại</th>
                 <th class="col-status">Trạng thái</th>
                 <th class="col-update sorted">
-                  Lần gửi gần nhất <span class="sort-arrow">↓</span>
+                  Lần gửi gần nhất <v-icon class="sort-arrow" size="13">mdi-menu-down</v-icon>
                 </th>
                 <th class="col-next">Lần gửi tiếp theo</th>
               </tr>
@@ -583,7 +587,7 @@
                 :title="stepTooltip(e)"
                 @click="openChat(e)"
               >
-                <td class="col-num">{{ e.rowIndex ?? i + 1 }}</td>
+                <td class="col-num num">{{ e.rowIndex ?? i + 1 }}</td>
                 <td>
                   <div class="kh-cell">
                     <!-- Avatar Zalo (Phase Friend Invite UI 2026-05-30): ưu tiên
@@ -615,12 +619,13 @@
                     <div>
                       <div class="kh-name">{{ e.displayName ?? '(chưa có tên Zalo)' }}</div>
                       <div class="kh-sub">
-                        {{ e.dedup === 'merged' ? '🔗 Gộp KH cũ' : '✨ KH mới' }}
+                        <v-icon size="11">{{ e.dedup === 'merged' ? 'mdi-link-variant' : 'mdi-star-four-points-outline' }}</v-icon>
+                        {{ e.dedup === 'merged' ? 'Gộp KH cũ' : 'KH mới' }}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td class="col-phone">{{ e.phone }}</td>
+                <td class="col-phone num">{{ e.phone }}</td>
                 <td>
                   <div v-if="e.nickName || e.nickId" class="nick-cell">
                     <div class="avatar avatar-sm" :class="avatarClass(nickIndex(e.nickId))">
@@ -650,10 +655,10 @@
                   <!-- ĐÃ GỬI (tin đã tới khách) — icon ✅ + bước + mốc giờ -->
                   <div v-if="e.lastSentAt" class="send-cell">
                     <div class="send-l1 send-sent">
-                      <span class="send-ico">✅ Đã gửi</span>
+                      <span class="send-ico"><v-icon size="13">mdi-check-circle</v-icon> Đã gửi</span>
                       <span v-if="lastSentInfo(e).stepLabel" class="send-step">{{ lastSentInfo(e).stepLabel }}</span>
                     </div>
-                    <div class="send-l2">{{ lastSentInfo(e).label }}</div>
+                    <div class="send-l2 num">{{ lastSentInfo(e).label }}</div>
                   </div>
                   <span v-else class="muted">—</span>
                 </td>
@@ -661,18 +666,18 @@
                   <!-- ĐÃ HẸN (chưa gửi) / Đến hạn / Đã xong -->
                   <div v-if="nextRunInfo(e).isDue" class="send-cell">
                     <div class="send-l1 send-due" title="Tới giờ chạy nhưng đang chờ pickup">
-                      <span class="send-ico">🔴 Đến hạn</span>
+                      <span class="send-ico"><v-icon size="13">mdi-alert-circle</v-icon> Đến hạn</span>
                       <span v-if="nextRunInfo(e).stepLabel" class="send-step">{{ nextRunInfo(e).stepLabel }}</span>
                     </div>
                   </div>
-                  <div v-else-if="nextRunInfo(e).icon === '⏳'" class="send-cell">
+                  <div v-else-if="nextRunInfo(e).icon === 'scheduled'" class="send-cell">
                     <div class="send-l1 send-scheduled">
-                      <span class="send-ico">⏳ Đã hẹn</span>
+                      <span class="send-ico"><v-icon size="13">mdi-timer-sand</v-icon> Đã hẹn</span>
                       <span v-if="nextRunInfo(e).stepLabel" class="send-step">{{ nextRunInfo(e).stepLabel }}</span>
                     </div>
-                    <div class="send-l2">{{ nextRunInfo(e).label }}</div>
+                    <div class="send-l2 num">{{ nextRunInfo(e).label }}</div>
                   </div>
-                  <div v-else-if="nextRunInfo(e).icon === '✓'" class="send-cell">
+                  <div v-else-if="nextRunInfo(e).icon === 'done'" class="send-cell">
                     <div class="send-l1 send-done">{{ nextRunInfo(e).label }}</div>
                   </div>
                   <span v-else class="muted">{{ nextRunInfo(e).label }}</span>
@@ -689,13 +694,13 @@
           <div class="pagination">
             <div>
               Hiển thị
-              <strong>{{ data.entriesOffset + 1 }}-{{ Math.min(data.entriesOffset + data.entries.length, data.entriesTotal) }}</strong>
-              trong <strong>{{ formatNum(data.entriesTotal) }}</strong> KH
+              <strong class="num">{{ data.entriesOffset + 1 }}-{{ Math.min(data.entriesOffset + data.entries.length, data.entriesTotal) }}</strong>
+              trong <strong class="num">{{ formatNum(data.entriesTotal) }}</strong> KH
             </div>
             <div class="page-nav">
-              <button class="page-btn" :disabled="data.entriesOffset === 0" @click="prevPage">‹</button>
-              <button class="page-btn active">{{ currentPage }}</button>
-              <button class="page-btn" :disabled="!hasNextPage" @click="nextPage">›</button>
+              <button class="page-btn" :disabled="data.entriesOffset === 0" @click="prevPage"><v-icon size="16">mdi-chevron-left</v-icon></button>
+              <button class="page-btn active num">{{ currentPage }}</button>
+              <button class="page-btn" :disabled="!hasNextPage" @click="nextPage"><v-icon size="16">mdi-chevron-right</v-icon></button>
             </div>
           </div>
         </div>
@@ -708,13 +713,13 @@
         <div class="section section-mt">
           <div class="log-head">
             <h3>
-              📜 Lịch sử đầy đủ
+              <v-icon size="16">mdi-history</v-icon> Lịch sử đầy đủ
               <span class="head-hint-inline">
-                {{ formatNum(logTotal) }} sự kiện · lưu 90 ngày · Giờ VN (UTC+7)
+                <span class="num">{{ formatNum(logTotal) }}</span> sự kiện · lưu 90 ngày · Giờ VN (UTC+7)
               </span>
             </h3>
             <div class="log-head-actions">
-              <button class="btn btn-sm" @click="exportCsv">📥 Xuất Excel</button>
+              <button class="btn btn-sm" @click="exportCsv"><v-icon size="14">mdi-tray-arrow-down</v-icon> Xuất Excel</button>
             </div>
           </div>
 
@@ -739,7 +744,7 @@
               v-model="logFilter.q"
               type="text"
               class="filter-input filter-input-search"
-              placeholder="🔍 Tìm tên KH, SĐT, nick, mã tin nhắn…"
+              placeholder="Tìm tên KH, SĐT, nick, mã tin nhắn…"
             />
 
             <select v-model="logFilter.type" class="filter-select filter-select-type">
@@ -752,7 +757,7 @@
               </option>
             </select>
 
-            <button class="filter-reset" @click="resetLogFilter" title="Đặt lại lọc">↺</button>
+            <button class="filter-reset" @click="resetLogFilter" title="Đặt lại lọc"><v-icon size="16">mdi-restore</v-icon></button>
           </div>
 
           <div class="ev-table-wrap">
@@ -766,13 +771,13 @@
                       @change="toggleSelectAllLog"
                     />
                   </th>
-                  <th class="col-time">⏱ Thời gian</th>
-                  <th class="col-nick">📱 Nick chăm</th>
-                  <th class="col-kh">👤 Khách hàng</th>
+                  <th class="col-time"><v-icon size="13">mdi-clock-outline</v-icon> Thời gian</th>
+                  <th class="col-nick"><v-icon size="13">mdi-cellphone</v-icon> Nick chăm</th>
+                  <th class="col-kh"><v-icon size="13">mdi-account-outline</v-icon> Khách hàng</th>
                   <th class="col-phase">Loại sự kiện</th>
                   <th class="col-status">Trạng thái</th>
-                  <th class="col-detail">📝 Chi tiết</th>
-                  <th class="col-action">⚙</th>
+                  <th class="col-detail"><v-icon size="13">mdi-note-text-outline</v-icon> Chi tiết</th>
+                  <th class="col-action"><v-icon size="13">mdi-cog-outline</v-icon></th>
                 </tr>
               </thead>
               <tbody>
@@ -790,7 +795,7 @@
                   </td>
                   <td class="col-time">
                     <!-- 2026-06-04 — bỏ dòng 2 "X giờ trước" (shortAgo) cho gọn, chỉ giữ ngày giờ -->
-                    <div class="time-main">{{ formatLogTime(ev.at) }}</div>
+                    <div class="time-main num">{{ formatLogTime(ev.at) }}</div>
                   </td>
                   <td class="col-nick">
                     <span class="nick-dot" :class="nickDotClass(ev.nickName)"></span>
@@ -802,7 +807,7 @@
                   </td>
                   <td class="col-phase">
                     <span class="phase-pill" :class="'phase-' + phaseTone(ev.type)">
-                      <span class="phase-ico">{{ phaseIcon(ev.type) }}</span>
+                      <v-icon class="phase-ico" size="13">{{ phaseMdi(ev.type) }}</v-icon>
                       {{ phaseLabel(ev.type) }}
                     </span>
                   </td>
@@ -820,7 +825,7 @@
                       title="Mở hồ sơ KH / chat"
                       @click="jumpToConv(ev)"
                     >
-                      🔗
+                      <v-icon size="16">mdi-open-in-new</v-icon>
                     </button>
                   </td>
                 </tr>
@@ -839,19 +844,19 @@
           <div class="pagination">
             <div>
               Hiển thị
-              <strong>{{ logEvents.length === 0 ? 0 : (logPage - 1) * LOG_PAGE_SIZE + 1 }}-{{ Math.min(logPage * LOG_PAGE_SIZE, logTotal) }}</strong>
-              trong <strong>{{ formatNum(logTotal) }}</strong> sự kiện
-              · {{ LOG_PAGE_SIZE }}/trang
+              <strong class="num">{{ logEvents.length === 0 ? 0 : (logPage - 1) * LOG_PAGE_SIZE + 1 }}-{{ Math.min(logPage * LOG_PAGE_SIZE, logTotal) }}</strong>
+              trong <strong class="num">{{ formatNum(logTotal) }}</strong> sự kiện
+              · <span class="num">{{ LOG_PAGE_SIZE }}</span>/trang
             </div>
             <div class="page-nav">
-              <button class="page-btn" :disabled="logPage === 1" @click="logPage--; loadLog()">‹</button>
-              <button class="page-btn active">{{ logPage }}</button>
+              <button class="page-btn" :disabled="logPage === 1" @click="logPage--; loadLog()"><v-icon size="16">mdi-chevron-left</v-icon></button>
+              <button class="page-btn active num">{{ logPage }}</button>
               <button
                 class="page-btn"
                 :disabled="logPage * LOG_PAGE_SIZE >= logTotal"
                 @click="logPage++; loadLog()"
               >
-                ›
+                <v-icon size="16">mdi-chevron-right</v-icon>
               </button>
             </div>
           </div>
@@ -859,11 +864,11 @@
 
         <!-- Bulk action bar — sticky bottom khi có row chọn -->
         <div v-if="selectedLogIds.length > 0" class="bulk-bar">
-          <span class="count-pill">{{ selectedLogIds.length }} đã chọn</span>
+          <span class="count-pill"><span class="num">{{ selectedLogIds.length }}</span> đã chọn</span>
           <span class="bulk-label">Hành động hàng loạt:</span>
-          <button class="bulk-btn" @click="exportSelected">📥 Xuất Excel</button>
-          <button class="bulk-btn" @click="markReviewed">✅ Đánh dấu đã xem</button>
-          <button class="bulk-btn" @click="copySelectedIds">📋 Sao chép</button>
+          <button class="bulk-btn" @click="exportSelected"><v-icon size="14">mdi-tray-arrow-down</v-icon> Xuất Excel</button>
+          <button class="bulk-btn" @click="markReviewed"><v-icon size="14">mdi-check</v-icon> Đánh dấu đã xem</button>
+          <button class="bulk-btn" @click="copySelectedIds"><v-icon size="14">mdi-content-copy</v-icon> Sao chép</button>
           <span class="filter-spacer"></span>
           <button class="bulk-btn bulk-btn-ghost" @click="selectedLogIds = []">Bỏ chọn</button>
         </div>
@@ -872,7 +877,7 @@
       <!-- ============ STICKY BOTTOM HINT ============ -->
       <div class="sticky-hint">
         <div class="sticky-hint-inner">
-          <span class="hint-emoji">💡</span>
+          <span class="hint-emoji"><v-icon size="14" color="#f5a524">mdi-lightbulb-on-outline</v-icon></span>
           <div>
             Sale có thể đổi giai đoạn KH bất kỳ lúc nào để
             <strong>tự động dừng</strong> Mục tiêu cho KH đó.
@@ -1216,9 +1221,9 @@ const pauseLabel = computed(() => {
   const until = data.value?.trigger.pausedUntil;
   if (until) {
     const cd = fmtCountdown(until);
-    if (cd) return `⏸ Đang dừng (${cd})`;
+    if (cd) return `Đang dừng (${cd})`;
   }
-  return '⏸ Đang dừng';
+  return 'Đang dừng';
 });
 const pauseTooltip = computed(() => {
   const until = data.value?.trigger.pausedUntil;
@@ -1388,18 +1393,18 @@ const entryChips = computed<{
   const total = stats.value.total;
   return [
     { key: 'all',     label: 'Tất cả',             count: total },
-    { key: 'running', label: '🟢 Đang chạy',        count: c.processing ?? 0 },
-    { key: 'done',    label: '✅ Hoàn tất',         count: c.completed ?? 0 },
-    { key: 'reply',   label: '🛑 KH reply',         count: c.customer_reply ?? phase2.value.reply },
-    { key: 'block',   label: '🚫 KH block',         count: c.customer_block ?? phase2.value.block },
-    { key: 'lead',    label: '💎 Lead',             count: c.converted_lead ?? phase2.value.lead },
+    { key: 'running', label: 'Đang chạy',          count: c.processing ?? 0 },
+    { key: 'done',    label: 'Hoàn tất',           count: c.completed ?? 0 },
+    { key: 'reply',   label: 'KH reply',           count: c.customer_reply ?? phase2.value.reply },
+    { key: 'block',   label: 'KH block',           count: c.customer_block ?? phase2.value.block },
+    { key: 'lead',    label: 'Lead',               count: c.converted_lead ?? phase2.value.lead },
     {
       key: 'cho-crm',
-      label: '🟡 Chờ CRM',
+      label: 'Chờ CRM',
       count: c.waitingCrm ?? c.accepted ?? 0,
       tooltip: 'KH đã đồng ý kết bạn nhưng chưa có sale tiếp nhận trong CRM',
     },
-    { key: 'no-zalo', label: '🔴 Không có Zalo',    count: stats.value.noZalo },
+    { key: 'no-zalo', label: 'Không có Zalo',      count: stats.value.noZalo },
   ];
 });
 
@@ -1411,16 +1416,16 @@ const logTypeChips = computed<{ key: string; label: string; count: number }[]>((
   const countBy = (t: string) => all.filter((ev) => ev.type === t).length;
   return [
     { key: 'all',                label: 'Tất cả',            count: all.length },
-    { key: 'follow_up',          label: '✉ Bám đuổi',        count: countBy('follow_up') },
-    { key: 'welcome',            label: '👋 Welcome',         count: countBy('welcome') },
-    { key: 'friend_request',     label: '📤 Mời kết bạn',     count: countBy('friend_request') },
-    { key: 'friend_accepted',    label: '🤝 KH chấp nhận',    count: countBy('friend_accepted') },
-    { key: 'customer_reply',     label: '💬 KH trả lời',      count: countBy('customer_reply') },
-    { key: 'reaction_positive',  label: '❤ Reaction',         count: countBy('reaction_positive') + countBy('reaction_negative') },
-    { key: 'skipped',            label: '⏭ Bỏ qua',           count: countBy('skipped') },
-    { key: 'warning',            label: '⚠ Lỗi',              count: countBy('warning') },
-    { key: 'customer_block',     label: '🚫 Chặn',            count: countBy('customer_block') },
-    { key: 'converted_lead',     label: '⭐ Chuyển lead',     count: countBy('converted_lead') },
+    { key: 'follow_up',          label: 'Bám đuổi',          count: countBy('follow_up') },
+    { key: 'welcome',            label: 'Welcome',           count: countBy('welcome') },
+    { key: 'friend_request',     label: 'Mời kết bạn',       count: countBy('friend_request') },
+    { key: 'friend_accepted',    label: 'KH chấp nhận',      count: countBy('friend_accepted') },
+    { key: 'customer_reply',     label: 'KH trả lời',        count: countBy('customer_reply') },
+    { key: 'reaction_positive',  label: 'Reaction',          count: countBy('reaction_positive') + countBy('reaction_negative') },
+    { key: 'skipped',            label: 'Bỏ qua',            count: countBy('skipped') },
+    { key: 'warning',            label: 'Lỗi',               count: countBy('warning') },
+    { key: 'customer_block',     label: 'Chặn',              count: countBy('customer_block') },
+    { key: 'converted_lead',     label: 'Chuyển lead',       count: countBy('converted_lead') },
   ];
 });
 
@@ -1689,7 +1694,7 @@ async function pollMonitor(): Promise<void> {
           at: ev.at,
           type: ev.type,
           timeLabel: dmyhms(ev.at),
-          icon: ev.icon ?? '🤝',
+          icon: ev.icon ?? '',
           text: ev.text ?? '',
           tone: ev.tone ?? null,
           // Fix #3b (2026-06-02) — map 3 field BE đã trả về (trước đây bị drop).
@@ -1886,12 +1891,12 @@ function jumpToConv(ev: LogEvent): void {
 
 function stateLabel(state: string): string {
   const map: Record<string, string> = {
-    draft: '📝 Nháp',
-    active: '🟢 Đang chạy',
-    paused: '⏸ Tạm dừng',
-    cancelling: '⏳ Đang huỷ',
-    cancelled: '❌ Đã huỷ',
-    completed: '✅ Hoàn tất',
+    draft: 'Nháp',
+    active: 'Đang chạy',
+    paused: 'Tạm dừng',
+    cancelling: 'Đang huỷ',
+    cancelled: 'Đã huỷ',
+    completed: 'Hoàn tất',
   };
   return map[state] ?? state;
 }
@@ -1951,18 +1956,18 @@ function entryStatusLabel(e: Entry): string {
   const qs = e.queueStatus;
 
   // Nhãn RIÊNG ưu tiên cao (signal mạnh, đọc từ queueStatus).
-  if (qs === 'customer_block') return '🚫 KH Block';
-  if (qs === 'skipped_no_zalo' || e.hasZalo === false) return '🔴 Không có Zalo';
+  if (qs === 'customer_block') return 'KH Block';
+  if (qs === 'skipped_no_zalo' || e.hasZalo === false) return 'Không có Zalo';
 
   // Pause flag (Redis): KH Reply (nhãn riêng) vs Tạm dừng (reaction/manual/nick-hold).
   // pauseRemainingMs > 0 = đang tạm dừng sẽ chạy lại → đếm ngược ở pauseCountdown().
   if (e.pauseRemainingMs && e.pauseRemainingMs > 0) {
     if (e.pauseReason === 'customer_reply' || qs === 'customer_reply') {
-      return `🛑 KH Reply ${pauseCountdown(e)}`;
+      return `KH Reply ${pauseCountdown(e)}`;
     }
-    return `🔶 Tạm dừng ${pauseCountdown(e)}`;
+    return `Tạm dừng ${pauseCountdown(e)}`;
   }
-  if (qs === 'customer_reply') return '🛑 KH Reply';
+  if (qs === 'customer_reply') return 'KH Reply';
 
   // Phase 1 → cột Bước hiện tại lo, cột Trạng thái để '—'.
   if (ds === 'pending_friend' || ds === 'phase1_done') return '—';
@@ -1970,11 +1975,11 @@ function entryStatusLabel(e: Entry): string {
   if (ds === 'in_sequence') {
     const cur = e.currentStepIdx ?? 0;
     const total = e.sequenceTotalSteps ?? data.value?.trigger.successorSequence?.stepsCount ?? 0;
-    if (total > 0) return `🔵 Bám đuổi (${cur + 1}/${total})`;
-    return '🔵 Bám đuổi';
+    if (total > 0) return `Bám đuổi (${cur + 1}/${total})`;
+    return 'Bám đuổi';
   }
-  if (ds === 'sequence_done' || qs === 'converted_lead') return '✅ Hoàn tất';
-  if (ds === 'stopped') return '🛑 Dừng';
+  if (ds === 'sequence_done' || qs === 'converted_lead') return 'Hoàn tất';
+  if (ds === 'stopped') return 'Dừng';
   // Fallback cũ (payload không có derivedStatus)
   return statusChipLabel(e.queueStatus, e.hasZalo);
 }
@@ -2061,12 +2066,12 @@ function nextRunInfo(e: Entry): {
   // 2026-06-04 — Anh chốt: KH hoàn tất chuỗi (không còn bước nào) → "Đã xong"
   // thay vì "—" (trống trông như lỗi). sequence_done = đã gửi hết bước cuối.
   if (e.derivedStatus === 'sequence_done') {
-    return { label: 'Đã xong', stepLabel: null, icon: '✓', isDue: false, muted: true };
+    return { label: 'Đã xong', stepLabel: null, icon: 'done', isDue: false, muted: true };
   }
   const iso = e.nextRunAt ?? null;
   if (!iso) {
     // Không còn job kế tiếp + đã gửi ít nhất 1 bước → coi như xong chuỗi.
-    if (e.lastSentAt) return { label: 'Đã xong', stepLabel: null, icon: '✓', isDue: false, muted: true };
+    if (e.lastSentAt) return { label: 'Đã xong', stepLabel: null, icon: 'done', isDue: false, muted: true };
     return { label: '—', stepLabel: null, icon: '', isDue: false, muted: true };
   }
   const ts = new Date(iso).getTime();
@@ -2082,11 +2087,11 @@ function nextRunInfo(e: Entry): {
     const pending =
       ds === 'pending_friend' || ds === 'phase1_done' || ds === 'in_sequence' ||
       (ds == null && e.queueStatus !== 'completed' && e.queueStatus !== 'processed');
-    if (pending) return { label: 'Đến hạn', stepLabel, icon: '🔴', isDue: true, muted: false };
+    if (pending) return { label: 'Đến hạn', stepLabel, icon: 'due', isDue: true, muted: false };
     return { label: '—', stepLabel: null, icon: '', isDue: false, muted: true };
   }
-  // ĐÃ HẸN (chưa tới giờ) — icon ⏳ + mốc giờ dd/MM HH:mm.
-  return { label: dmHm(iso), stepLabel, icon: '⏳', isDue: false, muted: false };
+  // ĐÃ HẸN (chưa tới giờ) — icon scheduled + mốc giờ dd/MM HH:mm.
+  return { label: dmHm(iso), stepLabel, icon: 'scheduled', isDue: false, muted: false };
 }
 
 // Avatar Zalo URL có thể 404 / expire (Zalo CDN ngắn hạn) — fallback hide image
@@ -2112,13 +2117,13 @@ function statusChipClass(qs: string | null, hasZalo: boolean | null): string {
   return 'cho-crm';
 }
 function statusChipLabel(qs: string | null, hasZalo: boolean | null): string {
-  if (qs === 'processing') return '🟢 Đang chạy';
-  if (qs === 'completed' || qs === 'processed') return '✅ Hoàn tất';
-  if (qs === 'customer_reply') return '🛑 KH reply';
-  if (qs === 'customer_block') return '🚫 KH block';
-  if (qs === 'converted_lead') return '💎 Đã thành Lead';
-  if (qs === 'accepted' || qs === 'queued_for_pickup') return '🟡 Chờ CRM';
-  if (qs === 'skipped_no_zalo' || hasZalo === false) return '🔴 Không có Zalo';
+  if (qs === 'processing') return 'Đang chạy';
+  if (qs === 'completed' || qs === 'processed') return 'Hoàn tất';
+  if (qs === 'customer_reply') return 'KH reply';
+  if (qs === 'customer_block') return 'KH block';
+  if (qs === 'converted_lead') return 'Đã thành Lead';
+  if (qs === 'accepted' || qs === 'queued_for_pickup') return 'Chờ CRM';
+  if (qs === 'skipped_no_zalo' || hasZalo === false) return 'Không có Zalo';
   return qs ?? '—';
 }
 
@@ -2135,7 +2140,7 @@ function stepProgressLabel(e: Entry): string {
   if (e.queueStatus === 'skipped_no_zalo' || e.hasZalo === false) return '—';
   // Hoàn tất: BE trả derivedStatus='sequence_done' HOẶC đã gửi bước cuối.
   if (e.derivedStatus === 'sequence_done') {
-    return total ? `${total}/${total} ✅ Hoàn tất` : 'Hoàn tất';
+    return total ? `${total}/${total} Hoàn tất` : 'Hoàn tất';
   }
   // Đang trong chuỗi: currentStepIdx 0-based → bước hiện tại = idx+1.
   if (e.currentStepIdx !== null && e.currentStepIdx !== undefined) {
@@ -2166,8 +2171,8 @@ function phase1Label(e: Entry): string {
     return 'Đang chờ kết bạn';
   }
   // phase1_done / in_sequence / sequence_done → đều đã kết bạn (hoặc đã là bạn / stranger).
-  if (ds === 'phase1_done' || ds === 'in_sequence' || ds === 'sequence_done') return 'Đã kết bạn ✓';
-  if (e.queueStatus === 'processed') return 'Đã kết bạn ✓';
+  if (ds === 'phase1_done' || ds === 'in_sequence' || ds === 'sequence_done') return 'Đã kết bạn';
+  if (e.queueStatus === 'processed') return 'Đã kết bạn';
   return 'Đang chờ kết bạn';
 }
 // P0-3 2026-05-30 — tooltip cho cột Bước hiện tại: currentStepIdx + scheduledAt.
@@ -2255,68 +2260,68 @@ function detailText(ev: { type: string; detail?: unknown; metadata?: unknown }, 
     case 'sequence_step_sent':
     case 'follow_up':
       base = stepIdx != null && totalSteps != null
-        ? `✉️ Gửi bước ${stepIdx + 1}/${totalSteps} — luồng chăm sóc`
-        : '✉️ Gửi bước chăm sóc';
+        ? `Gửi bước ${stepIdx + 1}/${totalSteps} — luồng chăm sóc`
+        : 'Gửi bước chăm sóc';
       break;
     case 'sequence_step_enqueued':
       base = stepIdx != null && totalSteps != null
-        ? `🕒 Lên lịch bước ${stepIdx + 1}/${totalSteps}`
-        : '🕒 Lên lịch bước tiếp theo';
+        ? `Lên lịch bước ${stepIdx + 1}/${totalSteps}`
+        : 'Lên lịch bước tiếp theo';
       break;
     case 'sequence_done':
-      base = totalSteps != null ? `⭐ Hoàn tất luồng (${totalSteps}/${totalSteps} bước)` : '⭐ Hoàn tất luồng chăm sóc';
+      base = totalSteps != null ? `Hoàn tất luồng (${totalSteps}/${totalSteps} bước)` : 'Hoàn tất luồng chăm sóc';
       break;
     case 'friend_request':
     case 'friend_request_sent':
-      base = '📤 Gửi lời mời kết bạn';
+      base = 'Gửi lời mời kết bạn';
       break;
     case 'friend_accepted':
-      base = '🤝 KH đồng ý kết bạn';
+      base = 'KH đồng ý kết bạn';
       break;
     case 'friend_already':
-      base = '🤝 KH đã là bạn (vào luôn bám đuổi)';
+      base = 'KH đã là bạn (vào luôn bám đuổi)';
       break;
     case 'welcome_sent':
     case 'welcome_message_sent':
       base = channel === 'stranger_inbox'
-        ? '👋 Gửi tin chào (hộp người lạ)'
+        ? 'Gửi tin chào (hộp người lạ)'
         : channel === 'friend_msg'
-          ? '👋 Gửi tin chào (đã là bạn)'
-          : '👋 Gửi tin chào mừng';
+          ? 'Gửi tin chào (đã là bạn)'
+          : 'Gửi tin chào mừng';
       break;
     case 'welcome_blocked':
-      base = '🚫 KH chặn tin chào (hộp người lạ)';
+      base = 'KH chặn tin chào (hộp người lạ)';
       break;
     case 'customer_reply':
-      base = rawDetail ? `💬 KH trả lời: "${rawDetail.slice(0, 50)}${rawDetail.length > 50 ? '…' : ''}"` : '💬 KH trả lời';
+      base = rawDetail ? `KH trả lời: "${rawDetail.slice(0, 50)}${rawDetail.length > 50 ? '…' : ''}"` : 'KH trả lời';
       break;
     case 'customer_block':
-      base = '🚫 KH chặn nick — dừng chăm sóc';
+      base = 'KH chặn nick — dừng chăm sóc';
       break;
     case 'customer_reaction_positive':
     case 'reaction_positive':
-      base = `❤️ KH thả cảm xúc tích cực${rawDetail ? ` ${rawDetail}` : ''}`;
+      base = `KH thả cảm xúc tích cực${rawDetail ? ` ${rawDetail}` : ''}`;
       break;
     case 'customer_reaction_negative':
     case 'reaction_negative':
-      base = `😡 KH thả cảm xúc tiêu cực${rawDetail ? ` ${rawDetail}` : ''} — tạm dừng 48h`;
+      base = `KH thả cảm xúc tiêu cực${rawDetail ? ` ${rawDetail}` : ''} — tạm dừng 48h`;
       break;
     case 'converted_lead':
-      base = '💎 KH chuyển thành Lead';
+      base = 'KH chuyển thành Lead';
       break;
     case 'nick_hold_reset':
       base = restartCycle != null
-        ? `⏰ Reset hàng đợi (nick offline >24h, vòng ${restartCycle})`
-        : '⏰ Reset hàng đợi (nick offline >24h)';
+        ? `Reset hàng đợi (nick offline >24h, vòng ${restartCycle})`
+        : 'Reset hàng đợi (nick offline >24h)';
       break;
     case 'campaign_timeout':
-      base = '🚨 Mục tiêu hết hạn (worker không advance)';
+      base = 'Mục tiêu hết hạn (worker không advance)';
       break;
     case 'no_zalo':
-      base = '📵 SĐT không có Zalo — gọi điện';
+      base = 'SĐT không có Zalo — gọi điện';
       break;
     case 'send_error':
-      base = rawDetail ? `❌ Lỗi gửi: ${rawDetail.slice(0, 60)}` : '❌ Lỗi gửi kết bạn';
+      base = rawDetail ? `Lỗi gửi: ${rawDetail.slice(0, 60)}` : 'Lỗi gửi kết bạn';
       break;
     default:
       base = rawDetail || phaseLabel(ev.type);
@@ -2388,39 +2393,39 @@ function phaseLabel(type: string): string {
   };
   return map[type] ?? type;
 }
-// Phase icon dùng trong Log table (Monitor đã có ev.icon từ BE).
-function phaseIcon(type: string): string {
+// Phase icon (mdi) dùng chung Monitor + Log phase-pill. Map event type → mdi name.
+function phaseMdi(type: string): string {
   const map: Record<string, string> = {
-    friend_request: '📤',
-    friend_request_sent: '📤',
-    friend_accepted: '🤝',
-    friend_already: '🤝',
-    welcome: '👋',
-    welcome_sent: '👋',
-    follow_up: '✉️',
-    sequence_step_sent: '✉️',
-    sequence_done: '⭐',
-    customer_reply: '💬',
-    customer_block: '🚫',
-    converted_lead: '💎',
-    nick_disconnected: '📡',
-    nick_resumed: '🔄',
+    friend_request: 'mdi-send-outline',
+    friend_request_sent: 'mdi-send-outline',
+    friend_accepted: 'mdi-handshake-outline',
+    friend_already: 'mdi-handshake-outline',
+    welcome: 'mdi-hand-wave-outline',
+    welcome_sent: 'mdi-hand-wave-outline',
+    follow_up: 'mdi-email-outline',
+    sequence_step_sent: 'mdi-email-outline',
+    sequence_done: 'mdi-star-outline',
+    customer_reply: 'mdi-message-text-outline',
+    customer_block: 'mdi-cancel',
+    converted_lead: 'mdi-diamond-stone',
+    nick_disconnected: 'mdi-access-point-network-off',
+    nick_resumed: 'mdi-refresh',
     // ── Sprint v3 (2026-06-03) — Sticky 24h Hold icons ──
-    nick_reconnected: '✅',
-    nick_hold_reset: '⏰',
-    notification_sent: '🔔',
-    campaign_timeout: '🚨',
-    soft_fail_escalated: '⚠️',
-    zalo_check: '🔍',
-    reaction_positive: '❤️',
-    reaction_negative: '😡',
-    warning: '⚠️',
-    skipped: '⏭️',
-    skipped_no_zalo: '⏭️',
-    skipped_recency: '⏭️',
-    failed_send: '⚠️',
+    nick_reconnected: 'mdi-check-circle-outline',
+    nick_hold_reset: 'mdi-clock-alert-outline',
+    notification_sent: 'mdi-bell-outline',
+    campaign_timeout: 'mdi-alert-octagon-outline',
+    soft_fail_escalated: 'mdi-alert-outline',
+    zalo_check: 'mdi-magnify',
+    reaction_positive: 'mdi-heart-outline',
+    reaction_negative: 'mdi-emoticon-angry-outline',
+    warning: 'mdi-alert-outline',
+    skipped: 'mdi-skip-next-outline',
+    skipped_no_zalo: 'mdi-skip-next-outline',
+    skipped_recency: 'mdi-skip-next-outline',
+    failed_send: 'mdi-alert-outline',
   };
-  return map[type] ?? '·';
+  return map[type] ?? 'mdi-circle-small';
 }
 // Nick dot color — stable hash của nick name modulo 3 → n1/n2/n3 (blue/purple/orange).
 function nickDotClass(name: string | null | undefined): string {
@@ -2452,14 +2457,14 @@ function logStatusClass(ev: LogEvent): string {
 }
 function logStatusLabel(ev: LogEvent): string {
   const map: Record<string, string> = {
-    success: '🟢 Thành công',
-    reply: '🛑 Dừng cho KH',
-    block: '🚫 Dừng cho nick',
-    lead: '💎 Đã thành Lead',
-    paused: '⏸ Tạm dừng',
-    failed: '⚠️ Lỗi',
+    success: 'Thành công',
+    reply: 'Dừng cho KH',
+    block: 'Dừng cho nick',
+    lead: 'Đã thành Lead',
+    paused: 'Tạm dừng',
+    failed: 'Lỗi',
   };
-  return map[ev.status ?? ''] ?? '🟢 Thành công';
+  return map[ev.status ?? ''] ?? 'Thành công';
 }
 
 function estimateDays(remaining: number, nicks: NickStat[]): number {
@@ -2491,8 +2496,8 @@ useMucTieuSocket((payload: FriendInviteClaimedPayload) => {
     at: isoAt,
     timeLabel: dmyhms(isoAt),
     type: 'friend_sent',
-    icon: '🤝',
-    text: `Nick <b>${_escHtml(payload.nickName)}</b> → <b>${_escHtml(payload.contactName)}</b> (#${payload.rowIndex})`,
+    icon: '',
+    text: `Nick <b>${_escHtml(payload.nickName)}</b> -> <b>${_escHtml(payload.contactName)}</b> (#${payload.rowIndex})`,
     tone: null,
     isNew: true,
     nickName: payload.nickName,
@@ -2645,6 +2650,7 @@ onUnmounted(() => {
   padding: 3px 10px; border-radius: 4px;
   font-size: 12px; font-weight: 600; white-space: nowrap;
 }
+.status .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .status.s-active { background: var(--success-bg); color: #157f3c; }
 .status.s-completed { background: var(--primary-bg); color: var(--primary); }
 .status.s-paused { background: var(--bg-soft); color: var(--text-2); }
@@ -3286,15 +3292,16 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   flex-shrink: 0;
 }
 .avatar.avatar-sm { width: 22px; height: 22px; font-size: 10px; }
-.avatar.a2 { background: #ffe0b2; color: #b45309; }
-.avatar.a3 { background: #d1fae5; color: #047857; }
-.avatar.a4 { background: #e0e7ff; color: #4f46e5; }
-.avatar.a5 { background: #fce7f3; color: #be185d; }
-.avatar.a6 { background: #fde68a; color: #92400e; }
+/* Palette HS đa sắc cho avatar (nền nhạt token + chữ đậm cùng tông) — đồng bộ MucTieuListView */
+.avatar.a2 { background: var(--warning-soft); color: #b45309; }
+.avatar.a3 { background: var(--success-soft); color: #157f3c; }
+.avatar.a4 { background: var(--chip-blue-bg); color: #1565c0; }
+.avatar.a5 { background: var(--chip-purple-bg); color: #6d28d9; }
+.avatar.a6 { background: var(--warning-soft); color: #b45309; }
 .nick-name { font-weight: 600; color: var(--text-1); }
 .nick-pin-name { font-size: 12px; color: var(--text-2); }
 
-.num { font-variant-numeric: tabular-nums; color: var(--text-1); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-1); }
 .num.muted { color: var(--text-3); font-size: 12px; }
 .pct { font-weight: 600; font-variant-numeric: tabular-nums; }
 .pct.hi { color: var(--success); }

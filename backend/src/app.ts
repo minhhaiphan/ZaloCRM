@@ -387,7 +387,8 @@ async function bootstrap() {
       startListEnrichmentWorker();
       registerCustomerListEventHandlers();
       // Phase Friend Invite Queue 2026-05-28 — sweepers + per-nick workers
-      startFriendInviteSweepers();
+      // #3 2026-06-06 — async vì đọc nhịp quét từ Cài đặt kỹ thuật (org settings).
+      await startFriendInviteSweepers();
       // Wave 2 Welcome Probe 2026-05-29 — poll WELCOME_PROBE outbox rows
       startWelcomeProbeWorker();
       // bootstrap workers — guard with try/catch để container không restart loop

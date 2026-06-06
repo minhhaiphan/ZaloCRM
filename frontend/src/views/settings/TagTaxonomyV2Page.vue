@@ -279,7 +279,9 @@ const SOURCE_META: Record<string, { label: string; color: string; scope: 'friend
   zalo_real: { label: 'Zalo Real', color: '#0068FF', scope: 'friend' },
   manual_per_nick: { label: 'Manual per Nick', color: '#FFA726', scope: 'friend' },
   auto_detect: { label: 'Auto Detect', color: '#66BB6A', scope: 'friend' },
-  auto_score: { label: 'Auto Score', color: '#AB47BC', scope: 'friend' },
+  // auto_score (Tier A-D) ĐÃ GỠ HẲN /office-hours 2026-06-06 — xoá khỏi hệ tag + DB
+  // (4784 junction + 3 def). Điểm Lead vẫn ở ScoreBanner. Bỏ entry khỏi SOURCE_META để
+  // chip bộ lọc "Auto Score" biến mất khỏi /settings/crm/tags-v2.
   auto_engagement: { label: 'Auto Engagement', color: '#EF5350', scope: 'friend' },
   manual_crm: { label: 'Manual CRM', color: '#FFA726', scope: 'crm' },
   ai_suggest: { label: 'AI Suggest', color: '#5C6BC0', scope: 'crm' },

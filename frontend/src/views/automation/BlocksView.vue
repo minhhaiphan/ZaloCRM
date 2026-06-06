@@ -1,41 +1,45 @@
+<!--
+  Khối nội dung (Blocks) — sub-view 3 Marketing.
+  HS Atlas re-skin 2026-06-06: .mkt-top sticky + .mkt-body, folder dọc .blk-folder
+  + grid .blk-grid / card .blk chuẩn HS. Sidebar Công khai/Riêng tư GIỮ (Anh chốt 2026-06-04),
+  chỉ re-skin token. KHÔNG đổi logic — chỉ markup/CSS. Token global
+  (--brand/--ink/--line/--surface…), classes .btn/.chip/.field/.card tái dùng từ hs-crm-theme.css.
+-->
 <template>
   <div class="blocks-view">
-    <header class="bv-topbar">
-      <div class="bv-title">
-        <span class="bv-icon-badge">🧱</span>
-        <h1 class="bv-title-text">Khối nội dung</h1>
-        <span class="bv-title-count">{{ allBlocks.length }} Khối</span>
+    <!-- ================== TOPBAR (HS .mkt-top scaffold) ================== -->
+    <div class="mkt-top">
+      <div>
+        <div class="mtt">Khối nội dung</div>
+        <div class="mts">Mẫu hành động tái sử dụng — gửi 1-1 hàng ngày hoặc ghép vào Luồng</div>
       </div>
-      <div class="bv-topbar-actions">
-        <div class="bv-search">
-          <span class="bv-search-icon">🔍</span>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="bv-search-input"
-            placeholder="Tìm Khối theo tên, nội dung, tag..."
-          />
-        </div>
-        <button class="at-btn at-btn--sm at-btn--action" @click="openCreate">+ Tạo Khối mới</button>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" @click="createFolderInline">
+          <v-icon size="16">mdi-folder-plus-outline</v-icon> Tạo thư mục
+        </button>
+        <button class="btn btn-primary btn-sm" @click="openCreate">
+          <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo khối
+        </button>
       </div>
-    </header>
+    </div>
 
+    <!-- ================== LAYOUT (sidebar + body) ================== -->
     <div class="bv-layout">
-      <!-- Sidebar: Folder Public/Private (Anh chốt 2026-06-04) -->
+      <!-- ---- Sidebar: Folder Công khai / Riêng tư (Anh chốt 2026-06-04) ---- -->
       <aside class="bv-sidebar">
         <button
           class="bv-folder-item"
           :class="{ 'is-active': !selectedFolderId && !showArchived }"
           @click="onSelectAll"
         >
-          <span class="bv-folder-ico">📋</span>
-          <span class="bv-folder-label">Tất cả Khối</span>
-          <span class="bv-folder-count">{{ activeBlocksCount }}</span>
+          <v-icon size="15">mdi-view-grid-outline</v-icon>
+          <span class="bv-folder-label">Tất cả khối</span>
+          <span class="bv-folder-count num">{{ activeBlocksCount }}</span>
         </button>
 
         <div v-if="publicFolders.length > 0" class="bv-sidebar-section">
           <div class="bv-sidebar-head">
-            <span class="bv-vis-ico vis-public">🔓</span>
+            <v-icon size="13" class="vis-public">mdi-lock-open-variant-outline</v-icon>
             <span>Công khai</span>
             <span class="bv-sidebar-hint">cả org dùng</span>
           </div>
@@ -46,15 +50,15 @@
             :class="{ 'is-active': selectedFolderId === folder.id }"
             @click="onSelectFolder(folder.id)"
           >
-            <span class="bv-folder-ico">📁</span>
+            <v-icon size="14">mdi-folder-outline</v-icon>
             <span class="bv-folder-label">{{ folder.name }}</span>
-            <span class="bv-folder-count">{{ folder._count?.blocks ?? 0 }}</span>
+            <span class="bv-folder-count num">{{ folder._count?.blocks ?? 0 }}</span>
           </button>
         </div>
 
         <div v-if="privateFolders.length > 0" class="bv-sidebar-section">
           <div class="bv-sidebar-head">
-            <span class="bv-vis-ico vis-private">🔒</span>
+            <v-icon size="13" class="vis-private">mdi-lock-outline</v-icon>
             <span>Riêng tư</span>
             <span class="bv-sidebar-hint">chỉ tôi</span>
           </div>
@@ -65,9 +69,9 @@
             :class="{ 'is-active': selectedFolderId === folder.id }"
             @click="onSelectFolder(folder.id)"
           >
-            <span class="bv-folder-ico">📁</span>
+            <v-icon size="14">mdi-folder-outline</v-icon>
             <span class="bv-folder-label">{{ folder.name }}</span>
-            <span class="bv-folder-count">{{ folder._count?.blocks ?? 0 }}</span>
+            <span class="bv-folder-count num">{{ folder._count?.blocks ?? 0 }}</span>
           </button>
         </div>
 
@@ -77,107 +81,135 @@
           :class="{ 'is-active': showArchived }"
           @click="onSelectArchived"
         >
-          <span class="bv-folder-ico">📦</span>
-          <span class="bv-folder-label">Đã archive</span>
-          <span class="bv-folder-count">{{ archivedCount }}</span>
+          <v-icon size="14">mdi-archive-outline</v-icon>
+          <span class="bv-folder-label">Đã lưu trữ</span>
+          <span class="bv-folder-count num">{{ archivedCount }}</span>
         </button>
-        <button class="bv-new-folder" @click="createFolderInline">+ Tạo thư mục mới</button>
+        <button class="bv-new-folder" @click="createFolderInline">
+          <v-icon size="14">mdi-folder-plus-outline</v-icon> Tạo thư mục mới
+        </button>
       </aside>
 
-      <!-- Main grid -->
-      <main class="bv-main">
-        <!-- Tag filter row + action type filter (Anh chốt 2026-06-04) -->
-        <div class="bv-filter-row">
-          <span class="bv-filter-label">🏷 Tag dự án/mục đích:</span>
-          <button
-            v-for="tag in availableTags"
-            :key="tag"
-            class="at-chip"
-            :class="{ 'at-chip--filter-active': selectedTags.includes(tag) }"
-            @click="toggleTag(tag)"
-          >
-            {{ tag }}
-            <span class="bv-chip-count">{{ tagCounts[tag] || 0 }}</span>
-          </button>
-          <button class="at-chip bv-chip-dashed" @click="openTagPicker">+ Thêm tag</button>
+      <!-- ================== BODY (.mkt-body) ================== -->
+      <main class="mkt-body bv-main">
+        <!-- ----- Filter bar ----- -->
+        <div class="filter-bar">
+          <div class="field sm search-wrap">
+            <v-icon size="16">mdi-magnify</v-icon>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Tìm khối theo tên, nội dung, tag..."
+            />
+          </div>
 
-          <div class="bv-filter-right">
-            <span class="bv-filter-label">Loại:</span>
+          <div class="chips">
+            <span class="filter-lbl">Tag:</span>
+            <button
+              v-for="tag in availableTags"
+              :key="tag"
+              class="fchip"
+              :class="{ active: selectedTags.includes(tag) }"
+              @click="toggleTag(tag)"
+            >
+              {{ tag }}
+              <span class="count">{{ tagCounts[tag] || 0 }}</span>
+            </button>
+            <button class="fchip fchip-dashed" @click="openTagPicker">
+              <v-icon size="13">mdi-plus</v-icon> Thêm tag
+            </button>
+          </div>
+
+          <div class="filter-spacer"></div>
+
+          <div class="chips">
+            <span class="filter-lbl">Loại:</span>
             <button
               v-for="type in actionTypeChips"
               :key="type.value"
-              class="at-chip"
-              :class="{ 'at-chip--filter-active': actionTypeFilter === type.value }"
+              class="fchip"
+              :class="{ active: actionTypeFilter === type.value }"
               @click="actionTypeFilter = actionTypeFilter === type.value ? 'all' : type.value"
             >
+              <v-icon size="13">{{ actionIcon(type.value) }}</v-icon>
               {{ type.label }}
             </button>
           </div>
         </div>
 
-        <!-- Loading -->
+        <!-- ----- Loading ----- -->
         <div v-if="loading" class="bv-empty">
           <v-progress-circular indeterminate size="32" color="primary" />
         </div>
 
-        <!-- Empty state -->
+        <!-- ----- Empty state ----- -->
         <div v-else-if="filteredBlocks.length === 0" class="bv-empty">
-          <div class="bv-empty-icon">📭</div>
+          <v-icon size="40" color="#97a0b3">mdi-package-variant-closed</v-icon>
           <div class="bv-empty-title">
-            {{ showArchived ? 'Không có Khối đã archive' : 'Chưa có Khối nào ở đây' }}
+            {{ showArchived ? 'Không có khối đã lưu trữ' : 'Chưa có khối nào ở đây' }}
           </div>
           <p v-if="!showArchived" class="bv-empty-desc">
-            Khối là 1 cụm tin nhắn (text + ảnh + file...) gửi cho khách hàng.
+            Khối là 1 cụm tin nhắn (chữ + ảnh + tệp...) gửi cho khách hàng.
             Tạo 1 lần dùng nhiều nơi.
           </p>
-          <button v-if="!showArchived" class="at-btn at-btn--sm at-btn--action" @click="openCreate">
-            + Tạo Khối đầu tiên
+          <button v-if="!showArchived" class="btn btn-primary btn-sm" @click="openCreate">
+            <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo khối đầu tiên
           </button>
         </div>
 
-        <!-- Grid card -->
-        <div v-else class="bv-grid">
-          <article
-            v-for="block in filteredBlocks"
-            :key="block.id"
-            class="at-card at-card-interactive bv-card"
-            :class="actionAccentClass(block.actionType)"
-            @click="openEdit(block)"
-          >
-            <button class="at-btn-icon bv-card-more" @click.stop="onCardMore(block, $event)">⋮</button>
-            <div class="bv-card-head">
-              <div class="bv-card-icon">{{ actionIcon(block.actionType) }}</div>
-              <div class="bv-card-name-wrap">
-                <div class="bv-card-name">{{ block.name }}</div>
-                <div class="bv-card-kind">
-                  <span v-if="block.folder?.visibility === 'private'" class="bv-vis-ico vis-private">🔒</span>
-                  <span v-else class="bv-vis-ico vis-public">🔓</span>
-                  {{ block.folder?.visibility === 'private' ? 'Riêng tư' : 'Công khai' }}
-                  <span v-if="block.folder">· 📁 {{ block.folder.name }}</span>
+        <!-- ----- Folder sections (Atlas .blk-folder dọc) ----- -->
+        <template v-else>
+          <section v-for="grp in groupedBlocks" :key="grp.key" class="blk-folder">
+            <div class="blk-fh">
+              <v-icon size="17">mdi-folder-outline</v-icon>
+              <span class="fn">{{ grp.name }}</span>
+              <span class="chip chip-grey">
+                <v-icon size="12">{{ grp.visibility === 'private' ? 'mdi-lock-outline' : 'mdi-lock-open-variant-outline' }}</v-icon>
+                {{ grp.visibility === 'private' ? 'Riêng tư' : 'Công khai' }}
+              </span>
+              <span class="fc num">{{ grp.blocks.length }} khối</span>
+            </div>
+
+            <div class="blk-grid">
+              <article
+                v-for="block in grp.blocks"
+                :key="block.id"
+                class="blk"
+                @click="openEdit(block)"
+              >
+                <button class="bk-more" @click.stop="onCardMore(block, $event)" title="Tùy chọn">
+                  <v-icon size="16">mdi-dots-vertical</v-icon>
+                </button>
+
+                <!-- action chip -->
+                <span class="bk-act chip" :class="actionChipClass(block.actionType)">
+                  <v-icon size="13">{{ actionIcon(block.actionType) }}</v-icon>
+                  {{ actionLabel(block.actionType) }}
+                </span>
+
+                <div class="bn">{{ block.name }}</div>
+                <div class="bp">{{ previewText(block) }}</div>
+
+                <div class="bf">
+                  <span class="bk-meta-left">
+                    <template v-if="variantCount(block) > 0">
+                      <v-icon size="13">mdi-shuffle-variant</v-icon>
+                      <span class="num">{{ variantCount(block) }}</span> biến thể
+                    </template>
+                    <template v-for="tag in block.tagIds?.slice(0, 2) || []" :key="tag">
+                      <span class="bk-tag" :class="tagColorClass(tag)">{{ tag }}</span>
+                    </template>
+                    <span v-if="(block.tagIds?.length || 0) > 2" class="bk-tag-more num">+{{ block.tagIds.length - 2 }}</span>
+                  </span>
+                  <span v-if="block.usageCount > 0" class="bk-meta-right">
+                    <v-icon size="13">mdi-flash-outline</v-icon>
+                    <span class="num">{{ block.usageCount }}</span> lượt
+                  </span>
                 </div>
-              </div>
+              </article>
             </div>
-
-            <!-- Preview -->
-            <div class="bv-card-preview">{{ previewText(block) }}</div>
-
-            <div class="bv-card-foot">
-              <span v-if="variantCount(block) > 0" class="bv-meta-chip variants">
-                🎲 {{ variantCount(block) }} biến thể
-              </span>
-              <span v-if="block.usageCount > 0" class="bv-meta-chip usage">
-                ⚡ {{ block.usageCount }} lượt
-              </span>
-              <span
-                v-for="tag in block.tagIds?.slice(0, 3) || []"
-                :key="tag"
-                class="bv-tag-chip"
-                :class="tagColorClass(tag)"
-              >{{ tag }}</span>
-              <span v-if="(block.tagIds?.length || 0) > 3" class="bv-meta-chip">+{{ block.tagIds.length - 3 }}</span>
-            </div>
-          </article>
-        </div>
+          </section>
+        </template>
       </main>
     </div>
 
@@ -224,29 +256,61 @@ const toastColor = ref<'success' | 'error' | 'info'>('info');
 const publicFolders = computed(() => folders.value.filter((f) => f.visibility === 'public'));
 const privateFolders = computed(() => folders.value.filter((f) => f.visibility === 'private'));
 
-const allBlocks = computed(() => blocks.value);
 const activeBlocksCount = computed(() => blocks.value.filter((b) => !b.archivedAt).length);
 const archivedCount = computed(() => blocks.value.filter((b) => b.archivedAt).length);
 
 const ACTION_LABEL: Partial<Record<BlockActionType, string>> = {
-  request_friend: '🤝 Mời KB',
-  send_message: '📨 Gửi tin',
-  update_status: '🏷 Đổi trạng thái',
+  request_friend: 'Mời kết bạn',
+  send_message: 'Gửi tin',
+  update_status: 'Đổi trạng thái',
+  add_tag: 'Gắn tag',
+  remove_tag: 'Bỏ tag',
+  assign_user: 'Giao việc',
+  update_lead_score: 'Chấm điểm',
+  send_image: 'Gửi ảnh',
+  send_file: 'Gửi tệp',
+  send_template: 'Gửi mẫu',
 };
+function actionLabel(t: BlockActionType): string {
+  return ACTION_LABEL[t] ?? t;
+}
 const actionTypeChips = SUPPORTED_ACTION_TYPES.map((value) => ({
   value,
-  label: ACTION_LABEL[value] ?? value,
+  label: actionLabel(value),
 }));
+
+// Icon mdi theo actionType (convention dự án — không emoji)
+const ACTION_ICON: Partial<Record<BlockActionType, string>> = {
+  request_friend: 'mdi-account-plus',
+  send_message: 'mdi-message-text-outline',
+  update_status: 'mdi-tag-outline',
+  add_tag: 'mdi-tag-plus-outline',
+  remove_tag: 'mdi-tag-minus-outline',
+  assign_user: 'mdi-account-arrow-right-outline',
+  update_lead_score: 'mdi-star-outline',
+  send_image: 'mdi-image-outline',
+  send_file: 'mdi-file-outline',
+  send_template: 'mdi-card-text-outline',
+};
 function actionIcon(t: BlockActionType): string {
-  if (t === 'request_friend') return '🤝';
-  if (t === 'update_status') return '🏷';
-  return '📨';
+  return ACTION_ICON[t] ?? 'mdi-flash';
 }
-// Atlas v1 — accent border-left color theo actionType
-function actionAccentClass(t: BlockActionType): string {
-  if (t === 'request_friend') return 'at-card--accent-green';
-  if (t === 'update_status') return 'at-card--accent-purple';
-  return 'at-card--accent-blue';
+
+// Map actionType → chip màu HS (ACTION_TYPE_COLOR design-tokens.ts → chip global)
+const ACTION_CHIP: Partial<Record<BlockActionType, string>> = {
+  request_friend: 'chip-orange',
+  send_message: 'chip-green',
+  update_status: 'chip-amber',
+  add_tag: 'chip-amber',
+  remove_tag: 'chip-grey',
+  assign_user: 'chip-blue',
+  update_lead_score: 'chip-red',
+  send_image: 'chip-orange',
+  send_file: 'chip-grey',
+  send_template: 'chip-green',
+};
+function actionChipClass(t: BlockActionType): string {
+  return ACTION_CHIP[t] ?? 'chip-grey';
 }
 
 // Tags discovered from all blocks
@@ -288,6 +352,36 @@ const filteredBlocks = computed(() => {
       if (!blob.includes(q)) return false;
     }
     return true;
+  });
+});
+
+// Atlas: stack folder dọc — group filteredBlocks theo folder
+interface BlockGroup {
+  key: string;
+  name: string;
+  visibility: 'public' | 'private' | string;
+  blocks: Block[];
+}
+const groupedBlocks = computed<BlockGroup[]>(() => {
+  const map = new Map<string, BlockGroup>();
+  const noFolderKey = '__none__';
+  for (const b of filteredBlocks.value) {
+    const key = b.folderId ?? noFolderKey;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        name: b.folder?.name ?? 'Chưa phân loại',
+        visibility: b.folder?.visibility ?? 'public',
+        blocks: [],
+      });
+    }
+    map.get(key)!.blocks.push(b);
+  }
+  // sort: thư mục có tên trước, "Chưa phân loại" cuối
+  return Array.from(map.values()).sort((a, z) => {
+    if (a.key === noFolderKey) return 1;
+    if (z.key === noFolderKey) return -1;
+    return a.name.localeCompare(z.name);
   });
 });
 
@@ -367,12 +461,12 @@ function openEdit(block: Block) { editingBlock.value = block; editorOpen.value =
 function showToast(msg: string, color: 'success' | 'error' | 'info' = 'info') {
   toastMsg.value = msg; toastColor.value = color; toastOpen.value = true;
 }
-function onSaved(_block: Block) { loadAll(); showToast('Đã lưu Khối', 'success'); }
+function onSaved(_block: Block) { loadAll(); showToast('Đã lưu khối', 'success'); }
 
 async function onCardMore(block: Block, ev: MouseEvent) {
   ev.preventDefault();
   // Phase 1 simple action menu via confirm
-  const action = prompt(`Khối "${block.name}":\n1 = Sửa\n2 = Nhân bản\n3 = ${block.archivedAt ? 'Khôi phục' : 'Archive'}\nNhập số:`);
+  const action = prompt(`Khối "${block.name}":\n1 = Sửa\n2 = Nhân bản\n3 = ${block.archivedAt ? 'Khôi phục' : 'Lưu trữ'}\nNhập số:`);
   if (action === '1') openEdit(block);
   else if (action === '2') {
     await blocksApi.duplicateBlock(block.id);
@@ -383,9 +477,9 @@ async function onCardMore(block: Block, ev: MouseEvent) {
       await blocksApi.unarchiveBlock(block.id);
       showToast('Đã khôi phục', 'success');
     } else {
-      if (!confirm(`Archive Khối "${block.name}"?`)) return;
+      if (!confirm(`Lưu trữ khối "${block.name}"?`)) return;
       await blocksApi.archiveBlock(block.id);
-      showToast('Đã archive', 'success');
+      showToast('Đã lưu trữ', 'success');
     }
     loadAll();
   }
@@ -402,102 +496,33 @@ async function createFolderInline() {
 </script>
 
 <style scoped>
-/* 2026-06-04 v2 — Unified Marketing theme.
-   BlocksView render TRỰC TIẾP trong .bot-auto-content của BotAutoShell.
-   KHÔNG wrap fullscreen, KHÔNG height calc, dùng --at-* tokens. */
+/* 2026-06-06 HS Atlas re-skin — render TRỰC TIẾP trong .bot-auto-content của BotAutoShell.
+   Token global (--brand/--ink/--line/--surface…). .mkt-top/.mkt-body/.blk-folder/.blk-grid/.blk
+   /.bk-act/.fn/.fc/.bn/.bp/.bf đến từ hs-crm-theme.css. */
 .blocks-view {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--at-surface-soft);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 13px;
 }
 
-/* ─── Topbar (sticky) ─── */
-.bv-topbar {
-  background: var(--at-canvas);
-  border-bottom: 1px solid var(--at-hairline);
-  padding: var(--at-s-md) var(--at-s-lg);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-.bv-title { display: flex; align-items: center; gap: 10px; }
-.bv-icon-badge {
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #f59e0b, #ea580c);
-  color: var(--at-canvas);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px;
-}
-.bv-title-text {
-  font-size: 18px; font-weight: 700; color: var(--at-ink);
-  margin: 0;
-}
-.bv-title-count {
-  font-size: 12px; font-weight: 500; color: var(--at-muted);
-  margin-left: 6px;
-}
-.bv-topbar-actions { display: flex; gap: 10px; align-items: center; }
+/* ----- Topbar action group (.mkt-top dùng class global) ----- */
+.actions { display: flex; gap: 8px; flex-shrink: 0; }
 
-.bv-search { position: relative; width: 280px; }
-.bv-search-icon {
-  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-  color: var(--at-muted); font-size: 13px;
-}
-.bv-search-input {
-  width: 100%;
-  padding: 7px 11px 7px 32px;
-  border: 1px solid var(--at-hairline, #d4d7dc);
-  border-radius: 6px;
-  font-size: 12.5px;
-  outline: none;
-  font-family: inherit;
-}
-.bv-search-input:focus {
-  border-color: var(--at-link);
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.18);
-}
-
-.bv-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 13px;
-  border-radius: 7px;
-  border: 1px solid var(--at-hairline, #d4d7dc);
-  background: var(--at-canvas);
-  cursor: pointer;
-  font-size: 12.5px; font-weight: 500;
-  color: var(--at-ink);
-  font-family: inherit;
-  white-space: nowrap;
-}
-.bv-btn:hover { background: var(--at-surface-soft); }
-.bv-btn-primary {
-  background: var(--at-link);
-  border-color: var(--at-link);
-  color: var(--at-canvas);
-}
-.bv-btn-primary:hover {
-  background: var(--at-ink);
-  border-color: var(--at-ink);
-}
-
-/* ─── Layout ─── */
+/* ─── Layout (sidebar + body) ─── */
 .bv-layout {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-/* ─── Sidebar ─── */
+/* ─── Sidebar (re-skin token, GIỮ Công khai/Riêng tư) ─── */
 .bv-sidebar {
   width: 220px;
-  background: var(--at-canvas);
-  border-right: 1px solid var(--at-hairline);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
   padding: 14px 8px;
   overflow-y: auto;
   flex-shrink: 0;
@@ -506,7 +531,7 @@ async function createFolderInline() {
 .bv-sidebar-head {
   display: flex; align-items: center; gap: 6px;
   font-size: 10.5px; font-weight: 700;
-  color: var(--at-muted);
+  color: var(--ink-4);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   padding: 6px 10px 4px;
@@ -514,275 +539,200 @@ async function createFolderInline() {
 .bv-sidebar-hint {
   margin-left: auto;
   font-size: 9.5px;
-  color: var(--at-muted);
+  color: var(--ink-4);
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
 }
-.bv-vis-ico { font-size: 12px; }
-.bv-vis-ico.vis-public { color: #10b981; }
-.bv-vis-ico.vis-private { color: #f59e0b; }
+.vis-public { color: var(--success); }
+.vis-private { color: #c2410c; }
 
 .bv-folder-item {
   display: flex; align-items: center; gap: 8px;
   width: 100%;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   font-size: 12.5px;
-  color: var(--at-ink);
+  color: var(--ink);
   background: transparent;
   border: 0;
   text-align: left;
   font-family: inherit;
   margin-bottom: 1px;
 }
-.bv-folder-item:hover { background: var(--at-surface-soft); }
+.bv-folder-item .v-icon { color: var(--ink-4); }
+.bv-folder-item:hover { background: var(--surface-3); }
 .bv-folder-item.is-active {
-  background: rgba(59,130,246,0.12);
-  color: #1d4ed8;
+  background: var(--brand-soft);
+  color: var(--brand-700);
   font-weight: 600;
 }
-.bv-folder-ico { font-size: 13px; width: 16px; text-align: center; }
+.bv-folder-item.is-active .v-icon { color: var(--brand); }
 .bv-folder-label {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .bv-folder-count {
   font-size: 11px;
-  color: var(--at-muted);
-  background: var(--at-surface-soft);
+  color: var(--ink-4);
+  background: var(--surface-3);
   padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 500;
+  border-radius: var(--r-pill);
+  font-weight: 600;
 }
 .bv-folder-item.is-active .bv-folder-count {
-  background: rgba(59,130,246,0.15);
-  color: #1d4ed8;
+  background: var(--surface);
+  color: var(--brand-700);
 }
 .bv-folder-divider {
-  border-top: 1px solid var(--at-hairline);
+  border-top: 1px solid var(--line);
   margin: 10px 4px 8px;
 }
-.bv-folder-archived { color: var(--at-muted); }
+.bv-folder-archived { color: var(--ink-3); }
 .bv-new-folder {
   display: flex; align-items: center; gap: 6px;
   padding: 7px 10px;
-  color: var(--at-link);
-  font-size: 11.5px; font-weight: 500;
+  color: var(--brand);
+  font-size: 11.5px; font-weight: 600;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: transparent;
   border: 0;
   font-family: inherit;
   width: 100%;
   text-align: left;
 }
-.bv-new-folder:hover { background: rgba(59,130,246,0.1); }
+.bv-new-folder:hover { background: var(--brand-soft); }
 
-/* ─── Main ─── */
+/* ─── Main body ─── */
 .bv-main {
   flex: 1;
-  padding: 18px 22px;
   overflow-y: auto;
   min-width: 0;
 }
 
-/* ─── Filter row ─── */
-.bv-filter-row {
+/* ─── Filter bar ─── */
+.filter-bar {
   display: flex; align-items: center;
-  gap: 6px;
+  gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 16px;
 }
-.bv-filter-label {
-  font-size: 11px; font-weight: 600;
-  color: var(--at-muted);
+.search-wrap { width: 300px; }
+.search-wrap input { width: 100%; }
+.filter-spacer { flex: 1; }
+.filter-lbl {
+  font-size: 11px; font-weight: 700;
+  color: var(--ink-4);
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  margin-right: 4px;
+  margin-right: 2px;
 }
-.bv-filter-right {
-  margin-left: auto;
-  display: flex; gap: 6px; align-items: center;
-}
-
-.bv-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--at-canvas);
-  color: var(--at-muted);
-  border: 1px solid var(--at-hairline);
-  border-radius: 11px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 500;
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.fchip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
 }
-.bv-chip:hover {
-  background: var(--at-surface-soft);
-  color: var(--at-ink);
+.fchip:hover { background: var(--surface-3); }
+.fchip.active {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand-700);
 }
-.bv-chip.is-active {
-  background: rgba(59,130,246,0.12);
-  color: #1d4ed8;
-  border-color: #93c5fd;
-  font-weight: 600;
+.fchip .count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
 }
-.bv-chip-count {
-  margin-left: 3px;
-  font-size: 9px;
-  opacity: 0.7;
-}
-.bv-chip-dashed { border-style: dashed; }
+.fchip.active .count { background: var(--surface); color: var(--brand-700); }
+.fchip-dashed { border-style: dashed; }
 
-/* ─── Grid card ─── */
-.bv-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
-}
-.bv-card {
-  background: var(--at-canvas);
-  border: 1px solid var(--at-hairline);
-  border-left: 4px solid var(--at-link);
-  border-radius: 9px;
-  padding: 14px;
-  cursor: pointer;
-  transition: all 0.14s;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 170px;
-}
-.bv-card.kind-request_friend { border-left-color: #10b981; }
-.bv-card.kind-update_status { border-left-color: #8b5cf6; }
-.bv-card:hover {
-  border-color: var(--at-link);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+/* ─── Folder section + grid (Atlas .blk-folder/.blk-grid/.blk global) ─── */
+.blk { position: relative; cursor: pointer; transition: box-shadow .14s, border-color .14s, transform .14s; }
+.blk:hover {
+  border-color: var(--brand);
+  box-shadow: var(--sh-sm);
   transform: translateY(-1px);
 }
-.bv-card-more {
+.bk-act { margin-bottom: 10px; }
+.bk-more {
   position: absolute; top: 10px; right: 10px;
   width: 26px; height: 26px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: transparent;
   border: 0;
-  color: var(--at-muted);
+  color: var(--ink-4);
   cursor: pointer;
-  font-size: 14px;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.bv-card-more:hover { background: var(--at-surface-soft); color: var(--at-ink); }
-.bv-card:hover .bv-card-more { opacity: 1; }
-
-.bv-card-head { display: flex; align-items: flex-start; gap: 10px; }
-.bv-card-icon {
-  width: 32px; height: 32px;
-  border-radius: 8px;
-  background: rgba(59,130,246,0.12);
-  color: #1d4ed8;
   display: flex; align-items: center; justify-content: center;
-  font-size: 15px;
-  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .12s;
 }
-.bv-card.kind-request_friend .bv-card-icon { background: rgba(16,185,129,0.12); color: #047857; }
-.bv-card.kind-update_status .bv-card-icon { background: rgba(139,92,246,0.12); color: #6d28d9; }
-.bv-card-name-wrap { flex: 1; min-width: 0; padding-right: 22px; }
-.bv-card-name {
-  font-size: 13.5px; font-weight: 600;
-  color: var(--at-ink);
-  line-height: 1.3;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.bv-card-kind {
-  font-size: 11px; color: var(--at-muted);
-  margin-top: 2px;
-  display: flex; align-items: center; gap: 4px;
+.bk-more:hover { background: var(--surface-3); color: var(--ink); }
+.blk:hover .bk-more { opacity: 1; }
+.bn { padding-right: 24px; }
+
+.bf { gap: 8px; }
+.bk-meta-left, .bk-meta-right {
+  display: inline-flex; align-items: center; gap: 4px;
   flex-wrap: wrap;
 }
-
-.bv-card-preview {
-  font-size: 12px;
-  color: var(--at-muted);
-  line-height: 1.45;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  background: var(--at-surface-soft);
-  padding: 8px 10px;
-  border-radius: 6px;
-  min-height: 42px;
-}
-
-.bv-card-foot {
-  display: flex; align-items: center; gap: 6px;
-  flex-wrap: wrap;
-  margin-top: auto;
-}
-.bv-meta-chip {
+.bk-meta-left .v-icon, .bk-meta-right .v-icon { color: var(--ink-4); }
+.bk-tag {
   font-size: 10.5px;
-  color: var(--at-muted);
-  background: transparent;
-  border: 1px solid var(--at-hairline);
-  padding: 2px 7px;
-  border-radius: 8px;
-  font-weight: 500;
-}
-.bv-meta-chip.usage {
-  background: var(--at-surface-soft);
-  color: var(--at-muted);
-}
-.bv-meta-chip.variants {
-  background: #fef3c7;
-  color: #92400e;
-  border-color: #fcd34d;
-}
-
-.bv-tag-chip {
-  font-size: 10.5px;
-  padding: 2px 7px;
-  border-radius: 8px;
-  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-weight: 600;
   border: 1px solid;
 }
-.bv-tag-chip.tag-sky { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
-.bv-tag-chip.tag-purple { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; }
-.bv-tag-chip.tag-teal { background: #cffafe; color: #0e7490; border-color: #67e8f9; }
-.bv-tag-chip.tag-pink { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
-.bv-tag-chip.tag-amber { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.bk-tag.tag-sky { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+.bk-tag.tag-purple { background: var(--chip-purple-bg, #ede9fe); color: #6d28d9; border-color: #c4b5fd; }
+.bk-tag.tag-teal { background: #cffafe; color: #0e7490; border-color: #67e8f9; }
+.bk-tag.tag-pink { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+.bk-tag.tag-amber { background: var(--chip-amber-bg, #fef3c7); color: #92400e; border-color: #fcd34d; }
+.bk-tag-more {
+  font-size: 10.5px;
+  color: var(--ink-4);
+  font-weight: 600;
+}
 
-/* ─── Empty ─── */
+/* ─── Empty / loading ─── */
 .bv-empty {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  padding: 60px 20px;
+  gap: 8px;
+  padding: 56px 20px;
   text-align: center;
-  background: var(--at-canvas);
-  border: 1px solid var(--at-hairline);
-  border-radius: 9px;
-  margin: 20px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin: 14px 0;
 }
-.bv-empty-icon { font-size: 36px; margin-bottom: 10px; }
 .bv-empty-title {
-  font-size: 15px; font-weight: 600;
-  color: var(--at-ink);
-  margin-bottom: 6px;
+  font-size: 15px; font-weight: 700;
+  color: var(--ink);
 }
 .bv-empty-desc {
-  font-size: 12.5px; color: var(--at-muted);
+  font-size: 12.5px; color: var(--ink-3);
   max-width: 420px; line-height: 1.5;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
 }
 
 @media (max-width: 1100px) {
   .bv-sidebar { width: 200px; }
+  .blk-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

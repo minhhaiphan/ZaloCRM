@@ -1,162 +1,306 @@
 <template>
-  <div class="fi-create airtable-scope at-container">
-    <header class="at-page-header">
+  <div class="fi-create">
+    <!-- ================== TOPBAR (HS .mkt-top scaffold) ================== -->
+    <div class="mkt-top">
       <div>
-        <button class="at-btn at-btn--ghost at-btn--sm" @click="router.back()">← Quay lại</button>
-        <h1 class="at-page-title" style="margin-top: 12px;">
-          <span class="hero-icon">👋</span>
-          Tạo Mục tiêu: Tự động kết bạn từ tệp + bám đuổi
-        </h1>
-        <p class="at-page-subtitle">
-          Cấu hình 1 lần — hệ thống tự gửi lời mời từ N nick, kèm bám đuổi vào tin nhắn lạ kể cả khi KH chưa accept.
-        </p>
+        <div class="mtt">Tạo Mục tiêu: Tự động kết bạn</div>
+        <div class="mts">
+          Cấu hình 1 lần — hệ thống tự gửi lời mời từ nhiều nick, kèm bám đuổi vào tin nhắn lạ kể cả khi khách chưa đồng ý.
+        </div>
       </div>
-    </header>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" @click="router.back()">
+          <v-icon size="16">mdi-arrow-left</v-icon> Quay lại
+        </button>
+      </div>
+    </div>
 
-    <div class="form-grid">
-      <!-- ① Tên Mục tiêu -->
-      <section class="section">
-        <div class="section-title">① Tên Mục tiêu <span class="required">*</span></div>
-        <input v-model="form.name" class="at-input" placeholder="VD: Auto kết bạn 1000 số cho 10 nick 29.05.2026" />
-      </section>
-
-      <!-- ② Tệp khách hàng -->
-      <section class="section">
-        <div class="section-title">② Tệp khách hàng <span class="required">*</span></div>
-        <select v-model="form.listId" class="at-input">
-          <option :value="''" disabled>— Chọn tệp khách hàng —</option>
-          <option v-for="l in lists" :key="l.id" :value="l.id">
-            {{ l.name }} ({{ l.totalEntries }} SĐT)
-          </option>
-        </select>
-      </section>
-
-      <!-- ③ Nick gửi lời mời -->
-      <section class="section">
-        <div class="section-title">
-          ③ Nick gửi lời mời <span class="required">*</span>
-          <span class="count-chip">{{ form.nickIds.length }} đã chọn</span>
-        </div>
-        <div class="nick-list">
-          <label
-            v-for="n in nicks"
-            :key="n.id"
-            class="nick-item"
-            :class="{ 'is-selected': form.nickIds.includes(n.id) }"
-          >
-            <input type="checkbox" :value="n.id" v-model="form.nickIds" />
-            <div class="nick-avatar">{{ initials(n.displayName) }}</div>
-            <div class="nick-info">
-              <div class="nick-name">{{ n.displayName || n.id }}</div>
-              <div class="nick-meta">
-                <span class="dot" :class="`dot--${n.status === 'connected' ? 'green' : 'red'}`"></span>
-                {{ n.status === 'connected' ? 'Online' : n.status }}
-                · cap {{ n.dailyFriendAddCap }} lời mời/ngày
-              </div>
-            </div>
-          </label>
-        </div>
-      </section>
-
-      <!-- ④ Lời chào kết bạn -->
-      <section class="section">
-        <div class="section-title">④ Lời chào kết bạn <span class="required">*</span></div>
-        <textarea
-          v-model="form.greetingTemplate"
-          class="at-textarea"
-          rows="4"
-          maxlength="200"
-          placeholder="VD: Chào {gender} {name}, em là {sale} bên dự án..."
-        ></textarea>
-        <div class="hint">
-          {{ form.greetingTemplate.length }} / 200 ký tự · Click chèn biến:
-          <button class="var-pill" @click="insertVar('{gender}')">{gender}</button>
-          <button class="var-pill" @click="insertVar('{name}')">{name}</button>
-          <button class="var-pill" @click="insertVar('{sale}')">{sale}</button>
-        </div>
-        <div v-if="greetingPreview" class="preview">
-          <div class="preview-label">Preview (KH ♀ + sale "Thành"):</div>
-          {{ greetingPreview }}
-        </div>
-      </section>
-
-      <!-- ⑤ Tin chào mừng (welcome probe) -->
-      <section class="section">
-        <div class="section-title">💌 Tin chào mừng (sau khi gửi lời mời)</div>
-        <p class="form-section__hint">
-          Gửi NGAY sau khi gửi lời mời kết bạn (không đợi đồng ý). Mục đích: kiểm tra KH có cho phép nhận tin lạ không.
-          Chỉ KH gửi thành công mới gắn vào luồng bám đuổi (tiết kiệm queue, tránh spam).
-        </p>
-        <textarea
-          v-model="form.welcomeMessageTemplate"
-          class="at-textarea"
-          rows="3"
-          maxlength="4000"
-          placeholder="Em chào {gender} {name}, em là {sale}, em vừa kết bạn để tiện hỗ trợ Anh/Chị ạ."
-        ></textarea>
-        <div class="hint">
-          {{ form.welcomeMessageTemplate.length }} / 4000 ký tự · Biến:
-          <code class="var-pill">{gender}</code> Anh/Chị
-          <code class="var-pill">{name}</code> tên KH
-          <code class="var-pill">{sale}</code> tên sale
-        </div>
-
-        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333840;">
-          <span>⏱ Chờ sau khi gửi lời mời</span>
-          <input
-            v-model.number="form.welcomeDelaySeconds"
-            type="number"
-            class="at-input num"
-            min="0"
-            max="3600"
-          />
-          <span>giây</span>
-          <span class="hint" style="margin: 0;">(60 phút an toàn anti-spam · 0 = gửi ngay)</span>
-        </div>
-
-        <div v-if="!form.welcomeMessageTemplate" class="welcome-info">
-          💡 Bỏ trống = SKIP tin chào mừng (KH friend-request OK → vào bám đuổi ngay). Mặc định nên có để gate stranger inbox.
-        </div>
-      </section>
-
-      <!-- ⑥ Luồng bám đuổi -->
-      <section class="section">
-        <div class="section-title">⑥ Luồng bám đuổi <span class="required">*</span></div>
-        <select v-model="form.successorSequenceId" class="at-input">
-          <option :value="''" disabled>— Chọn Luồng kịch bản —</option>
-          <option v-for="s in sequences" :key="s.id" :value="s.id">
-            {{ s.name }} ({{ (s.steps as any[])?.length ?? 0 }} bước)
-          </option>
-        </select>
-      </section>
-
-      <!-- ⑦ Quy tắc bỏ qua KH -->
-      <section class="section">
-        <div class="section-title">⑦ Quy tắc bỏ qua KH</div>
-        <div class="rule">
-          <span class="rule-icon">⏰</span>
-          KH đã có chat với nick khác trong
-          <input v-model.number="form.skipRules.recencyDays" type="number" class="at-input num" min="0" />
-          ngày gần đây
-        </div>
-        <div class="rule">
-          <span class="rule-icon">👥</span>
-          KH đã friend với hơn
-          <input v-model.number="form.skipRules.friendCap" type="number" class="at-input num" min="0" />
-          nick của tổ chức
-        </div>
-      </section>
-
-      <!-- Action bar -->
-      <div class="action-bar">
-        <button class="at-btn at-btn--ghost" @click="router.back()">Huỷ</button>
-        <div class="action-spacer"></div>
+    <div class="mkt-body">
+      <!-- ================== STEP CHIPS ================== -->
+      <div class="step-chips">
         <button
-          class="at-btn at-btn--primary"
+          v-for="s in steps"
+          :key="s.id"
+          type="button"
+          class="chip"
+          :class="stepChipClass(s.id)"
+          @click="goStep(s.id)"
+        >
+          <span class="step-num num">{{ s.id }}</span>
+          {{ s.label }}
+          <v-icon v-if="currentStep > s.id" size="13">mdi-check</v-icon>
+        </button>
+      </div>
+
+      <!-- ============================ BƯỚC 1 ============================ -->
+      <div v-if="currentStep === 1" class="step-pane">
+        <!-- ① Tên Mục tiêu -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-tag-text-outline</v-icon>
+            Tên Mục tiêu <span class="req">*</span>
+          </div>
+          <div class="field">
+            <input v-model="form.name" placeholder="VD: Auto kết bạn 1000 số cho 10 nick 29.05.2026" />
+          </div>
+        </section>
+
+        <!-- ② Tệp khách hàng -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-folder-account-outline</v-icon>
+            Tệp khách hàng <span class="req">*</span>
+          </div>
+          <div class="field">
+            <select v-model="form.listId">
+              <option :value="''" disabled>— Chọn tệp khách hàng —</option>
+              <option v-for="l in lists" :key="l.id" :value="l.id">
+                {{ l.name }} ({{ l.totalEntries }} SĐT)
+              </option>
+            </select>
+          </div>
+        </section>
+
+        <!-- ③ Nick gửi lời mời -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-account-multiple-outline</v-icon>
+            Nick gửi lời mời <span class="req">*</span>
+            <span class="chip chip-grey count-chip">{{ form.nickIds.length }} đã chọn</span>
+          </div>
+          <div class="nick-list">
+            <label
+              v-for="n in nicks"
+              :key="n.id"
+              class="nick-item"
+              :class="{ 'is-selected': form.nickIds.includes(n.id) }"
+            >
+              <input type="checkbox" :value="n.id" v-model="form.nickIds" />
+              <div class="av av-28">{{ initials(n.displayName) }}</div>
+              <div class="nick-info">
+                <div class="nick-name">{{ n.displayName || n.id }}</div>
+                <div class="nick-meta">
+                  <span class="status">
+                    <span class="dot" :style="{ background: n.status === 'connected' ? 'var(--success)' : 'var(--error)' }"></span>
+                    {{ n.status === 'connected' ? 'Online' : n.status }}
+                  </span>
+                  · cap {{ n.dailyFriendAddCap }} lời mời/ngày
+                </div>
+              </div>
+            </label>
+            <div v-if="!nicks.length" class="empty-hint">
+              Chưa có nick nào kết nối. Hãy kết nối nick Zalo trước.
+            </div>
+          </div>
+        </section>
+
+        <!-- ④ Quy tắc bỏ qua KH (was ⑦) -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-shield-outline</v-icon>
+            Quy tắc bỏ qua khách hàng
+          </div>
+          <div class="rule">
+            <span class="rule-ico"><v-icon size="14">mdi-clock-outline</v-icon></span>
+            Khách đã có chat với nick khác trong
+            <div class="field sm num-field">
+              <input v-model.number="form.skipRules.recencyDays" type="number" min="0" />
+            </div>
+            ngày gần đây
+          </div>
+          <div class="rule">
+            <span class="rule-ico"><v-icon size="14">mdi-account-group-outline</v-icon></span>
+            Khách đã friend với hơn
+            <div class="field sm num-field">
+              <input v-model.number="form.skipRules.friendCap" type="number" min="0" />
+            </div>
+            nick của tổ chức
+          </div>
+        </section>
+      </div>
+
+      <!-- ============================ BƯỚC 2 ============================ -->
+      <div v-if="currentStep === 2" class="step-pane">
+        <!-- ④ Lời chào kết bạn -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-hand-wave-outline</v-icon>
+            Lời chào kết bạn <span class="req">*</span>
+          </div>
+          <textarea
+            v-model="form.greetingTemplate"
+            class="ta"
+            rows="4"
+            maxlength="200"
+            placeholder="VD: Chào {gender} {name}, em là {sale} bên dự án..."
+          ></textarea>
+          <div class="hint">
+            {{ form.greetingTemplate.length }} / 200 ký tự · Click chèn biến:
+            <button type="button" class="chip chip-grey var-pill" @click="insertVar('{gender}')">{gender}</button>
+            <button type="button" class="chip chip-grey var-pill" @click="insertVar('{name}')">{name}</button>
+            <button type="button" class="chip chip-grey var-pill" @click="insertVar('{sale}')">{sale}</button>
+          </div>
+          <div v-if="greetingPreview" class="preview">
+            <div class="preview-label">Preview (KH nữ + sale "Thành"):</div>
+            {{ greetingPreview }}
+          </div>
+        </section>
+
+        <!-- ⑤ Tin chào mừng (welcome probe) -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-email-fast-outline</v-icon>
+            Tin chào mừng (sau khi gửi lời mời)
+          </div>
+          <p class="block-help">
+            Gửi NGAY sau khi gửi lời mời kết bạn (không đợi đồng ý). Mục đích: kiểm tra khách có cho phép nhận tin lạ không.
+            Chỉ khách gửi thành công mới gắn vào luồng bám đuổi (tiết kiệm hàng đợi, tránh spam).
+          </p>
+          <textarea
+            v-model="form.welcomeMessageTemplate"
+            class="ta"
+            rows="3"
+            maxlength="4000"
+            placeholder="Em chào {gender} {name}, em là {sale}, em vừa kết bạn để tiện hỗ trợ Anh/Chị ạ."
+          ></textarea>
+          <div class="hint">
+            {{ form.welcomeMessageTemplate.length }} / 4000 ký tự · Biến:
+            <code class="chip chip-grey var-pill">{gender}</code> Anh/Chị
+            <code class="chip chip-grey var-pill">{name}</code> tên KH
+            <code class="chip chip-grey var-pill">{sale}</code> tên sale
+          </div>
+
+          <div class="delay-row">
+            <v-icon size="15">mdi-timer-sand</v-icon>
+            <span>Chờ sau khi gửi lời mời</span>
+            <div class="field sm num-field wide">
+              <input v-model.number="form.welcomeDelaySeconds" type="number" min="0" max="3600" />
+            </div>
+            <span>giây</span>
+            <span class="hint inline-hint">(60 phút an toàn chống spam · 0 = gửi ngay)</span>
+          </div>
+
+          <div v-if="!form.welcomeMessageTemplate" class="welcome-info">
+            <v-icon size="15">mdi-lightbulb-outline</v-icon>
+            Bỏ trống = bỏ qua tin chào mừng (khách đồng ý kết bạn xong vào bám đuổi ngay). Mặc định nên có để chặn cửa tin lạ.
+          </div>
+        </section>
+
+        <!-- ⑥ Luồng bám đuổi -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-sync</v-icon>
+            Luồng bám đuổi <span class="req">*</span>
+          </div>
+          <div class="field">
+            <select v-model="form.successorSequenceId">
+              <option :value="''" disabled>— Chọn Luồng kịch bản —</option>
+              <option v-for="s in sequences" :key="s.id" :value="s.id">
+                {{ s.name }} ({{ (s.steps as unknown[])?.length ?? 0 }} bước)
+              </option>
+            </select>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============================ BƯỚC 3 ============================ -->
+      <div v-if="currentStep === 3" class="step-pane">
+        <!-- Quy tắc gửi an toàn -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-shield-check-outline</v-icon>
+            Quy tắc gửi an toàn
+          </div>
+          <p class="block-help">
+            Giữ nick Zalo không bị cảnh báo spam. Hệ thống điền sẵn mặc định an toàn — chỉnh nếu cần đặc biệt.
+          </p>
+
+          <div class="rule">
+            <span class="rule-ico"><v-icon size="14">mdi-timer-outline</v-icon></span>
+            Cách nhau tối thiểu giữa 2 lần gửi
+            <div class="field sm num-field wide">
+              <input v-model.number="form.welcomeDelaySeconds" type="number" min="0" max="3600" />
+            </div>
+            giây
+            <span class="hint inline-hint">(dùng chung với khoảng chờ tin chào mừng)</span>
+          </div>
+
+          <div class="rule">
+            <span class="rule-ico"><v-icon size="14">mdi-clock-time-eight-outline</v-icon></span>
+            Khung giờ chạy (giờ Việt Nam)
+            <div class="field sm time-field">
+              <input v-model="quietHoursStart" type="time" />
+            </div>
+            <v-icon size="14" class="time-arrow">mdi-arrow-right</v-icon>
+            <div class="field sm time-field">
+              <input v-model="quietHoursEnd" type="time" />
+            </div>
+          </div>
+        </section>
+
+        <!-- Thời điểm bắt đầu -->
+        <section class="card card-pad block">
+          <div class="block-title">
+            <v-icon size="16">mdi-rocket-launch-outline</v-icon>
+            Thời điểm bắt đầu <span class="req">*</span>
+          </div>
+          <div class="radio-group">
+            <label class="radio-row" :class="{ selected: startMode === 'now' }">
+              <input type="radio" value="now" v-model="startMode" />
+              <div class="radio-content">
+                <div class="radio-title">Bắt đầu ngay</div>
+                <div class="radio-help">Mục tiêu chạy ngay khi nhấn nút bên dưới.</div>
+              </div>
+            </label>
+            <label class="radio-row" :class="{ selected: startMode === 'scheduled' }">
+              <input type="radio" value="scheduled" v-model="startMode" />
+              <div class="radio-content">
+                <div class="radio-title">Hẹn lịch</div>
+                <div class="radio-help">Chọn một thời điểm trong tương lai (trong khung giờ chạy).</div>
+                <div v-if="startMode === 'scheduled'" class="field sm schedule-field" @click.prevent>
+                  <input v-model="scheduledAt" type="datetime-local" />
+                </div>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <!-- Tóm tắt cấu hình -->
+        <section class="card card-pad block summary">
+          <div class="block-title">
+            <v-icon size="16">mdi-clipboard-check-outline</v-icon>
+            Xem lại trước khi tạo
+          </div>
+          <div class="summary-row"><span class="sl">Tên</span><span class="sv">{{ form.name || '—' }}</span></div>
+          <div class="summary-row"><span class="sl">Tệp</span><span class="sv">{{ selectedListName }}</span></div>
+          <div class="summary-row"><span class="sl">Nick gửi</span><span class="sv">{{ form.nickIds.length }} nick</span></div>
+          <div class="summary-row"><span class="sl">Luồng bám đuổi</span><span class="sv">{{ selectedSequenceName }}</span></div>
+        </section>
+      </div>
+
+      <!-- ================== ACTION BAR ================== -->
+      <div class="action-bar">
+        <button class="btn btn-ghost" @click="router.back()">Huỷ</button>
+        <div class="action-spacer"></div>
+        <button v-if="currentStep > 1" class="btn btn-ghost" @click="goStep(currentStep - 1)">
+          <v-icon size="16">mdi-arrow-left</v-icon> Quay lại
+        </button>
+        <button
+          v-if="currentStep < 3"
+          class="btn btn-primary"
+          :disabled="!canNext"
+          @click="goStep(currentStep + 1)"
+        >
+          Tiếp tục <v-icon size="16">mdi-arrow-right</v-icon>
+        </button>
+        <button
+          v-else
+          class="btn btn-primary"
           :disabled="!canSubmit || submitting"
           @click="submit"
         >
-          {{ submitting ? 'Đang tạo...' : '▶ Tạo và chạy ngay' }}
+          <v-icon size="16">mdi-play</v-icon>
+          {{ submitting ? 'Đang tạo...' : 'Tạo & Bắt đầu' }}
         </button>
       </div>
     </div>
@@ -167,7 +311,6 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
-import '@/components/automation/phase7/airtable.css';
 
 const router = useRouter();
 
@@ -179,6 +322,20 @@ const lists = ref<ListSummary[]>([]);
 const nicks = ref<NickSummary[]>([]);
 const sequences = ref<SequenceSummary[]>([]);
 const submitting = ref(false);
+
+// ── Wizard state ──
+const currentStep = ref(1);
+const steps = [
+  { id: 1, label: 'Tệp & Nick gửi' },
+  { id: 2, label: 'Lời chào & Bám đuổi' },
+  { id: 3, label: 'An toàn & Bắt đầu' },
+] as const;
+
+// ── Step 3: gửi an toàn + thời điểm bắt đầu ──
+const quietHoursStart = ref('06:00');
+const quietHoursEnd = ref('22:00');
+const startMode = ref<'now' | 'scheduled'>('now');
+const scheduledAt = ref('');
 
 const form = ref({
   name: '',
@@ -195,13 +352,34 @@ const form = ref({
   },
 });
 
+// ── Per-step gating ──
+const canNext = computed(() => {
+  if (currentStep.value === 1) {
+    return form.value.name.trim().length > 0
+      && !!form.value.listId
+      && form.value.nickIds.length > 0;
+  }
+  if (currentStep.value === 2) {
+    return form.value.greetingTemplate.includes('{name}')
+      && !!form.value.successorSequenceId;
+  }
+  return true;
+});
+
 const canSubmit = computed(() => {
   return form.value.name.trim().length > 0
-    && form.value.listId
+    && !!form.value.listId
     && form.value.nickIds.length > 0
-    && form.value.successorSequenceId
+    && !!form.value.successorSequenceId
     && form.value.greetingTemplate.includes('{name}');
 });
+
+function goStep(target: number) {
+  if (target < 1 || target > 3) return;
+  // chỉ chặn khi tiến tới
+  if (target > currentStep.value && !canNext.value) return;
+  currentStep.value = target;
+}
 
 const greetingPreview = computed(() => {
   return form.value.greetingTemplate
@@ -209,6 +387,22 @@ const greetingPreview = computed(() => {
     .replaceAll('{name}', 'Linh')
     .replaceAll('{sale}', 'Thành');
 });
+
+const selectedListName = computed(() => {
+  const l = lists.value.find((x) => x.id === form.value.listId);
+  return l ? `${l.name} (${l.totalEntries} SĐT)` : '—';
+});
+
+const selectedSequenceName = computed(() => {
+  const s = sequences.value.find((x) => x.id === form.value.successorSequenceId);
+  return s ? s.name : '—';
+});
+
+function stepChipClass(id: number): string {
+  if (currentStep.value === id) return 'chip-blue';
+  if (currentStep.value > id) return 'chip-green';
+  return 'chip-grey';
+}
 
 function insertVar(v: string) {
   form.value.greetingTemplate += v;
@@ -249,17 +443,26 @@ async function submit() {
       welcomeMessageTemplate: form.value.welcomeMessageTemplate.trim() || null,
       welcomeDelaySeconds: form.value.welcomeDelaySeconds,
       skipRules: form.value.skipRules,
+      safetyRules: {
+        quietHoursStart: quietHoursStart.value,
+        quietHoursEnd: quietHoursEnd.value,
+        sendIntervalSeconds: form.value.welcomeDelaySeconds,
+      },
+      startMode: startMode.value,
+      scheduledAt: startMode.value === 'scheduled' ? scheduledAt.value || null : null,
     });
     const triggerId = createResp.data.trigger?.id;
     if (!triggerId) throw new Error('trigger id missing');
 
-    // Activate ngay
-    const activateResp = await api.post(`/automation/triggers/${triggerId}/activate`);
-    console.log('[fi-create] activated:', activateResp.data);
+    if (startMode.value === 'now') {
+      const activateResp = await api.post(`/automation/triggers/${triggerId}/activate`);
+      console.log('[fi-create] activated:', activateResp.data);
+    }
 
     router.push(`/marketing/triggers/${triggerId}`);
-  } catch (err: any) {
-    alert('Tạo Mục tiêu thất bại: ' + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    alert('Tạo Mục tiêu thất bại: ' + (e?.response?.data?.error ?? e?.message ?? 'unknown'));
   } finally {
     submitting.value = false;
   }
@@ -269,112 +472,159 @@ onMounted(loadData);
 </script>
 
 <style scoped>
-.fi-create { padding: 24px 28px 80px; }
-.hero-icon { font-size: 28px; margin-right: 8px; }
-.form-grid { max-width: 720px; }
-.section {
-  background: #fff;
-  border: 1px solid var(--at-hairline, #ddd);
-  border-radius: 10px;
-  padding: 18px 20px;
+/* ════════════════════════════════════════════════════════════
+   Tạo Mục tiêu — Tự động kết bạn (FriendInviteCreateView)
+   Atlas HS Holding re-skin 2026-06-06 · wizard 3 bước.
+   Scaffold .mkt-top / .mkt-body từ hs-crm-theme.css. Token hoá hoàn toàn.
+   ════════════════════════════════════════════════════════════ */
+.fi-create { background: var(--surface-2); min-height: 100%; }
+.mkt-top .actions { display: flex; gap: 8px; }
+.mkt-body { max-width: 760px; }
+
+/* ───── Thanh chip bước ───── */
+.step-chips { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.step-chips .chip {
+  height: 30px; padding: 0 13px; font-size: 12.5px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.step-chips .chip.chip-blue { box-shadow: inset 0 0 0 1px var(--brand-soft); }
+.step-chips .chip.chip-grey { border-color: var(--line); }
+.step-chips .step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 17px; height: 17px; border-radius: 50%;
+  background: rgba(255, 255, 255, .6); font-size: 11px; font-weight: 700;
+}
+.step-chips .chip-grey .step-num { background: var(--surface); }
+
+/* ───── Khối card ───── */
+.step-pane { display: flex; flex-direction: column; gap: 12px; }
+.block { padding: 16px 18px; }
+.block-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--ink);
   margin-bottom: 12px;
 }
-.section-title {
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  color: #41454d; letter-spacing: 0.5px;
-  margin-bottom: 10px;
-  display: flex; align-items: center; gap: 8px;
+.block-title .v-icon { color: var(--brand); }
+.block-title .req { color: var(--error); }
+.count-chip { margin-left: auto; height: 20px; }
+.block-help {
+  font-size: 12px; color: var(--ink-3); line-height: 1.5;
+  margin: -4px 0 12px; padding: 8px 11px;
+  background: var(--brand-softer); border-left: 3px solid var(--brand-soft);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
 }
-.required { color: #aa2d00; }
-.count-chip {
-  font-size: 10px; padding: 2px 8px; border-radius: 99px;
-  background: #f0f1f3; color: #41454d; font-weight: 500;
-}
-.at-input {
-  width: 100%; padding: 8px 12px; height: 36px;
-  border: 1px solid #ddd; border-radius: 6px;
-  font-size: 13px; font-family: inherit;
-}
-.at-input.num { width: 80px; display: inline-block; }
-.at-textarea {
+
+/* ───── Textarea ───── */
+.ta {
   width: 100%; padding: 10px 12px;
-  border: 1px solid #ddd; border-radius: 6px;
-  font-size: 13px; font-family: inherit;
-  resize: vertical; min-height: 80px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-sm); color: var(--ink);
+  font-size: 13.5px; font-family: inherit;
+  resize: vertical; min-height: 78px;
+  transition: border-color .14s, box-shadow .14s;
 }
-.hint { font-size: 11px; color: #6b7280; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ta:focus { outline: 0; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.ta::placeholder { color: var(--ink-4); }
+
+/* ───── Hint + biến ───── */
+.hint {
+  font-size: 11.5px; color: var(--ink-3); margin-top: 9px;
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.hint.inline-hint { margin: 0; }
 .var-pill {
-  background: #f0f1f3; border: 0; padding: 2px 10px; border-radius: 99px;
-  font-size: 11px; font-family: 'SF Mono', Menlo, monospace; cursor: pointer;
+  height: 21px; cursor: pointer; font-family: var(--mono);
+  font-size: 11px; border: 0;
 }
+
+/* ───── Preview lời chào ───── */
 .preview {
-  margin-top: 10px; padding: 10px 12px;
-  background: #f8fafc; border-left: 3px solid #aa2d00;
-  border-radius: 0 6px 6px 0;
-  font-size: 13px; font-style: italic; line-height: 1.5;
+  margin-top: 11px; padding: 10px 12px;
+  background: var(--surface-2); border-left: 3px solid var(--brand);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-size: 13px; font-style: italic; line-height: 1.5; color: var(--ink-2);
 }
-.preview-label { font-style: normal; font-size: 10px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
+.preview-label { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--ink-4); margin-bottom: 4px; }
+
+/* ───── Danh sách nick ───── */
 .nick-list {
   max-height: 280px; overflow-y: auto;
-  border: 1px solid #ddd; border-radius: 6px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 .nick-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #f0f1f3;
-  cursor: pointer;
+  padding: 8px 12px; border-bottom: 1px solid var(--line-2); cursor: pointer;
 }
-.nick-item.is-selected { background: rgba(0, 100, 0, 0.04); }
-.nick-item input[type="checkbox"] { width: 16px; height: 16px; }
-.nick-avatar {
-  width: 28px; height: 28px; border-radius: 99px;
-  background: linear-gradient(135deg, #fcab79, #aa2d00);
-  color: #fff; font-size: 11px; font-weight: 600;
-  display: flex; align-items: center; justify-content: center;
-}
-.nick-info { flex: 1; }
-.nick-name { font-size: 13px; font-weight: 500; color: #181d26; }
-.nick-meta { font-size: 11px; color: #6b7280; margin-top: 1px; }
-.dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; margin-right: 3px; }
-.dot--green { background: #006400; }
-.dot--red { background: #aa2d00; }
+.nick-item:last-child { border-bottom: 0; }
+.nick-item.is-selected { background: var(--brand-softer); }
+.nick-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand); flex: none; }
+.nick-info { flex: 1; min-width: 0; }
+.nick-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.nick-meta { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; display: flex; align-items: center; gap: 5px; }
+.nick-meta .status { font-size: 11.5px; font-weight: 500; }
+.empty-hint { padding: 18px; text-align: center; font-size: 12.5px; color: var(--ink-4); }
+
+/* ───── Rule rows ───── */
 .rule {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 0; font-size: 13px; color: #333840;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 0; font-size: 13px; color: var(--ink-2);
 }
-.rule-icon {
-  width: 22px; height: 22px; background: rgba(217, 164, 65, 0.15);
-  color: #b07a14; border-radius: 4px;
+.rule-ico {
+  width: 24px; height: 24px; flex: none;
+  background: var(--brand-soft); color: var(--brand);
+  border-radius: var(--r-xs);
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px;
 }
+.num-field { width: 78px; }
+.num-field.wide { width: 92px; }
+.time-field { width: 110px; }
+.num-field input, .time-field input { text-align: center; }
+.time-arrow { color: var(--ink-4); }
+
+/* ───── Delay row (welcome) ───── */
+.delay-row {
+  margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-2);
+}
+.delay-row .v-icon { color: var(--brand); }
+
+/* ───── Welcome info ───── */
+.welcome-info {
+  margin-top: 11px; padding: 9px 12px;
+  display: flex; align-items: flex-start; gap: 7px;
+  background: var(--warning-soft); border: 1px solid #f4cf8f;
+  border-radius: var(--r-sm); font-size: 12px; color: #b45309; line-height: 1.5;
+}
+.welcome-info .v-icon { color: var(--warning); margin-top: 1px; flex: none; }
+
+/* ───── Radio group (start mode) ───── */
+.radio-group { display: flex; flex-direction: column; gap: 9px; }
+.radio-row {
+  display: flex; gap: 10px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer;
+  transition: border-color .14s, background .14s;
+}
+.radio-row:hover { border-color: var(--brand-soft); }
+.radio-row.selected { border-color: var(--brand); background: var(--brand-softer); }
+.radio-row input[type="radio"] { width: 16px; height: 16px; accent-color: var(--brand); flex: none; margin-top: 2px; }
+.radio-content { flex: 1; min-width: 0; }
+.radio-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.radio-help { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+.schedule-field { width: 220px; margin-top: 8px; }
+
+/* ───── Summary ───── */
+.summary .summary-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 13px;
+}
+.summary .summary-row:last-child { border-bottom: 0; }
+.summary .sl { width: 130px; flex: none; color: var(--ink-3); font-size: 12.5px; }
+.summary .sv { color: var(--ink); font-weight: 600; }
+
+/* ───── Action bar ───── */
 .action-bar {
   display: flex; align-items: center; gap: 8px;
-  padding: 16px 0; margin-top: 12px;
+  padding: 18px 0 8px; margin-top: 8px;
 }
 .action-spacer { flex: 1; }
-.at-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 9px 16px; border-radius: 6px;
-  font-size: 13px; font-weight: 500;
-  border: 0; cursor: pointer; font-family: inherit;
-}
-.at-btn--primary { background: #181d26; color: #fff; }
-.at-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.at-btn--ghost { background: transparent; color: #181d26; }
-.at-btn--ghost:hover { background: #f0f1f3; }
-.at-btn--sm { padding: 6px 12px; font-size: 12px; }
-.form-section__hint {
-  font-size: 12px; color: #6b7280; line-height: 1.5;
-  margin: -4px 0 10px; padding: 8px 10px;
-  background: #f8fafc; border-left: 3px solid #d9a441;
-  border-radius: 0 4px 4px 0;
-}
-.welcome-info {
-  margin-top: 10px; padding: 8px 12px;
-  background: rgba(217, 164, 65, 0.1);
-  border: 1px solid rgba(217, 164, 65, 0.3);
-  border-radius: 6px;
-  font-size: 12px; color: #b07a14; line-height: 1.5;
-}
 </style>

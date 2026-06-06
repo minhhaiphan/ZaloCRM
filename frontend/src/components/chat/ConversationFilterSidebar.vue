@@ -65,7 +65,7 @@
           aria-label="Lọc theo tag"
           @click.stop="togglePopover('tag')"
         >
-          <span class="ic">🏷</span>
+          <Tag class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="tagActiveCount > 0" class="badge">{{ tagActiveCount }}</span>
         </button>
 
@@ -77,7 +77,7 @@
           aria-label="Lọc theo score và stage"
           @click.stop="togglePopover('score')"
         >
-          <span class="ic">📊</span>
+          <Gauge class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="scoreActiveCount > 0" class="badge">{{ scoreActiveCount }}</span>
         </button>
 
@@ -89,7 +89,7 @@
           aria-label="Lọc theo thời gian"
           @click.stop="togglePopover('time')"
         >
-          <span class="ic">🕐</span>
+          <Clock class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="timeActiveCount > 0" class="badge">{{ timeActiveCount }}</span>
         </button>
 
@@ -101,7 +101,7 @@
           aria-label="Lọc theo sự kiện"
           @click.stop="togglePopover('event')"
         >
-          <span class="ic">📅</span>
+          <CalendarClock class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="eventActiveCount > 0" class="badge red">{{ eventActiveCount }}</span>
         </button>
 
@@ -113,7 +113,7 @@
           aria-label="Lọc theo sale phụ trách"
           @click.stop="togglePopover('sale')"
         >
-          <span class="ic">👨‍💼</span>
+          <UserRoundCog class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="saleActiveCount > 0" class="badge">{{ saleActiveCount }}</span>
         </button>
       </div>
@@ -741,6 +741,8 @@ import PrivacyLockBadge from '@/components/privacy/PrivacyLockBadge.vue';
 import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
 import PrivacyUnlockDialog from '@/components/privacy/PrivacyUnlockDialog.vue';
 import { usePrivacyStore } from '@/stores/privacy';
+// Icon Lucide thay emoji thô cho strip lọc (/plan-design-review 2026-06-06).
+import { Tag, Gauge, Clock, CalendarClock, UserRoundCog } from 'lucide-vue-next';
 import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{
@@ -1298,16 +1300,18 @@ onMounted(async () => {
 }
 .c-icon-btn:hover { background: #F4F4F7; }
 .c-icon-btn.active {
-  background: #EEF0FF;
-  box-shadow: inset 3px 0 0 #5E6AD2;
+  background: var(--smax-primary-soft, #e4f1f8);
+  box-shadow: inset 3px 0 0 var(--smax-primary, #1786be);
 }
+.c-icon-btn.active .ic { color: var(--smax-primary, #1786be); }
 .c-icon-btn.open {
-  background: #5E6AD2;
+  background: var(--smax-primary, #1786be);
   color: white;
 }
-.c-icon-btn.open .ic { filter: brightness(2); }
-.c-icon-btn:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 1px; }
-.c-icon-btn .ic { line-height: 1; }
+.c-icon-btn.open .ic { color: #fff; }
+.c-icon-btn:focus-visible { outline: 2px solid var(--smax-primary, #1786be); outline-offset: 1px; }
+/* Lucide SVG: màu mặc định xám, active/open override ở trên (icon emoji cũ → SVG 2026-06-06). */
+.c-icon-btn .ic { line-height: 1; color: #6b7488; }
 .c-icon-btn .badge {
   position: absolute;
   top: 3px;

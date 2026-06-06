@@ -20,9 +20,14 @@ import type { ActionContext, ActionResult } from '../types.js';
 const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
 
 export async function requestFriendHandler(ctx: ActionContext): Promise<ActionResult> {
-  const snap = ctx.blockSnapshot as { greetingVariants?: string[] };
+  // 2026-06-06 — greetingVariants có thể là string[] (chuẩn) HOẶC {text}[] (block cũ
+  // lưu rich); chuẩn hoá về string[] để tương thích. Lời mời Zalo không format.
+  const snap = ctx.blockSnapshot as { greetingVariants?: Array<string | { text?: string }> };
+  const greetings = (Array.isArray(snap.greetingVariants) ? snap.greetingVariants : [])
+    .map((g) => (typeof g === 'string' ? g : (g && typeof g.text === 'string' ? g.text : '')))
+    .filter((t) => t.trim().length > 0);
 
-  if (!Array.isArray(snap.greetingVariants) || snap.greetingVariants.length === 0) {
+  if (greetings.length === 0) {
     return {
       outcome: 'failure',
       errorCode: 'BAD_SNAPSHOT',
@@ -39,7 +44,7 @@ export async function requestFriendHandler(ctx: ActionContext): Promise<ActionRe
     };
   }
 
-  const greeting = snap.greetingVariants[Math.floor(Math.random() * snap.greetingVariants.length)];
+  const greeting = greetings[Math.floor(Math.random() * greetings.length)];
 
   // STUB mode for testing without hitting Zalo
   if (STUB_MODE) {

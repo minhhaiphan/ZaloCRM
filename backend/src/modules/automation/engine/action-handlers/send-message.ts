@@ -1,43 +1,48 @@
 // Phase G full — send_message action handler (REAL Zalo SDK).
 //
-// Flow:
-//   1. Read blockSnapshot.textVariants — pick one randomly
-//   2. Find Friend row for (assignedNickId, contactId)
-//      - must be friendshipStatus='accepted' (or 'pending_sent' if user replied first)
-//      - extract zaloUidInNick → threadId
-//   3. Get or create Conversation with (zaloAccountId, externalThreadId)
-//   4. zaloOps.sendMessage(nickId, threadId, threadType=0, { msg: text })
-//   5. Persist Message row with senderType='self', zaloMsgId from response
-//   6. Apply Contact + Friend aggregates so /contacts dashboard updates
+// 2026-06-06 (Approach A office-hours) — GỬI ĐỦ MỌI THÀNH PHẦN của Khối theo ĐÚNG
+// THỨ TỰ + giữ FORMAT. Trước đây handler chỉ gửi 1 tin text đầu + 1 ảnh đầu (bug
+// CRITICAL mất tin). Giờ:
+//   1. resolveBlockContent(snapshot) → resolved[] (text/image/album/file/video) đúng thứ tự
+//   2. Find Friend row (accepted hoặc stranger-allowed) → threadId; get-or-create Conversation
+//   3. LOOP resolved[]: render template + gửi đúng SDK + persist Message + delay 1-3s giữa tin
+//   4. Idempotent: gửi ít nhất 1 tin OK → success (retry không nên double-send — xem note)
+//   5. Apply Contact + Friend aggregates (1 lần, theo tin cuối) cho /contacts dashboard
 //
-// Worker handles ZaloAccount.lastMessageSentAt update on success.
-// Attachments support deferred — text-only for now (logs a warning if present).
-//
-// Set AUTOMATION_STUB_MODE=true to revert to stub for safe testing.
+// Set AUTOMATION_STUB_MODE=true để test không chạm Zalo.
 
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { zaloOps } from '../../../../shared/zalo-operations.js';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../../../contacts/contact-aggregate.js';
+import { resolveBlockContent, type ResolvedMessage } from '../../blocks/resolve-block-content.js';
 import type { ActionContext, ActionResult } from '../types.js';
 
 const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
 
+type ZaloStyle = { st: string; start: number; len: number };
+
+// Delay ngẫu nhiên giữa các tin trong cùng 1 Khối (chống Zalo coi spam / burst-limit).
+// Giống broadcast-fire-worker randomDelay. 0.8–2.5s.
+const SEND_GAP_MIN_MS = 800;
+const SEND_GAP_MAX_MS = 2500;
+function sendGapMs(): number {
+  return SEND_GAP_MIN_MS + Math.floor(Math.random() * (SEND_GAP_MAX_MS - SEND_GAP_MIN_MS));
+}
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResult> {
   const snap = ctx.blockSnapshot as {
+    // Shape MỚI (BlockEditorDialog rich-text): components[] với defaultVariant {text, styles}
+    components?: Array<Record<string, unknown>>;
+    // Shape CŨ (legacy): textVariants string[] + attachments
     textVariants?: string[];
     attachments?: Array<{ kind: string; url: string; caption?: string; thumbnailUrl?: string; altText?: string }>;
   };
 
-  if (!Array.isArray(snap.textVariants) || snap.textVariants.length === 0) {
-    return {
-      outcome: 'failure',
-      errorCode: 'BAD_SNAPSHOT',
-      errorMessage: 'blockSnapshot.textVariants empty',
-      retryable: false,
-    };
-  }
   if (!ctx.assignedNickId) {
     return {
       outcome: 'failure',
@@ -47,14 +52,25 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
     };
   }
 
-  const text = snap.textVariants[Math.floor(Math.random() * snap.textVariants.length)];
-  const attachments = Array.isArray(snap.attachments) ? snap.attachments : [];
+  // ── Resolve Khối → danh sách tin theo ĐÚNG THỨ TỰ (module dùng chung) ──
+  // 2026-06-06 — loop ĐỦ components (text/image/album/file/video) + giữ styles.
+  const resolveResult = resolveBlockContent('send_message', snap as Record<string, unknown>);
+  if (!resolveResult.ok || resolveResult.resolved.length === 0) {
+    return {
+      outcome: 'failure',
+      errorCode: 'BAD_SNAPSHOT',
+      errorMessage: resolveResult.detail ?? 'blockSnapshot không có nội dung gửi được',
+      retryable: false,
+    };
+  }
+  const messages: ResolvedMessage[] = resolveResult.resolved;
 
   if (STUB_MODE) {
-    logger.info(`[send-message STUB] would send "${text.slice(0, 40)}..." + ${attachments.length} attachment(s) from nick ${ctx.assignedNickId} to contact ${ctx.contactId}`);
+    const summary = messages.map((m) => m.messageType).join(' → ');
+    logger.info(`[send-message STUB] would send ${messages.length} tin (${summary}) from nick ${ctx.assignedNickId} to contact ${ctx.contactId}`);
     return {
       outcome: 'success',
-      data: { stub: true, textUsed: text, attachmentCount: attachments.length },
+      data: { stub: true, messageCount: messages.length, sequence: messages.map((m) => m.messageType) },
     };
   }
 
@@ -117,10 +133,7 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
 
   const threadId = friend.zaloUidInNick;
   const threadType = 0; // 0 = user, 1 = group (only user supported)
-
-  // Step 1.5: Render template variables {gender} {name} {sale}
-  // (chuẩn anh chốt 2026-05-28: gender từ Zalo profile, name=last word KH, sale=last word user.fullName)
-  const renderedText = await renderTemplate(text, ctx.contactId, ctx.assignedNickId);
+  // (Render template {gender}/{name}/{sale} thực hiện PER-TIN trong loop ở Step 3.)
 
   // Step 2: get-or-create Conversation
   let conversation = await prisma.conversation.findUnique({
@@ -141,146 +154,141 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
     });
   }
 
-  // Step 3: send via Zalo SDK — dispatch based on first attachment kind.
-  // FIX B1: previously attachments were logged-warn and dropped (text-only).
-  // Now supports image/video/file via dedicated zaloOps methods.
-  let sdkResult: Record<string, unknown>;
-  try {
-    if (attachments.length > 0) {
-      const first = attachments[0];
-      const url = first.url;
-      const caption = first.caption || renderedText;
-      let raw: unknown;
-      if (first.kind === 'image') {
-        // zaloOps.sendImage expects attachment object array
-        raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, [{ url, caption }]);
-      } else if (first.kind === 'video') {
-        // Video: zaloOps.sendVideo({ videoUrl, thumbnailUrl, msg })
-        raw = await zaloOps.sendVideo(ctx.assignedNickId, threadId, threadType, {
-          videoUrl: url,
-          thumbnailUrl: first.thumbnailUrl ?? url,
+  // Step 3: LOOP gửi tuần tự từng tin trong Khối (ĐÚNG THỨ TỰ + delay giữa tin).
+  let sentCount = 0;
+  let lastMessageRow: { id: string; content: string | null; contentType: string; sentAt: Date } | null = null;
+  let lastZaloMsgId = '';
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (i > 0) await sleep(sendGapMs());
+
+    let sdkResult: Record<string, unknown> = {};
+    let persistContent: string;
+    let persistContentType = 'text';
+
+    try {
+      if (m.messageType === 'text') {
+        const rendered = await renderTemplate(m.payload.text, ctx.contactId, ctx.assignedNickId);
+        const hadTemplateVar = m.payload.text.includes('{');
+        const styles: ZaloStyle[] = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+        const msgPayload: Record<string, unknown> = { msg: rendered };
+        const useStyles = !hadTemplateVar && styles.length > 0;
+        if (useStyles) msgPayload.styles = styles;
+        const raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, msgPayload);
+        sdkResult = (raw as Record<string, unknown>) || {};
+        persistContent = useStyles
+          ? JSON.stringify({ title: rendered, action: 'rtf', params: JSON.stringify({ styles }) })
+          : rendered;
+        persistContentType = 'text';
+      } else if (m.messageType === 'image') {
+        const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
+        const raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, [{ url: m.payload.url, caption }]);
+        sdkResult = (raw as Record<string, unknown>) || {};
+        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'image', url: m.payload.url, caption }] });
+        persistContentType = 'image';
+      } else if (m.messageType === 'album') {
+        const items = m.payload.items.map((it) => ({ url: it.url, caption: it.caption ?? '' }));
+        const raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, items);
+        sdkResult = (raw as Record<string, unknown>) || {};
+        persistContent = JSON.stringify({ text: '', attachments: items.map((it) => ({ kind: 'image', url: it.url, caption: it.caption })) });
+        persistContentType = 'image';
+      } else if (m.messageType === 'video') {
+        const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
+        const raw = await zaloOps.sendVideo(ctx.assignedNickId, threadId, threadType, {
+          videoUrl: m.payload.url,
+          thumbnailUrl: m.payload.thumbnailUrl ?? m.payload.url,
           msg: caption,
         });
-      } else if (first.kind === 'file') {
-        // sendFile expects file path array. If URL is http, the worker can't fetch
-        // server-side without download — currently passes URL string as path.
-        // Zalo SDK behavior: file path must exist on the running server.
-        // TODO: download URL → temp file for non-filesystem URLs.
-        raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [url], null, caption);
-      } else if (first.kind === 'link') {
-        // Link card uses sendLink with link payload
-        raw = await zaloOps.sendLink(ctx.assignedNickId, threadId, threadType, { href: url, title: caption, desc: text });
+        sdkResult = (raw as Record<string, unknown>) || {};
+        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'video', url: m.payload.url, caption }] });
+        persistContentType = 'video';
+      } else if (m.messageType === 'file') {
+        const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
+        const raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [m.payload.url], null, caption);
+        sdkResult = (raw as Record<string, unknown>) || {};
+        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'file', url: m.payload.url, filename: m.payload.filename, caption }] });
+        persistContentType = 'file';
       } else {
-        // Unknown kind: fall back to text-only with URL appended
-        raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, { msg: `${renderedText}\n${url}` });
+        continue;
       }
-      sdkResult = (raw as Record<string, unknown>) || {};
-    } else {
-      const raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, { msg: renderedText });
-      sdkResult = (raw as Record<string, unknown>) || {};
+    } catch (err: any) {
+      const code = err?.code as string | undefined;
+      const msg = err?.message ?? String(err);
+      if (sentCount > 0) {
+        logger.warn(`[send-message] tin ${i + 1}/${messages.length} (${m.messageType}) lỗi sau khi đã gửi ${sentCount} tin: ${msg} — dừng, không retry`);
+        break;
+      }
+      if (code === 'RATE_LIMITED') return { outcome: 'failure', errorCode: 'RATE_LIMITED', errorMessage: msg, retryable: true };
+      if (code === 'NOT_CONNECTED') return { outcome: 'failure', errorCode: 'NOT_CONNECTED', errorMessage: msg, retryable: true };
+      return { outcome: 'failure', errorCode: 'SEND_MESSAGE_FAILED', errorMessage: msg, retryable: false };
     }
-  } catch (err: any) {
-    const code = err?.code as string | undefined;
-    const msg = err?.message ?? String(err);
-    if (code === 'RATE_LIMITED') {
-      return { outcome: 'failure', errorCode: 'RATE_LIMITED', errorMessage: msg, retryable: true };
+
+    const sr = sdkResult as { message?: { msgId?: number | string } | null; msgId?: number | string };
+    const zaloMsgId = String(sr?.message?.msgId ?? sr?.msgId ?? '');
+    lastZaloMsgId = zaloMsgId;
+    try {
+      lastMessageRow = await prisma.message.create({
+        data: {
+          id: randomUUID(),
+          conversationId: conversation.id,
+          zaloMsgId: zaloMsgId || null,
+          zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+          senderType: 'self',
+          senderUid: '',
+          senderName: 'Bot-Auto',
+          content: persistContent,
+          contentType: persistContentType,
+          sentAt: new Date(),
+          sentVia: 'automation',
+        },
+        select: { id: true, content: true, contentType: true, sentAt: true },
+      });
+    } catch (err) {
+      logger.error(`[send-message] persist tin ${i + 1} lỗi (Zalo đã gửi):`, err);
     }
-    if (code === 'NOT_CONNECTED') {
-      return { outcome: 'failure', errorCode: 'NOT_CONNECTED', errorMessage: msg, retryable: true };
-    }
-    return {
-      outcome: 'failure',
-      errorCode: 'SEND_MESSAGE_FAILED',
-      errorMessage: msg,
-      retryable: false,
-    };
+    sentCount++;
   }
 
-  // Step 4: extract zaloMsgId for dedup with self-listen echo
-  const sr = sdkResult as { message?: { msgId?: number | string } | null; msgId?: number | string };
-  const rawId = sr?.message?.msgId ?? sr?.msgId ?? '';
-  const zaloMsgId = String(rawId || '');
+  if (sentCount === 0) {
+    return { outcome: 'failure', errorCode: 'SEND_MESSAGE_FAILED', errorMessage: 'không gửi được tin nào', retryable: false };
+  }
 
-  // Step 5: persist outbound Message row
-  // contentType reflects attachment kind for proper UI rendering
-  const persistContentType = attachments.length > 0
-    ? (attachments[0].kind === 'image' ? 'image'
-       : attachments[0].kind === 'video' ? 'video'
-       : attachments[0].kind === 'file' ? 'file'
-       : attachments[0].kind === 'link' ? 'link'
-       : 'text')
-    : 'text';
-  const persistContent = attachments.length > 0
-    ? JSON.stringify({ text: renderedText, attachments })
-    : renderedText;
+  // Step 5.5: update Conversation aggregate (theo tin cuối) + Step 6 aggregates.
+  if (lastMessageRow) {
+    try {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: lastMessageRow.sentAt, isReplied: true, unreadCount: 0 },
+      });
+    } catch (err) {
+      logger.warn(`[send-message] conversation aggregate update failed (conv=${conversation.id}):`, err);
+    }
 
-  let messageRow: { id: string; content: string | null; contentType: string; sentAt: Date };
-  try {
-    messageRow = await prisma.message.create({
-      data: {
-        id: randomUUID(),
-        conversationId: conversation.id,
-        zaloMsgId: zaloMsgId || null,
-        zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-        senderType: 'self',
-        senderUid: '',
-        senderName: 'Bot-Auto',
-        content: persistContent,
-        contentType: persistContentType,
-        sentAt: new Date(),
-        // Phase metrics 2026-05-22: bot gửi
-        sentVia: 'automation',
+    const aggInput = {
+      conversationId: conversation.id,
+      message: {
+        id: lastMessageRow.id,
+        content: lastMessageRow.content,
+        contentType: lastMessageRow.contentType,
+        sentAt: lastMessageRow.sentAt,
+        senderType: 'self' as const,
       },
-      select: { id: true, content: true, contentType: true, sentAt: true },
-    });
-  } catch (err) {
-    logger.error(`[send-message] message persistence failed (Zalo send succeeded):`, err);
-    // SDK already sent — return success with warning so retry doesn't double-send
-    return {
-      outcome: 'success',
-      data: { zaloMsgId, textUsed: text, persistenceFailed: true },
+      outboundUserId: null,
     };
+    void applyContactAggregateFromMessage(aggInput);
+    void applyFriendAggregate(aggInput);
   }
 
-  // Step 5.5: update Conversation aggregate (lastMessageAt + isReplied) so chat
-  // list sorts conversation lên đầu — pattern y hệt chat/message-handler.ts.
-  // Bot tự gửi → coi như đã reply (isReplied=true), unread reset 0.
-  try {
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessageAt: messageRow.sentAt,
-        isReplied: true,
-        unreadCount: 0,
-      },
-    });
-  } catch (err) {
-    logger.warn(`[send-message] conversation aggregate update failed (conv=${conversation.id}):`, err);
-  }
-
-  // Step 6: apply aggregates (Contact + Friend lastOutbound counters)
-  const aggInput = {
-    conversationId: conversation.id,
-    message: {
-      id: messageRow.id,
-      content: messageRow.content,
-      contentType: messageRow.contentType,
-      sentAt: messageRow.sentAt,
-      senderType: 'self' as const,
-    },
-    outboundUserId: null, // automation-sent, not user-attributed
-  };
-  void applyContactAggregateFromMessage(aggInput);
-  void applyFriendAggregate(aggInput);
-
-  logger.info(`[send-message] sent from nick=${ctx.assignedNickId} to contact=${ctx.contactId}, msgId=${zaloMsgId}`);
+  logger.info(`[send-message] sent ${sentCount}/${messages.length} tin từ nick=${ctx.assignedNickId} → contact=${ctx.contactId}`);
   return {
     outcome: 'success',
     data: {
-      zaloMsgId,
-      textUsed: renderedText,
+      sentCount,
+      totalMessages: messages.length,
+      zaloMsgId: lastZaloMsgId,
       conversationId: conversation.id,
-      messageId: messageRow.id,
+      messageId: lastMessageRow?.id,
     },
   };
 }

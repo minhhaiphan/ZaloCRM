@@ -127,4 +127,68 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   // .welcome_message_template / .welcome_delay_seconds). Cross-trigger knobs
   // (welcomeMaxRetries, welcomeStrangerInboxEnabled, welcomeHardFailStops)
   // remain on Organization but are not exposed via this route anymore.
+
+  // ── #3 2026-06-06 (Anh chốt): Cài đặt kỹ thuật automation (admin) ──────────
+  // Nhóm tham số VẬN HÀNH nội bộ (nhịp quét, ngưỡng kẹt, timeout...) — trước đây
+  // hardcode trong sweepers/worker. Đưa ra trang "Cài đặt kỹ thuật" cho admin.
+  // GET cho mọi user xem; PUT chỉ owner/admin. Tất cả số nguyên dương.
+  const TECH_FIELDS = [
+    'autoStuckSweepSeconds', 'autoDrainerSweepSeconds', 'autoWelcomeProbeSeconds',
+    'autoRemindSweepMinutes', 'autoStuckThresholdMinutes', 'autoStuckMaxRecovery',
+    'autoCampaignTimeoutHours', 'autoNickOfflineResetHours',
+  ] as const;
+  // Range guard mỗi field (min, max) — chặn giá trị vô lý gây treo hệ thống.
+  const TECH_RANGES: Record<(typeof TECH_FIELDS)[number], [number, number]> = {
+    autoStuckSweepSeconds: [10, 3600],
+    autoDrainerSweepSeconds: [5, 3600],
+    autoWelcomeProbeSeconds: [5, 3600],
+    autoRemindSweepMinutes: [1, 1440],
+    autoStuckThresholdMinutes: [1, 1440],
+    autoStuckMaxRecovery: [1, 1000],
+    autoCampaignTimeoutHours: [1, 720],
+    autoNickOfflineResetHours: [1, 720],
+  };
+
+  const techSelect = Object.fromEntries(TECH_FIELDS.map((f) => [f, true]));
+
+  // GET /api/v1/organization/automation-settings
+  app.get('/api/v1/organization/automation-settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const org = await prisma.organization.findUnique({
+      where: { id: user.orgId },
+      select: techSelect,
+    });
+    if (!org) return reply.status(404).send({ error: 'Organization not found' });
+    return org;
+  });
+
+  // PUT /api/v1/organization/automation-settings — owner/admin only
+  app.put(
+    '/api/v1/organization/automation-settings',
+    { preHandler: requireRole('owner', 'admin') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const data: Record<string, number> = {};
+      for (const field of TECH_FIELDS) {
+        if (body[field] === undefined) continue;
+        const v = Number(body[field]);
+        const [min, max] = TECH_RANGES[field];
+        if (!Number.isFinite(v) || v < min || v > max) {
+          return reply.status(400).send({ error: `${field}_invalid`, hint: `Phải từ ${min} đến ${max}` });
+        }
+        data[field] = Math.round(v);
+      }
+      if (Object.keys(data).length === 0) {
+        return reply.status(400).send({ error: 'no_fields', hint: 'Không có tham số hợp lệ để cập nhật' });
+      }
+      const org = await prisma.organization.update({
+        where: { id: user.orgId },
+        data,
+        select: techSelect,
+      });
+      logger.info(`[org] automation-settings updated by ${user.email}: ${Object.keys(data).join(',')}`);
+      return { ok: true, settings: org };
+    },
+  );
 }

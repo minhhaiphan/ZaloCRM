@@ -203,7 +203,6 @@
             >
               <span class="cnt-in">{{ msgInCount }}</span>↘
               <span class="cnt-out">{{ msgOutCount }}</span>↗
-              <span class="cnt-scope">per nick này</span>
             </span>
             <!-- M53 2026-05-30: Virtual KH → chấm đỏ nháy + "KH chưa bật tìm kiếm Zalo công khai" -->
             <template v-if="isVirtualConv">
@@ -2479,7 +2478,7 @@ watch(() => props.editingMessage?.id, async (id) => {
   align-items: center;
   justify-content: center;
   background: rgba(248, 250, 252, 0.72);
-  border: 2px dashed var(--smax-primary, #2962ff);
+  border: 2px dashed var(--smax-primary, #1786be);
   pointer-events: none;
 }
 .drop-card {
@@ -2660,7 +2659,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 .ch-avatar-wrap.clickable { cursor: pointer; }
 .ch-avatar-wrap.clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
 .ch-name.clickable { cursor: pointer; transition: color 0.12s ease; }
-.ch-name.clickable:hover { color: var(--smax-primary, #3b82f6); }
+.ch-name.clickable:hover { color: var(--smax-primary, #1786be); }
 
 .ch-info {
   flex: 1; min-width: 0;
@@ -3319,7 +3318,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .icon-tool.active {
   background: var(--smax-primary-soft, #e3f2fd);
-  color: var(--smax-primary, #2962ff);
+  color: var(--smax-primary, #1786be);
 }
 .icon-tool.spacer-after {
   border-right: 1px solid var(--smax-grey-200);
@@ -3438,7 +3437,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-trigger:hover {
   background: var(--smax-primary-soft, #e3f2fd);
-  border-color: var(--smax-primary, #2962ff);
+  border-color: var(--smax-primary, #1786be);
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .zlbl-icon { font-size: 12px; flex-shrink: 0; }
@@ -3473,7 +3472,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 .zlbl-inline-sync {
   margin-top: 8px;
   background: var(--smax-primary-soft, #e3f2fd);
-  color: var(--smax-primary, #2962ff);
+  color: var(--smax-primary, #1786be);
   border: none;
   font-size: 12px;
   font-weight: 600;
@@ -3520,7 +3519,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-option.active .zlbl-name { font-weight: 600; }
 .zlbl-check {
-  color: var(--smax-primary, #2962ff);
+  color: var(--smax-primary, #1786be);
   font-size: 14px;
   font-weight: 700;
   flex-shrink: 0;

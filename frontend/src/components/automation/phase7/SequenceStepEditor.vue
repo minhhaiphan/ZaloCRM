@@ -39,7 +39,7 @@
           <div class="step-card__title">{{ blockName(step.blockId) }}</div>
           <div v-if="blockArchived(step.blockId)" class="step-card__warn">
             <v-icon size="12">mdi-alert-circle</v-icon>
-            Block đã archive — engine sẽ skip
+            Khối đã archive — engine sẽ skip
           </div>
         </div>
         <div class="step-card__actions">
@@ -49,7 +49,7 @@
             variant="text"
             :disabled="idx !== steps.length - 1"
             @click="editStep(idx)"
-            :title="idx !== steps.length - 1 ? 'Chỉ được đổi block ở step CUỐI — đổi step giữa làm lệch tin cho KH đang chờ delay' : 'Đổi block'"
+            :title="idx !== steps.length - 1 ? 'Chỉ được đổi khối ở step CUỐI — đổi step giữa làm lệch tin cho KH đang chờ delay' : 'Đổi khối'"
           >
             <v-icon size="16">mdi-swap-horizontal</v-icon>
           </v-btn>
@@ -88,13 +88,13 @@
       <v-card>
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-puzzle</v-icon>
-          <span>Chọn block cho bước {{ pickerStepIdx !== null ? pickerStepIdx + 1 : 'mới' }}</span>
+          <span>Chọn khối cho bước {{ pickerStepIdx !== null ? pickerStepIdx + 1 : 'mới' }}</span>
           <v-spacer />
           <v-btn icon variant="text" size="small" @click="pickerOpen = false"><v-icon>mdi-close</v-icon></v-btn>
         </v-card-title>
         <v-divider />
         <v-card-text>
-          <v-text-field v-model="pickerSearch" placeholder="Tìm block theo tên / loại action..." variant="solo-filled" flat density="comfortable" prepend-inner-icon="mdi-magnify" clearable hide-details class="mb-3" />
+          <v-text-field v-model="pickerSearch" placeholder="Tìm khối theo tên / loại action..." variant="solo-filled" flat density="comfortable" prepend-inner-icon="mdi-magnify" clearable hide-details class="mb-3" />
 
           <v-text-field
             v-if="pickerStepIdx !== null"
@@ -109,7 +109,7 @@
 
           <div v-if="filteredPickerBlocks.length === 0" class="text-center pa-6 text-medium-emphasis">
             <v-icon size="36" color="grey-lighten-1">mdi-puzzle-outline</v-icon>
-            <div class="mt-2 text-caption">Không tìm thấy block. Tạo block ở tab "Thư viện block" trước.</div>
+            <div class="mt-2 text-caption">Không tìm thấy khối. Tạo khối ở tab "Thư viện khối" trước.</div>
           </div>
 
           <div v-else class="block-picker-grid">
@@ -158,7 +158,7 @@ const blockMap = computed(() => {
   return m;
 });
 
-function blockName(id: string): string { return blockMap.value.get(id)?.name ?? '⚠ Block đã xoá'; }
+function blockName(id: string): string { return blockMap.value.get(id)?.name ?? 'Khối đã xoá'; }
 function blockIcon(id: string): string {
   const b = blockMap.value.get(id);
   return b ? ACTION_TYPE_ICONS[b.actionType] : 'mdi-help-circle-outline';
@@ -304,6 +304,7 @@ function removeStep(idx: number) {
   min-height: unset !important;
   height: 20px !important;
   color: var(--at-ink);
+  font-family: var(--mono);
 }
 .delay-unit { color: var(--at-muted); }
 
@@ -330,7 +331,7 @@ function removeStep(idx: number) {
 .step-card:hover { border-color: var(--card-accent); }
 .step-card.is-broken {
   opacity: 0.6;
-  background: rgba(170, 45, 0, 0.04);
+  background: var(--error-soft);
 }
 
 .step-card__num {
@@ -338,6 +339,7 @@ function removeStep(idx: number) {
   border-radius: var(--at-r-sm);
   background: var(--card-tint);
   color: var(--card-text);
+  font-family: var(--mono);
   font-weight: 500;
   font-size: 13px;
   display: inline-flex;

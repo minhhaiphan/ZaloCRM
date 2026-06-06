@@ -336,6 +336,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       enableThankYou?: boolean;
       enableRemind?: boolean;
       enableRejectedFollowUp?: boolean;
+      // #1 2026-06-06 — 2 công tắc bám đuổi theo trạng thái kết bạn.
+      followUpStrangerEnabled?: boolean;
+      followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
       // BE T4 2026-05-30 — Lên lịch hẹn giờ activate.
       // startMode='now'      → kích hoạt ngay khi gọi /activate (default).
@@ -361,6 +364,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multinickThreshold?: number;
         delayAfterFriendRequestMin?: number;
         pauseHoursOnReply?: number;
+        // #3 2026-06-06 — nhịp gửi lời mời (phút) + sàn welcome + cửa sổ warm (Anh nhập trên UI)
+        friendReqIntervalMinMinutes?: number;
+        friendReqIntervalMaxMinutes?: number;
+        welcomeMinFloorSeconds?: number;
+        warmWindowDays?: number;
       };
     };
   }>(`${BASE}/friend-invite`, async (request, reply) => {
@@ -530,6 +538,40 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       pauseOnActivityHours = Math.round(v);
     }
 
+    // #3 2026-06-06 — nhịp gửi lời mời (phút). Min ≤ Max, range 0..1440 (24h).
+    let friendReqIntervalMinMinutes = 20;
+    let friendReqIntervalMaxMinutes = 40;
+    if (sr.friendReqIntervalMinMinutes !== undefined) {
+      const v = Number(sr.friendReqIntervalMinMinutes);
+      if (!Number.isFinite(v) || v < 0 || v > 1440)
+        return reply.status(400).send({ error: 'friendReqIntervalMin_invalid', hint: 'Phải từ 0 đến 1440 phút' });
+      friendReqIntervalMinMinutes = Math.round(v);
+    }
+    if (sr.friendReqIntervalMaxMinutes !== undefined) {
+      const v = Number(sr.friendReqIntervalMaxMinutes);
+      if (!Number.isFinite(v) || v < 0 || v > 1440)
+        return reply.status(400).send({ error: 'friendReqIntervalMax_invalid', hint: 'Phải từ 0 đến 1440 phút' });
+      friendReqIntervalMaxMinutes = Math.round(v);
+    }
+    if (friendReqIntervalMaxMinutes < friendReqIntervalMinMinutes)
+      return reply.status(400).send({ error: 'friendReqInterval_range', hint: 'Nhịp tối đa phải ≥ nhịp tối thiểu' });
+
+    let welcomeMinFloorSeconds = 60;
+    if (sr.welcomeMinFloorSeconds !== undefined) {
+      const v = Number(sr.welcomeMinFloorSeconds);
+      if (!Number.isFinite(v) || v < 0 || v > 3600)
+        return reply.status(400).send({ error: 'welcomeMinFloorSeconds_invalid', hint: 'Phải từ 0 đến 3600 giây' });
+      welcomeMinFloorSeconds = Math.round(v);
+    }
+
+    let warmWindowDays = 30;
+    if (sr.warmWindowDays !== undefined) {
+      const v = Number(sr.warmWindowDays);
+      if (!Number.isFinite(v) || v < 0 || v > 365)
+        return reply.status(400).send({ error: 'warmWindowDays_invalid', hint: 'Phải từ 0 đến 365 ngày' });
+      warmWindowDays = Math.round(v);
+    }
+
     // Cross-field validation: working window phải hợp lệ (start < end).
     if (sendHourStart >= sendHourEnd) {
       return reply.status(400).send({
@@ -575,6 +617,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         enableThankYou: body.enableThankYou ?? true,
         enableRemind: body.enableRemind ?? true,
         enableRejectedFollowUp: body.enableRejectedFollowUp ?? false,
+        // #1 2026-06-06 — 2 công tắc bám đuổi (default bật = hành vi cũ).
+        followUpStrangerEnabled: body.followUpStrangerEnabled ?? true,
+        followUpFriendEnabled: body.followUpFriendEnabled ?? true,
         notifyChannels: (body.notifyChannels && typeof body.notifyChannels === 'object'
           ? body.notifyChannels
           : undefined) as object | undefined,
@@ -590,6 +635,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multiNickThreshold,
         sequenceStartDelayMinutes,
         pauseOnActivityHours,
+        // #3 2026-06-06 — nhịp gửi + sàn welcome + cửa sổ warm (đọc từ UI, hết hardcode)
+        friendReqIntervalMinMinutes,
+        friendReqIntervalMaxMinutes,
+        welcomeMinFloorSeconds,
+        warmWindowDays,
         state: 'draft',
         enabled: false, // explicit activation required
         createdById: user.id,
@@ -1534,6 +1584,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         enableThankYou: true,
         enableRemind: true,
         enableRejectedFollowUp: true,
+        // #1 2026-06-06 — 2 công tắc bám đuổi cho edit prefill.
+        followUpStrangerEnabled: true,
+        followUpFriendEnabled: true,
         notifyChannels: true,
         sendHourStart: true,
         sendHourEnd: true,
@@ -1542,6 +1595,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multiNickThreshold: true,
         sequenceStartDelayMinutes: true,
         pauseOnActivityHours: true,
+        // #3 2026-06-06 — nhịp gửi + sàn welcome + cửa sổ warm cho edit prefill.
+        friendReqIntervalMinMinutes: true,
+        friendReqIntervalMaxMinutes: true,
+        welcomeMinFloorSeconds: true,
+        warmWindowDays: true,
         scheduledAt: true,
       },
     });
@@ -1578,6 +1636,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       enableThankYou: trigger.enableThankYou,
       enableRemind: trigger.enableRemind,
       enableRejectedFollowUp: trigger.enableRejectedFollowUp,
+      // #1 2026-06-06 — 2 công tắc bám đuổi để UI hiển thị lại.
+      followUpStrangerEnabled: trigger.followUpStrangerEnabled,
+      followUpFriendEnabled: trigger.followUpFriendEnabled,
       notifyChannels: trigger.notifyChannels ?? null,
       scheduledAt: trigger.scheduledAt ? trigger.scheduledAt.toISOString() : null,
       safetyRules: {
@@ -1588,6 +1649,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multinickThreshold: trigger.multiNickThreshold,
         delayAfterFriendRequestMin: trigger.sequenceStartDelayMinutes,
         pauseHoursOnReply: trigger.pauseOnActivityHours,
+        // #3 2026-06-06 — nhịp gửi + sàn welcome + cửa sổ warm để UI hiển thị lại
+        friendReqIntervalMinMinutes: trigger.friendReqIntervalMinMinutes,
+        friendReqIntervalMaxMinutes: trigger.friendReqIntervalMaxMinutes,
+        welcomeMinFloorSeconds: trigger.welcomeMinFloorSeconds,
+        warmWindowDays: trigger.warmWindowDays,
       },
       skipRules: spec.skipRules ?? {},
     });
@@ -1621,6 +1687,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       enableThankYou?: boolean;
       enableRemind?: boolean;
       enableRejectedFollowUp?: boolean;
+      // #1 2026-06-06 — 2 công tắc bám đuổi (edit).
+      followUpStrangerEnabled?: boolean;
+      followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
       safetyRules?: {
         quietHoursStart?: string;
@@ -1630,6 +1699,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multinickThreshold?: number;
         delayAfterFriendRequestMin?: number;
         pauseHoursOnReply?: number;
+        // #3 2026-06-06 — nhịp gửi + sàn welcome + cửa sổ warm (edit).
+        friendReqIntervalMinMinutes?: number;
+        friendReqIntervalMaxMinutes?: number;
+        welcomeMinFloorSeconds?: number;
+        warmWindowDays?: number;
       };
       segmentSpec?: {
         skipRules?: Record<string, unknown>;
@@ -1653,6 +1727,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         multiNickThreshold: true,
         sequenceStartDelayMinutes: true,
         pauseOnActivityHours: true,
+        // #3 2026-06-06 — cần để check min ≤ max khi PATCH 1 trong 2 đầu nhịp.
+        friendReqIntervalMinMinutes: true,
+        friendReqIntervalMaxMinutes: true,
       },
     });
     if (!existing) return reply.status(404).send({ error: 'trigger_not_found' });
@@ -1725,6 +1802,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     if (body.enableThankYou !== undefined) data.enableThankYou = !!body.enableThankYou;
     if (body.enableRemind !== undefined) data.enableRemind = !!body.enableRemind;
     if (body.enableRejectedFollowUp !== undefined) data.enableRejectedFollowUp = !!body.enableRejectedFollowUp;
+    // #1 2026-06-06 — 2 công tắc bám đuổi.
+    if (body.followUpStrangerEnabled !== undefined) data.followUpStrangerEnabled = !!body.followUpStrangerEnabled;
+    if (body.followUpFriendEnabled !== undefined) data.followUpFriendEnabled = !!body.followUpFriendEnabled;
     if (body.notifyChannels !== undefined && body.notifyChannels && typeof body.notifyChannels === 'object')
       data.notifyChannels = body.notifyChannels;
 
@@ -1800,6 +1880,38 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
             .status(400)
             .send({ error: 'pauseHoursOnReply_invalid', hint: 'Phải từ 1 đến 720 giờ (30 ngày)' });
         data.pauseOnActivityHours = Math.round(v);
+      }
+      // #3 2026-06-06 — nhịp gửi lời mời (min/max phút) + sàn welcome + cửa sổ warm.
+      // Lấy effective min/max (body override > giá trị hiện tại) để check min ≤ max.
+      let effMin = existing.friendReqIntervalMinMinutes;
+      let effMax = existing.friendReqIntervalMaxMinutes;
+      if (sr.friendReqIntervalMinMinutes !== undefined) {
+        const v = Number(sr.friendReqIntervalMinMinutes);
+        if (!Number.isFinite(v) || v < 0 || v > 1440)
+          return reply.status(400).send({ error: 'friendReqIntervalMin_invalid', hint: 'Phải từ 0 đến 1440 phút' });
+        effMin = Math.round(v);
+      }
+      if (sr.friendReqIntervalMaxMinutes !== undefined) {
+        const v = Number(sr.friendReqIntervalMaxMinutes);
+        if (!Number.isFinite(v) || v < 0 || v > 1440)
+          return reply.status(400).send({ error: 'friendReqIntervalMax_invalid', hint: 'Phải từ 0 đến 1440 phút' });
+        effMax = Math.round(v);
+      }
+      if (effMax < effMin)
+        return reply.status(400).send({ error: 'friendReqInterval_range', hint: 'Nhịp tối đa phải ≥ nhịp tối thiểu' });
+      if (sr.friendReqIntervalMinMinutes !== undefined) data.friendReqIntervalMinMinutes = effMin;
+      if (sr.friendReqIntervalMaxMinutes !== undefined) data.friendReqIntervalMaxMinutes = effMax;
+      if (sr.welcomeMinFloorSeconds !== undefined) {
+        const v = Number(sr.welcomeMinFloorSeconds);
+        if (!Number.isFinite(v) || v < 0 || v > 3600)
+          return reply.status(400).send({ error: 'welcomeMinFloorSeconds_invalid', hint: 'Phải từ 0 đến 3600 giây' });
+        data.welcomeMinFloorSeconds = Math.round(v);
+      }
+      if (sr.warmWindowDays !== undefined) {
+        const v = Number(sr.warmWindowDays);
+        if (!Number.isFinite(v) || v < 0 || v > 365)
+          return reply.status(400).send({ error: 'warmWindowDays_invalid', hint: 'Phải từ 0 đến 365 ngày' });
+        data.warmWindowDays = Math.round(v);
       }
     }
 

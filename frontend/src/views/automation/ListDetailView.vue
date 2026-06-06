@@ -5,7 +5,7 @@
       <a @click="$router.push('/marketing/lists')">
         <v-icon size="14">mdi-folder-account-outline</v-icon> Tệp khách hàng
       </a>
-      <span class="sep">›</span>
+      <v-icon size="14" class="sep">mdi-chevron-right</v-icon>
       <span>{{ currentList?.name ?? '...' }}</span>
     </div>
 
@@ -14,7 +14,7 @@
       <div class="hero-head">
         <div style="min-width:0; flex:1;">
           <h2>
-            <span>{{ currentList.iconEmoji || '📂' }}</span>
+            <span class="hero-ico"><v-icon size="20">mdi-folder-account-outline</v-icon></span>
             <template v-if="!editingTitle">
               <span class="title-text" @click="startEditTitle" title="Click để đổi tên">
                 {{ currentList.name }}
@@ -30,7 +30,7 @@
               @keydown.esc="cancelEditTitle"
               @blur="commitTitle"
             />
-            <span v-if="currentList.archivedAt" class="archived-tag">
+            <span v-if="currentList.archivedAt" class="chip chip-grey">
               <v-icon size="13">mdi-archive</v-icon> Lưu trữ
             </span>
           </h2>
@@ -41,21 +41,21 @@
           </div>
         </div>
         <div class="hero-actions">
-          <button class="at-btn at-btn--sm at-btn--action" @click="onCreateMucTieu">
-            <span style="font-size:14px; line-height:1;">📤</span>
+          <button class="btn btn-primary btn-sm" @click="onCreateMucTieu">
+            <v-icon size="16">mdi-target</v-icon>
             Tạo Mục tiêu từ tệp này
           </button>
-          <button class="at-btn" @click="onRescan">
+          <button class="btn btn-ghost btn-sm" @click="onRescan">
             <v-icon size="16">mdi-refresh</v-icon>
             Quét lại Zalo
           </button>
-          <button class="at-btn">
+          <button class="btn btn-ghost btn-sm">
             <v-icon size="16">mdi-download</v-icon>
             Export CSV
           </button>
           <v-menu :close-on-content-click="true">
             <template #activator="{ props: act }">
-              <button v-bind="act" class="at-btn at-btn--ghost">
+              <button v-bind="act" class="btn btn-ghost btn-icon btn-sm">
                 <v-icon size="16">mdi-dots-vertical</v-icon>
               </button>
             </template>
@@ -76,7 +76,7 @@
               </v-list-item>
               <v-divider />
               <v-list-item @click="onDelete" prepend-icon="mdi-delete-outline">
-                <v-list-item-title style="color:#B91C1C">Xoá tệp</v-list-item-title>
+                <v-list-item-title class="del-title">Xoá tệp</v-list-item-title>
               </v-list-item>
             </v-list>
           </v-menu>
@@ -150,28 +150,28 @@
         Tất cả <span class="count">{{ currentList?.totalEntries.toLocaleString('vi-VN') ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'valid' }" @click="setTab('valid')">
-        ✓ Hợp lệ <span class="count">{{ currentList?.validEntries.toLocaleString('vi-VN') ?? 0 }}</span>
+        <v-icon size="13" class="st-green">mdi-check-circle</v-icon> Hợp lệ <span class="count">{{ currentList?.validEntries.toLocaleString('vi-VN') ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'invalid' }" @click="setTab('invalid')">
-        ⚫ Số không hợp lệ <span class="count">{{ currentList?.invalidEntries.toLocaleString('vi-VN') ?? 0 }}</span>
+        <v-icon size="13" class="st-ink">mdi-circle</v-icon> Số không hợp lệ <span class="count">{{ currentList?.invalidEntries.toLocaleString('vi-VN') ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'dup' }" @click="setTab('dup')">
-        🟠 Trùng <span class="count">{{ dupTotal(currentList).toLocaleString('vi-VN') }}</span>
+        <v-icon size="13" class="st-orange">mdi-circle</v-icon> Trùng <span class="count">{{ dupTotal(currentList).toLocaleString('vi-VN') }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'dup_in_list' }" @click="setTab('dup_in_list')">
-        🟠 Trùng trong tệp <span class="count">{{ currentList?.dupInListEntries ?? 0 }}</span>
+        <v-icon size="13" class="st-orange">mdi-circle</v-icon> Trùng trong tệp <span class="count">{{ currentList?.dupInListEntries ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'dup_cross_list' }" @click="setTab('dup_cross_list')">
-        🟠 Trùng tệp khác <span class="count">{{ currentList?.dupCrossListEntries ?? 0 }}</span>
+        <v-icon size="13" class="st-orange">mdi-circle</v-icon> Trùng tệp khác <span class="count">{{ currentList?.dupCrossListEntries ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'dup_with_crm' }" @click="setTab('dup_with_crm')">
-        🔒 Đã là khách CRM <span class="count">{{ currentList?.dupWithContactEntries ?? 0 }}</span>
+        <v-icon size="13" class="st-ink2">mdi-lock</v-icon> Đã là khách CRM <span class="count">{{ currentList?.dupWithContactEntries ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'has_zalo' }" @click="setTab('has_zalo')">
-        🟢 Có Zalo <span class="count">{{ currentList?.hasZaloEntries ?? 0 }}</span>
+        <v-icon size="13" class="st-green">mdi-circle</v-icon> Có Zalo <span class="count">{{ currentList?.hasZaloEntries ?? 0 }}</span>
       </button>
       <button class="subtab" :class="{ active: entryTab === 'no_zalo' }" @click="setTab('no_zalo')" title="Đã check Friend, chưa rõ có Zalo — cần Campaign quét xác nhận">
-        🔵 Đang chờ Quét <span class="count">{{ notScannedSdk }}</span>
+        <v-icon size="13" class="st-blue">mdi-circle</v-icon> Đang chờ Quét <span class="count">{{ notScannedSdk }}</span>
       </button>
     </div>
 
@@ -188,7 +188,7 @@
       <!-- Column visibility menu -->
       <v-menu :close-on-content-click="false">
         <template #activator="{ props: act }">
-          <button v-bind="act" class="at-btn col-toggle-btn" title="Ẩn / hiện cột">
+          <button v-bind="act" class="btn btn-ghost btn-sm col-toggle-btn" title="Ẩn / hiện cột">
             <v-icon size="14">mdi-view-column-outline</v-icon>
             Cột {{ visibleColCount }}/{{ ALL_COLUMNS.length }}
             <v-icon size="13">mdi-chevron-down</v-icon>
@@ -201,18 +201,18 @@
             @click="toggleColumn(col.key)"
           >
             <template #prepend>
-              <v-icon size="16" :color="isColVisible(col.key) ? '#6366F1' : '#9CA3AF'">
+              <v-icon size="16" :class="isColVisible(col.key) ? 'col-on' : 'col-off'">
                 {{ isColVisible(col.key) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline' }}
               </v-icon>
             </template>
-            <v-list-item-title style="font-size:13px">{{ col.label }}</v-list-item-title>
+            <v-list-item-title class="col-label">{{ col.label }}</v-list-item-title>
           </v-list-item>
           <v-divider />
           <v-list-item @click="resetColumns">
             <template #prepend>
-              <v-icon size="16" color="#6B7280">mdi-restore</v-icon>
+              <v-icon size="16" class="col-reset-ico">mdi-restore</v-icon>
             </template>
-            <v-list-item-title style="font-size:12.5px;color:#6B7280">Reset về mặc định</v-list-item-title>
+            <v-list-item-title class="col-reset">Reset về mặc định</v-list-item-title>
           </v-list-item>
         </v-list>
       </v-menu>
@@ -220,7 +220,7 @@
 
     <!-- Entries table -->
     <div class="entries-wrap">
-      <table class="entries-table">
+      <table class="tbl entries-table">
         <thead>
           <tr>
             <th style="width:30px">
@@ -233,30 +233,30 @@
               />
             </th>
             <th>#</th>
-            <th v-show="isColVisible('phoneRaw')"       title="Phone gốc anh paste">📋 Phone (paste)</th>
-            <th v-show="isColVisible('phoneE164')"      title="Phone E.164 chuẩn quốc tế">🌐 Phone (+84)</th>
-            <th v-show="isColVisible('phoneLocal')"     title="Phone local VN (0xxx)">🇻🇳 Phone (local)</th>
+            <th v-show="isColVisible('phoneRaw')"       title="Phone gốc anh paste">Phone (paste)</th>
+            <th v-show="isColVisible('phoneE164')"      title="Phone E.164 chuẩn quốc tế">Phone (+84)</th>
+            <th v-show="isColVisible('phoneLocal')"     title="Phone local VN (0xxx)">Phone (local)</th>
             <th v-show="isColVisible('nameRaw')">Tên KH (file)</th>
             <th v-show="isColVisible('fbName')" title="Tên thật trên Facebook của khách (lấy từ hội thoại, nếu khách đã nhắn tin)">Tên KH (Facebook)</th>
             <th v-show="isColVisible('nameZalo')">Tên KH (Zalo)</th>
-            <th v-show="isColVisible('personalNote')"   title="Lời mời / tin nhắn riêng cho KH này (chỉ có khi import từ CSV/Excel)">💬 Lời mời riêng</th>
-            <th v-show="isColVisible('lifecycle')"      title="Lifecycle 5 ô: Mới / Đang chờ Quét / Có Zalo / Không có Zalo / Lỗi">🔄 Trạng thái</th>
+            <th v-show="isColVisible('personalNote')"   title="Lời mời / tin nhắn riêng cho KH này (chỉ có khi import từ CSV/Excel)">Lời mời riêng</th>
+            <th v-show="isColVisible('lifecycle')"      title="Lifecycle 5 ô: Mới / Đang chờ Quét / Có Zalo / Không có Zalo / Lỗi">Trạng thái</th>
             <th v-show="isColVisible('zaloUid')">Zalo UID</th>
             <th v-show="isColVisible('resolvedByNick')">Nick tìm ra</th>
             <th v-show="isColVisible('zaloGlobalId')">Global ID</th>
-            <th v-show="isColVisible('systemMessages')" title="Stack thông báo hệ thống — trùng, sale loại, số sai cụ thể... (newest top, hover xem full)">📨 Thông báo hệ thống</th>
-            <th v-show="isColVisible('fbCampaign')"     title="Tên chiến dịch quảng cáo Facebook">🎯 Chiến dịch</th>
-            <th v-show="isColVisible('fbAdset')"        title="Nhóm quảng cáo (ad set)">📊 Nhóm quảng cáo</th>
-            <th v-show="isColVisible('fbAd')"           title="Tên quảng cáo (ad creative)">🖼 Quảng cáo</th>
-            <th v-show="isColVisible('fbSubmittedAt')"  title="Thời điểm khách điền form (giờ Việt Nam)">🕑 Ngày giờ phát sinh</th>
-            <th v-show="isColVisible('fbForm')"         title="Form quảng cáo Facebook">📄 Form</th>
-            <th v-show="isColVisible('fbLeadId')"       title="Mã lead duy nhất từ Facebook">🔑 Mã lead</th>
+            <th v-show="isColVisible('systemMessages')" title="Stack thông báo hệ thống — trùng, sale loại, số sai cụ thể... (newest top, hover xem full)">Thông báo hệ thống</th>
+            <th v-show="isColVisible('fbCampaign')"     title="Tên chiến dịch quảng cáo Facebook">Chiến dịch</th>
+            <th v-show="isColVisible('fbAdset')"        title="Nhóm quảng cáo (ad set)">Nhóm quảng cáo</th>
+            <th v-show="isColVisible('fbAd')"           title="Tên quảng cáo (ad creative)">Quảng cáo</th>
+            <th v-show="isColVisible('fbSubmittedAt')"  title="Thời điểm khách điền form (giờ Việt Nam)">Ngày giờ phát sinh</th>
+            <th v-show="isColVisible('fbForm')"         title="Form quảng cáo Facebook">Form</th>
+            <th v-show="isColVisible('fbLeadId')"       title="Mã lead duy nhất từ Facebook">Mã lead</th>
             <th class="right">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loadingEntries">
-            <td :colspan="dynamicColspan" class="loading-cell">⏳ Đang tải...</td>
+            <td :colspan="dynamicColspan" class="loading-cell"><v-icon size="15" class="spin">mdi-loading</v-icon> Đang tải...</td>
           </tr>
           <tr v-else-if="entries.length === 0">
             <td :colspan="dynamicColspan" class="empty-cell">Không có SĐT nào ở tab này</td>
@@ -348,7 +348,8 @@
             </td>
             <!-- Cột 1: Lifecycle (5 ô cố định) -->
             <td v-show="isColVisible('lifecycle')" class="lifecycle-cell">
-              <span class="status-pill" :class="lifecycle(entry).cls">
+              <span class="chip" :class="lifecycle(entry).chip">
+                <v-icon size="12">{{ lifecycle(entry).icon }}</v-icon>
                 {{ lifecycle(entry).label }}
               </span>
             </td>
@@ -382,7 +383,7 @@
                     class="msg-item"
                     :class="{ 'msg-newest': idx === 0 }"
                   >
-                    <span class="msg-ico">{{ systemMessageIcon(msg.type) }}</span>
+                    <v-icon size="11" class="msg-ico" :class="systemMessageIcon(msg.type).cls">{{ systemMessageIcon(msg.type).icon }}</v-icon>
                     <span class="msg-text">{{ msg.text }}</span>
                   </div>
                 </div>
@@ -393,7 +394,7 @@
                     :key="idx"
                     class="msg-tooltip-item"
                   >
-                    <span class="msg-ico">{{ systemMessageIcon(msg.type) }}</span>
+                    <v-icon size="12" class="msg-ico" :class="systemMessageIcon(msg.type).cls">{{ systemMessageIcon(msg.type).icon }}</v-icon>
                     <div class="msg-tooltip-body">
                       <div>{{ msg.text }}</div>
                       <div class="msg-tooltip-ts">{{ formatMsgTs(msg.ts) }}</div>
@@ -450,7 +451,7 @@
           <!-- Add row footer: cho phép paste 1 hoặc nhiều dòng -->
           <tr class="add-row">
             <td></td>
-            <td class="ix" style="color:#9CA3AF">➕</td>
+            <td class="ix add-ix"><v-icon size="14">mdi-plus</v-icon></td>
             <td :colspan="visibleColCount + 1">
               <input
                 v-model="addRowText"
@@ -470,8 +471,8 @@
     <!-- Undo delete toast -->
     <Transition name="toast-fade">
       <div v-if="undoToast" class="undo-toast">
-        <span>🗑 Đã xoá <b>{{ undoToast.label }}</b></span>
-        <button class="undo-btn" @click="onUndoDelete">↶ Hoàn tác ({{ undoCountdown }}s)</button>
+        <span><v-icon size="15">mdi-delete-outline</v-icon> Đã xoá <b>{{ undoToast.label }}</b></span>
+        <button class="undo-btn" @click="onUndoDelete"><v-icon size="14">mdi-undo</v-icon> Hoàn tác ({{ undoCountdown }}s)</button>
       </div>
     </Transition>
 
@@ -487,9 +488,9 @@
         / <b>{{ entriesTotal.toLocaleString('vi-VN') }}</b> SĐT
       </span>
       <div class="ctrls">
-        <button :disabled="entryPage === 1" @click="goPage(entryPage - 1)">‹ Trước</button>
+        <button :disabled="entryPage === 1" @click="goPage(entryPage - 1)"><v-icon size="14">mdi-chevron-left</v-icon> Trước</button>
         <button class="cur">{{ entryPage }}</button>
-        <button :disabled="entryPage * entryLimit >= entriesTotal" @click="goPage(entryPage + 1)">Sau ›</button>
+        <button :disabled="entryPage * entryLimit >= entriesTotal" @click="goPage(entryPage + 1)">Sau <v-icon size="14">mdi-chevron-right</v-icon></button>
       </div>
     </div>
 
@@ -497,11 +498,11 @@
     <div v-if="selectedCount > 0" class="bulk-bar">
       <span class="ct"><em>{{ selectedCount }}</em>SĐT đã chọn</span>
       <span class="div"></span>
-      <button @click="onBulk('skip')">↻ Bỏ qua (skip)</button>
-      <button @click="onBulk('keep_both')">⊕ Tạo song song</button>
-      <button @click="onBulk('delete')" class="danger">🗑 Xoá</button>
+      <button @click="onBulk('skip')"><v-icon size="14">mdi-refresh</v-icon> Bỏ qua (skip)</button>
+      <button @click="onBulk('keep_both')"><v-icon size="14">mdi-plus-circle-outline</v-icon> Tạo song song</button>
+      <button @click="onBulk('delete')" class="danger"><v-icon size="14">mdi-delete-outline</v-icon> Xoá</button>
       <span class="div"></span>
-      <button class="x" @click="clearSelection">✕</button>
+      <button class="x" @click="clearSelection"><v-icon size="16">mdi-close</v-icon></button>
     </div>
 
     <!-- Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel -->
@@ -530,7 +531,6 @@ import { onMounted, computed, watch, ref, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { useCustomerLists, type CustomerListSummary, type CustomerListEntry } from '@/composables/use-customer-lists';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
-import '@/components/automation/phase7/airtable.css';
 // Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel
 import LeadDetailPanel from '@/components/automation/lists/LeadDetailPanel.vue';
 // Phase 2026-05-30 — nút Tìm Zalo: cần danh sách nick theo quyền cho popup
@@ -808,13 +808,13 @@ async function commitEdit() {
   // Toast cảnh báo dup nếu phoneRaw đổi sang số trùng
   if (field === 'phoneRaw' && result.conflictWarn) {
     if (result.entry.status === 'invalid') {
-      flashToast(`⚠️ Số mới không hợp lệ — đã đánh dấu "Lỗi"`);
+      flashToast(`Số mới không hợp lệ — đã đánh dấu "Lỗi"`);
     } else if (result.entry.dupInListWithEntryId) {
-      flashToast(`⚠️ Số mới đã có dòng khác trong tệp này`);
+      flashToast(`Số mới đã có dòng khác trong tệp này`);
     } else if (result.entry.dupWithListId) {
-      flashToast(`⚠️ Số mới đã có ở tệp "${result.dupWithListName ?? 'khác'}"`);
+      flashToast(`Số mới đã có ở tệp "${result.dupWithListName ?? 'khác'}"`);
     } else if (result.entry.dupWithContactId) {
-      flashToast(`⚠️ Số mới đã là khách CRM (có Contact)`);
+      flashToast(`Số mới đã là khách CRM (có Contact)`);
     }
   }
 }
@@ -845,9 +845,9 @@ async function onAddRow() {
   if (result?.ok) {
     addRowText.value = '';
     if (result.invalid > 0) {
-      flashToast(`✓ Đã thêm ${result.added} dòng (${result.valid} hợp lệ, ${result.invalid} lỗi format)`);
+      flashToast(`Đã thêm ${result.added} dòng (${result.valid} hợp lệ, ${result.invalid} lỗi format)`);
     } else {
-      flashToast(`✓ Đã thêm ${result.added} SĐT`);
+      flashToast(`Đã thêm ${result.added} SĐT`);
     }
   } else {
     alert('Thêm thất bại — thử lại');
@@ -918,7 +918,7 @@ async function onUndoDelete() {
   if (undoTimer) clearInterval(undoTimer);
   const result = await addEntries(listId.value, rawText);
   if (result?.ok) {
-    flashToast(`↶ Đã hoàn tác — entry sẽ append ở cuối list`);
+    flashToast(`Đã hoàn tác — entry sẽ append ở cuối list`);
   } else {
     alert('Hoàn tác thất bại');
   }
@@ -956,15 +956,15 @@ function dupTotal(l: CustomerListSummary | null): number {
 
 /**
  * Trạng thái entry — vocabulary chuẩn cho sale (chốt 2026-05-20):
- *   🟢 Đã có Zalo        — match Friend table HOẶC Campaign SDK xác nhận
- *   🟡 Đang chờ CRM      — số valid, chưa rõ có Zalo, cần Campaign quét
- *   🔴 Không có Zalo     — Campaign SDK trả 404
- *   ⏳ Đang quét         — worker chưa xử lý (mới import)
- *   ⚫ Số không hợp lệ   — parse fail
- *   🟠 Trùng trong tệp   — dup cùng list
- *   🟠 Đã có ở tệp "X"   — dup cross-list, inline tên tệp
- *   🔒 Đã là khách CRM   — đã có Contact
- *   ⏭ Sale loại         — sale bulk-skip
+ *   [green]  Đã có Zalo        — match Friend table HOẶC Campaign SDK xác nhận
+ *   [amber]  Đang chờ CRM      — số valid, chưa rõ có Zalo, cần Campaign quét
+ *   [red]    Không có Zalo     — Campaign SDK trả 404
+ *   [wait]   Đang quét         — worker chưa xử lý (mới import)
+ *   [grey]   Số không hợp lệ   — parse fail
+ *   [orange] Trùng trong tệp   — dup cùng list
+ *   [orange] Đã có ở tệp "X"   — dup cross-list, inline tên tệp
+ *   [lock]   Đã là khách CRM   — đã có Contact
+ *   [skip]   Sale loại         — sale bulk-skip
  */
 /**
  * 2-axis status model (chốt 2026-05-20):
@@ -977,32 +977,32 @@ function dupTotal(l: CustomerListSummary | null): number {
  */
 import type { CustomerListEntry as Entry } from '@/composables/use-customer-lists';
 
-function lifecycle(entry: Entry): { code: string; label: string; cls: string } {
-  if (entry.status === 'invalid') return { code: 'INVALID', label: '⚫ Lỗi', cls: 'invalid' };
-  if (entry.hasZalo === true) return { code: 'HAS_ZALO', label: '🟢 Có Zalo', cls: 'has-zalo' };
-  if (entry.hasZalo === false) return { code: 'NO_ZALO', label: '🔴 Không có Zalo', cls: 'no-zalo' };
-  if (entry.status === 'validated') return { code: 'NEW', label: '⏳ Mới', cls: 'new' };
+function lifecycle(entry: Entry): { code: string; label: string; chip: string; icon: string } {
+  if (entry.status === 'invalid') return { code: 'INVALID', label: 'Lỗi', chip: 'chip-grey', icon: 'mdi-circle-off-outline' };
+  if (entry.hasZalo === true) return { code: 'HAS_ZALO', label: 'Có Zalo', chip: 'chip-green', icon: 'mdi-check-circle' };
+  if (entry.hasZalo === false) return { code: 'NO_ZALO', label: 'Không có Zalo', chip: 'chip-red', icon: 'mdi-close-circle' };
+  if (entry.status === 'validated') return { code: 'NEW', label: 'Mới', chip: 'chip-grey', icon: 'mdi-timer-sand' };
   // status === 'enriched' + hasZalo=null → đã check Friend xong, chưa rõ Zalo
-  return { code: 'WAITING_SCAN', label: '🔵 Đang chờ Quét', cls: 'waiting' };
+  return { code: 'WAITING_SCAN', label: 'Đang chờ Quét', chip: 'chip-blue', icon: 'mdi-magnify-scan' };
 }
 
 /**
- * Icon emoji theo message type — dùng để render stack message.
+ * Icon (mdi) + màu theo message type — dùng để render stack message.
  */
-function systemMessageIcon(type: string): string {
+function systemMessageIcon(type: string): { icon: string; cls: string } {
   switch (type) {
-    case 'DUP_IN_LIST': return '🟠';
-    case 'DUP_CROSS_LIST': return '🟠';
-    case 'DUP_WITH_CRM': return '🔒';
+    case 'DUP_IN_LIST': return { icon: 'mdi-circle', cls: 'mi-orange' };
+    case 'DUP_CROSS_LIST': return { icon: 'mdi-circle', cls: 'mi-orange' };
+    case 'DUP_WITH_CRM': return { icon: 'mdi-lock', cls: 'mi-ink' };
     case 'INVALID_FORMAT':
     case 'INVALID_PREFIX':
     case 'TOO_SHORT':
     case 'TOO_LONG':
-    case 'EMPTY': return '📵';
-    case 'SKIPPED_BY_SALE': return '⏭';
-    case 'PHONE_EDITED': return '📝';
-    case 'ENRICHED_NO_MATCH': return '🔍';
-    default: return '•';
+    case 'EMPTY': return { icon: 'mdi-phone-off', cls: 'mi-red' };
+    case 'SKIPPED_BY_SALE': return { icon: 'mdi-skip-next', cls: 'mi-ink' };
+    case 'PHONE_EDITED': return { icon: 'mdi-pencil', cls: 'mi-blue' };
+    case 'ENRICHED_NO_MATCH': return { icon: 'mdi-magnify', cls: 'mi-ink' };
+    default: return { icon: 'mdi-circle-small', cls: 'mi-ink' };
   }
 }
 
@@ -1021,25 +1021,25 @@ function formatMsgTs(ts: string): string {
 // ───────── Column visibility (persist localStorage) ─────────
 interface ColumnDef { key: string; label: string; defaultVisible: boolean }
 const ALL_COLUMNS: ColumnDef[] = [
-  { key: 'phoneRaw',        label: '📋 Phone (paste)',        defaultVisible: true  },
-  { key: 'phoneE164',       label: '🌐 Phone (+84)',          defaultVisible: true  },
-  { key: 'phoneLocal',      label: '🇻🇳 Phone (local)',         defaultVisible: true  },
+  { key: 'phoneRaw',        label: 'Phone (paste)',           defaultVisible: true  },
+  { key: 'phoneE164',       label: 'Phone (+84)',             defaultVisible: true  },
+  { key: 'phoneLocal',      label: 'Phone (local)',           defaultVisible: true  },
   { key: 'nameRaw',         label: 'Tên KH (file)',           defaultVisible: true  },
   { key: 'fbName',          label: 'Tên KH (Facebook)',       defaultVisible: true  },
   { key: 'nameZalo',        label: 'Tên KH (Zalo)',           defaultVisible: true  },
-  { key: 'personalNote',    label: '💬 Lời mời riêng',         defaultVisible: true  },
-  { key: 'lifecycle',       label: '🔄 Trạng thái',            defaultVisible: true  },
+  { key: 'personalNote',    label: 'Lời mời riêng',           defaultVisible: true  },
+  { key: 'lifecycle',       label: 'Trạng thái',              defaultVisible: true  },
   { key: 'zaloUid',         label: 'Zalo UID',                defaultVisible: true  },
   { key: 'resolvedByNick',  label: 'Nick tìm ra',             defaultVisible: true  },
   { key: 'zaloGlobalId',    label: 'Global ID',               defaultVisible: false },
-  { key: 'systemMessages',  label: '📨 Thông báo hệ thống',     defaultVisible: true  },
+  { key: 'systemMessages',  label: 'Thông báo hệ thống',      defaultVisible: true  },
   // Phase FB Pull 2026-05-30 — cột nguồn Facebook Lead Ads (mặc định ẩn, sale tự bật)
-  { key: 'fbCampaign',      label: '🎯 Chiến dịch',            defaultVisible: false },
-  { key: 'fbAdset',         label: '📊 Nhóm quảng cáo',         defaultVisible: false },
-  { key: 'fbAd',            label: '🖼 Quảng cáo',             defaultVisible: false },
-  { key: 'fbSubmittedAt',   label: '🕑 Ngày giờ phát sinh',     defaultVisible: false },
-  { key: 'fbForm',          label: '📄 Form',                  defaultVisible: false },
-  { key: 'fbLeadId',        label: '🔑 Mã lead',               defaultVisible: false },
+  { key: 'fbCampaign',      label: 'Chiến dịch',              defaultVisible: false },
+  { key: 'fbAdset',         label: 'Nhóm quảng cáo',          defaultVisible: false },
+  { key: 'fbAd',            label: 'Quảng cáo',               defaultVisible: false },
+  { key: 'fbSubmittedAt',   label: 'Ngày giờ phát sinh',      defaultVisible: false },
+  { key: 'fbForm',          label: 'Form',                    defaultVisible: false },
+  { key: 'fbLeadId',        label: 'Mã lead',                 defaultVisible: false },
 ];
 
 // ───────── FB Lead Ads source meta (Phase FB Pull 2026-05-30) ─────────
@@ -1120,7 +1120,7 @@ const NICK_GRADIENTS: [string, string][] = [
   ['#EC4899', '#BE185D'],
   ['#3B82F6', '#1D4ED8'],
   ['#F59E0B', '#D97706'],
-  ['#6366F1', '#A855F7'],
+  ['#5bb8e5', '#1786be'],
   ['#14B8A6', '#0F766E'],
 ];
 function hashIdx(s: string, mod: number): number {
@@ -1136,41 +1136,43 @@ function nickAvatarStyle(name: string): Record<string, string> {
 
 <style scoped>
 .list-detail-view {
-  /* 2026-06-04 v2 — Unified Marketing theme */
-  padding: var(--at-s-lg, 24px);
+  /* 2026-06-06 — HS Holding Atlas theme */
+  padding: 22px 24px;
   max-width: 100%;
 }
 
 .breadcrumb {
   display: flex; align-items: center; gap: 6px;
-  margin-bottom: 14px; font-size: 12px; color: #6B7280;
+  margin-bottom: 14px; font-size: 12px; color: var(--ink-3);
 }
 .breadcrumb a {
-  color: #6366F1; text-decoration: none; cursor: pointer;
+  color: var(--brand); text-decoration: none; cursor: pointer;
   display: inline-flex; align-items: center; gap: 4px;
 }
 .breadcrumb a:hover { text-decoration: underline; }
-.breadcrumb .sep { color: #D1D5DB; }
+.breadcrumb .sep { color: var(--ink-4); }
 
 .detail-hero {
-  background: #fff; border: 1px solid #E5E7EB;
-  border-radius: 12px; padding: 18px 20px; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--sh-sm);
+  padding: 18px 20px; margin-bottom: 16px;
 }
 .hero-head {
   display: flex; justify-content: space-between; align-items: flex-start;
   margin-bottom: 16px; gap: 14px;
 }
 .hero-head h2 {
-  margin: 0 0 4px; font-size: 18px; font-weight: 700;
+  margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--ink);
   display: flex; align-items: center; gap: 8px;
 }
-.hero-head .sub { color: #6B7280; font-size: 12.5px; }
-.hero-head .sub b { color: #111827; font-weight: 600; }
-.hero-head .archived-tag {
-  font-size: 11px; background: #E5E7EB; color: #4B5563;
-  padding: 2px 8px; border-radius: 99px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 3px;
+.hero-ico {
+  width: 32px; height: 32px; border-radius: var(--r-sm);
+  background: var(--brand-soft); color: var(--brand);
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
+.hero-head .sub { color: var(--ink-3); font-size: 12.5px; }
+.hero-head .sub b { color: var(--ink); font-weight: 600; }
+.del-title { color: var(--error); }
 
 .hero-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 
@@ -1178,88 +1180,95 @@ function nickAvatarStyle(name: string): Record<string, string> {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
 }
 .hero-stat {
-  background: #F4F5F8; border: 1px solid #EFF1F4;
-  border-radius: 9px; padding: 10px 12px;
-  cursor: pointer; transition: all .12s;
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  border-radius: var(--r-md); padding: 10px 12px;
+  cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s;
 }
-.hero-stat:hover { border-color: #E0E7FF; background: #EEF2FF; }
+.hero-stat:hover { border-color: var(--brand-soft); background: var(--brand-softer); }
 .hero-stat.active {
-  border-color: #6366F1; background: #EEF2FF;
-  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+  border-color: var(--brand); background: var(--brand-softer);
+  box-shadow: 0 0 0 3px var(--brand-soft);
 }
 .hero-stat .l {
-  font-size: 10.5px; color: #6B7280;
+  font-size: 10.5px; color: var(--ink-3);
   text-transform: uppercase; letter-spacing: .05em;
   font-weight: 600; margin-bottom: 4px;
 }
 .hero-stat .v {
-  font-size: 20px; font-weight: 700; color: #111827;
-  line-height: 1; font-variant-numeric: tabular-nums;
+  font-size: 20px; font-weight: 700; color: var(--ink);
+  line-height: 1; font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
 .hero-stat .pct {
-  font-size: 10.5px; color: #6B7280; margin-top: 3px;
+  font-size: 10.5px; color: var(--ink-3); margin-top: 3px;
   font-variant-numeric: tabular-nums;
 }
-.hero-stat.green .v { color: #047857; }
-.hero-stat.red .v { color: #B91C1C; }
-.hero-stat.amber .v { color: #B45309; }
-.hero-stat.blue .v { color: #1D4ED8; }
+.hero-stat.green .v { color: var(--chip-green); }
+.hero-stat.red .v { color: var(--chip-red); }
+.hero-stat.amber .v { color: #b45309; }
+.hero-stat.blue .v { color: var(--chip-blue); }
 
 .subtabs {
-  background: #fff; border: 1px solid #E5E7EB;
-  border-radius: 10px; padding: 6px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 6px; margin-bottom: 14px;
   display: flex; gap: 2px; flex-wrap: wrap;
 }
 .subtab {
-  padding: 7px 12px; border-radius: 6px;
-  font-size: 12px; color: #4B5563; cursor: pointer;
+  padding: 7px 12px; border-radius: var(--r-xs);
+  font-size: 12px; color: var(--ink-2); cursor: pointer;
   font-weight: 500;
   display: inline-flex; align-items: center; gap: 6px;
   border: none; background: transparent; font-family: inherit;
 }
-.subtab:hover { background: #F4F5F8; color: #111827; }
-.subtab.active { background: #111827; color: #fff; }
+.subtab:hover { background: var(--surface-3); color: var(--ink); }
+.subtab.active { background: var(--ink); color: #fff; }
 .subtab .count {
-  background: rgba(0,0,0,.06); color: #4B5563;
-  padding: 0 6px; border-radius: 99px;
+  background: var(--surface-3); color: var(--ink-2);
+  padding: 0 6px; border-radius: var(--r-pill);
   font-size: 10.5px; font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
 }
 .subtab.active .count { background: rgba(255,255,255,.18); color: #fff; }
+.subtab .st-green { color: var(--chip-green); }
+.subtab .st-orange { color: var(--chip-orange); }
+.subtab .st-blue { color: var(--chip-blue); }
+.subtab .st-ink { color: var(--ink); }
+.subtab .st-ink2 { color: var(--ink-3); }
+.subtab.active .st-green,
+.subtab.active .st-orange,
+.subtab.active .st-blue,
+.subtab.active .st-ink,
+.subtab.active .st-ink2 { color: #fff; }
 
 .filter-strip {
   display: flex; align-items: center; gap: 8px;
-  background: #fff; border: 1px solid #E5E7EB;
-  border-radius: 10px; padding: 8px 10px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 8px 10px; margin-bottom: 14px;
 }
 .search {
   flex: 1; display: inline-flex; align-items: center; gap: 5px;
-  background: #F4F5F8; border: 1px solid #EFF1F4;
-  border-radius: 7px; padding: 0 9px; height: 32px;
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  border-radius: var(--r-xs); padding: 0 9px; height: 32px;
+  color: var(--ink-4);
 }
 .search input {
   flex: 1; border: none; background: transparent; outline: none;
-  font-size: 12.5px; color: #111827; font-family: inherit;
+  font-size: 12.5px; color: var(--ink); font-family: inherit;
 }
-.search input::placeholder { color: #9CA3AF; }
+.search input::placeholder { color: var(--ink-4); }
 
 .entries-wrap {
-  background: #fff; border: 1px solid #E5E7EB;
-  border-radius: 10px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); overflow: auto;
   max-height: calc(100vh - 380px);
 }
-.entries-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1500px; }
+.entries-table { font-size: 12px; min-width: 1500px; }
 .entries-table thead th {
-  background: #F4F5F8; position: sticky; top: 0; z-index: 2;
-  font-size: 10.5px; font-weight: 600; color: #6B7280;
-  text-transform: uppercase; letter-spacing: .04em;
-  padding: 10px 9px; text-align: left;
-  border-bottom: 1px solid #E5E7EB; white-space: nowrap;
+  z-index: 2;
+  padding: 10px 9px;
 }
 .entries-table thead th.right { text-align: right; }
 .entries-table tbody td {
-  padding: 8px 9px; border-bottom: 1px solid #EFF1F4;
-  vertical-align: middle; color: #111827;
+  padding: 8px 9px;
   white-space: nowrap; /* No wrap by default — long text scrolls horizontally */
 }
 
@@ -1269,45 +1278,44 @@ function nickAvatarStyle(name: string): Record<string, string> {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  scrollbar-color: #D1D5DB transparent;
+  scrollbar-color: var(--line) transparent;
 }
 .cell-scroll::-webkit-scrollbar {
   height: 5px;
   background: transparent;
 }
 .cell-scroll::-webkit-scrollbar-thumb {
-  background: #D1D5DB;
+  background: var(--line);
   border-radius: 3px;
 }
-.cell-scroll::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+.cell-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
 .cell-content {
   display: inline-block;
   white-space: nowrap;
   min-width: 100%; /* để scroll-x ngang được khi content rộng hơn cell */
 }
-.entries-table tbody tr { transition: background .1s; cursor: pointer; }
-.entries-table tbody tr:hover { background: #FAFBFC; }
-.entries-table tbody tr.selected { background: #EEF2FF; }
+.entries-table tbody tr { cursor: pointer; }
+.entries-table tbody tr.selected { background: var(--brand-soft); }
 .entries-table tbody tr:last-child td { border-bottom: none; }
 
-.chk { width: 14px; height: 14px; accent-color: #6366F1; cursor: pointer; }
+.chk { width: 14px; height: 14px; accent-color: var(--brand); cursor: pointer; }
 
-.ix { color: #6B7280; font-family: "JetBrains Mono", monospace; font-size: 11px; width: 40px; }
+.ix { color: var(--ink-3); font-family: var(--mono); font-size: 11px; width: 40px; }
 .phone-cell {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--mono);
   font-size: 11.5px; white-space: nowrap;
 }
-.phone-cell.raw { color: #6B7280; }
-.phone-cell.e164 { color: #4B5563; }
-.phone-cell.local { color: #111827; font-weight: 600; }
+.phone-cell.raw { color: var(--ink-3); }
+.phone-cell.e164 { color: var(--ink-2); }
+.phone-cell.local { color: var(--ink); font-weight: 600; }
 /* Width override cho name cells — scroll-x sẽ handle overflow */
 .name { font-weight: 500; }
 .name.cell-scroll { max-width: 160px; }
 .name-zalo.cell-scroll { max-width: 160px; }
-.name-zalo.has { color: #111827; font-weight: 500; }
-.name-zalo.no { color: #9CA3AF; font-style: italic; }
+.name-zalo.has { color: var(--ink); font-weight: 500; }
+.name-zalo.no { color: var(--ink-4); font-style: italic; }
 
-.personal-note { color: #4B5563; font-size: 12px; }
+.personal-note { color: var(--ink-2); font-size: 12px; }
 .personal-note.cell-scroll { max-width: 220px; }
 
 /* ─── Editable cells ─── */
@@ -1317,8 +1325,8 @@ function nickAvatarStyle(name: string): Record<string, string> {
   position: relative;
 }
 .editable:hover {
-  background: #FFFBEB;
-  box-shadow: inset 0 0 0 1px #FBBF24;
+  background: var(--warning-soft);
+  box-shadow: inset 0 0 0 1px var(--warning);
 }
 .readonly {
   cursor: not-allowed;
@@ -1327,17 +1335,17 @@ function nickAvatarStyle(name: string): Record<string, string> {
 .cell-input {
   width: 100%;
   padding: 4px 6px;
-  border: 1px solid #6366F1;
-  border-radius: 4px;
+  border: 1px solid var(--brand);
+  border-radius: var(--r-xs);
   font-size: 12px;
   font-family: inherit;
   outline: none;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 .cell-input.saving { opacity: 0.6; }
 .phone-cell.editable .cell-input {
-  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
 }
 
@@ -1345,77 +1353,79 @@ function nickAvatarStyle(name: string): Record<string, string> {
 .title-text {
   cursor: text;
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   border: 1px dashed transparent;
   transition: background .1s, border-color .1s;
 }
 .title-text:hover {
-  background: #FFFBEB;
-  border-color: #FBBF24;
+  background: var(--warning-soft);
+  border-color: var(--warning);
 }
 .title-input {
   font-size: 18px; font-weight: 700;
   padding: 2px 6px;
-  border: 1px solid #6366F1; border-radius: 5px;
+  border: 1px solid var(--brand); border-radius: var(--r-xs);
   outline: none;
   font-family: inherit;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--brand-soft);
   min-width: 280px;
 }
 
 /* ─── Add-row footer ─── */
-.add-row { background: #FAFBFC; }
+.add-row { background: var(--surface-2); }
 .add-row td { padding: 8px 9px; border-bottom: none; }
+.add-ix { color: var(--ink-4); }
 .add-input {
   width: 60%;
   padding: 6px 10px;
-  border: 1px dashed #D1D5DB;
-  border-radius: 6px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-xs);
   font-size: 12.5px;
   font-family: inherit;
-  background: #fff;
+  background: var(--surface);
   outline: none;
-  color: #111827;
+  color: var(--ink);
 }
-.add-input::placeholder { color: #9CA3AF; font-style: italic; }
-.add-input:focus { border-color: #6366F1; border-style: solid; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
-.add-input:disabled { background: #F4F5F8; cursor: wait; }
+.add-input::placeholder { color: var(--ink-4); font-style: italic; }
+.add-input:focus { border-color: var(--brand); border-style: solid; box-shadow: 0 0 0 2px var(--brand-soft); }
+.add-input:disabled { background: var(--surface-3); cursor: wait; }
 .add-hint {
   margin-left: 12px;
-  font-size: 11px; color: #9CA3AF;
+  font-size: 11px; color: var(--ink-4);
 }
 .add-hint code {
-  background: #F4F5F8; padding: 1px 4px; border-radius: 3px;
-  font-family: "JetBrains Mono", monospace;
+  background: var(--surface-3); padding: 1px 4px; border-radius: 3px;
+  font-family: var(--mono);
 }
 
 /* ─── Undo + flash toast ─── */
 .undo-toast {
   position: fixed; bottom: 24px; right: 24px;
-  background: #111827; color: #fff;
+  background: var(--ink); color: #fff;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   display: flex; align-items: center; gap: 14px;
-  box-shadow: 0 12px 32px rgba(17,24,39,.32);
+  box-shadow: var(--sh-pop);
   font-size: 13px; z-index: 1000;
 }
-.undo-toast b { font-family: "JetBrains Mono", monospace; }
+.undo-toast b { font-family: var(--mono); }
 .undo-btn {
-  background: #6366F1; color: #fff;
-  border: none; padding: 6px 12px; border-radius: 6px;
+  background: var(--brand); color: #fff;
+  border: none; padding: 6px 12px; border-radius: var(--r-xs);
   font-size: 12px; font-weight: 600; cursor: pointer;
   font-family: inherit;
+  display: inline-flex; align-items: center; gap: 4px;
 }
-.undo-btn:hover { background: #4F46E5; }
+.undo-btn:hover { background: var(--brand-600); }
 
 .flash-toast {
   position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%);
-  background: #1F2937; color: #fff;
-  padding: 10px 18px; border-radius: 10px;
+  background: var(--ink); color: #fff;
+  padding: 10px 18px; border-radius: var(--r-md);
   font-size: 13px; z-index: 1000;
-  box-shadow: 0 10px 28px rgba(17,24,39,.28);
+  box-shadow: var(--sh-lg);
 }
 
 .toast-fade-enter-active,
@@ -1423,29 +1433,20 @@ function nickAvatarStyle(name: string): Record<string, string> {
 .toast-fade-enter-from,
 .toast-fade-leave-to { opacity: 0; transform: translateY(8px); }
 
-.icon-btn.danger:hover { color: #B91C1C; }
+.icon-btn.danger:hover { color: var(--error); }
 
-.muted-italic { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
+.muted-italic { color: var(--ink-4); font-style: italic; font-size: 11.5px; }
 /* Cột Tên KH (Facebook) — nhất quán với cột Zalo */
 .name-fb.has .cell-content { color: #1877F2; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
-.name-fb.no .cell-content { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
+.name-fb.no .cell-content { color: var(--ink-4); font-style: italic; font-size: 11.5px; }
 .fb-ico-inline {
   width: 13px; height: 13px; border-radius: 3px; background: #1877F2; color: #fff;
   font-weight: 800; font-size: 9px; display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
 
-.status-pill {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 7px; border-radius: 99px;
-  font-size: 10.5px; font-weight: 600; white-space: nowrap;
-}
-/* ─── Lifecycle pills (5 ô cố định) ─── */
-.status-pill.new { background: #F4F5F8; color: #6B7280; }                    /* ⏳ Mới */
-.status-pill.waiting { background: #DBEAFE; color: #1D4ED8; }                /* 🔵 Đang chờ Quét */
-.status-pill.has-zalo { background: #D1FAE5; color: #047857; }               /* 🟢 Có Zalo */
-.status-pill.no-zalo { background: #FEE2E2; color: #B91C1C; }                /* 🔴 Không có Zalo */
-.status-pill.invalid { background: #1F2937; color: #fff; }                   /* ⚫ Lỗi */
+/* ─── Lifecycle chip (5 ô cố định) — dùng .chip + .chip-* HS ─── */
+.lifecycle-cell .chip .v-icon { margin-right: -1px; }
 
 /* ─── System messages stack cell ─── */
 .system-messages-cell {
@@ -1463,11 +1464,15 @@ function nickAvatarStyle(name: string): Record<string, string> {
 }
 .msg-item {
   display: flex; align-items: center; gap: 4px;
-  font-size: 11px; color: #6B7280;
+  font-size: 11px; color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.msg-item.msg-newest { color: #111827; font-weight: 500; }
-.msg-ico { font-size: 11px; flex-shrink: 0; }
+.msg-item.msg-newest { color: var(--ink); font-weight: 500; }
+.msg-ico { flex-shrink: 0; }
+.msg-ico.mi-orange { color: var(--chip-orange); }
+.msg-ico.mi-red { color: var(--chip-red); }
+.msg-ico.mi-blue { color: var(--chip-blue); }
+.msg-ico.mi-ink { color: var(--ink-3); }
 .msg-text { overflow: hidden; text-overflow: ellipsis; }
 
 /* Tooltip xem full stack — hover-only */
@@ -1476,48 +1481,46 @@ function nickAvatarStyle(name: string): Record<string, string> {
   position: absolute;
   top: 100%; left: 0;
   z-index: 50;
-  background: #1F2937; color: #F9FAFB;
-  border-radius: 8px;
+  background: var(--ink); color: #f5f7fa;
+  border-radius: var(--r-sm);
   padding: 8px 10px;
   min-width: 240px; max-width: 360px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  box-shadow: var(--sh-pop);
   margin-top: 4px;
 }
 .system-messages-cell:hover .msg-tooltip { display: block; }
+.msg-tooltip .msg-ico.mi-ink { color: var(--ink-4); }
 .msg-tooltip-title {
   font-size: 10.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .04em;
-  color: #9CA3AF; margin-bottom: 6px;
+  color: var(--ink-4); margin-bottom: 6px;
 }
 .msg-tooltip-item {
   display: flex; align-items: flex-start; gap: 8px;
   padding: 5px 0;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid rgba(255,255,255,.12);
   font-size: 12px;
 }
 .msg-tooltip-item:last-child { border-bottom: none; }
 .msg-tooltip-body { flex: 1; min-width: 0; }
 .msg-tooltip-ts {
-  font-size: 10.5px; color: #9CA3AF; margin-top: 1px;
+  font-size: 10.5px; color: var(--ink-4); margin-top: 1px;
 }
 
 .lifecycle-cell { white-space: nowrap; }
 
-.col-toggle-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 10px;
-  background: #fff; border: 1px solid #E5E7EB; border-radius: 7px;
-  font-size: 12px; font-weight: 500; color: #4B5563;
-  cursor: pointer; font-family: inherit;
-  white-space: nowrap;
-}
-.col-toggle-btn:hover { background: #F4F5F8; border-color: #D1D5DB; }
+.col-toggle-btn { white-space: nowrap; }
+.col-on { color: var(--brand); }
+.col-off { color: var(--ink-4); }
+.col-label { font-size: 13px; }
+.col-reset-ico { color: var(--ink-3); }
+.col-reset { font-size: 12.5px; color: var(--ink-3); }
 
 .uid-cell {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px; color: #4B5563; white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px; color: var(--ink-2); white-space: nowrap;
 }
-.uid-cell.empty { color: #9CA3AF; }
+.uid-cell.empty { color: var(--ink-4); }
 
 .nick-cell {
   display: inline-flex; align-items: center; gap: 5px;
@@ -1530,90 +1533,95 @@ function nickAvatarStyle(name: string): Record<string, string> {
   color: white; flex-shrink: 0;
 }
 .nick-cell .more {
-  font-size: 10px; color: #6366F1; background: #EEF2FF;
-  padding: 0 5px; border-radius: 99px; font-weight: 700;
+  font-size: 10px; color: var(--brand-700); background: var(--brand-soft);
+  padding: 0 5px; border-radius: var(--r-pill); font-weight: 700;
 }
 
 .global-id {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 10.5px; color: #A855F7;
-  background: #FAF5FF; padding: 1px 6px; border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px; color: var(--chip-purple);
+  background: var(--chip-purple-bg); padding: 1px 6px; border-radius: var(--r-xs);
   white-space: nowrap;
 }
-.global-id.empty { color: #9CA3AF; background: transparent; font-style: italic; }
+.global-id.empty { color: var(--ink-4); background: transparent; font-style: italic; }
 
 .dup-note {
-  font-size: 10.5px; color: #B45309;
-  background: #FFFBEB; padding: 1px 6px; border-radius: 4px;
+  font-size: 10.5px; color: #b45309;
+  background: var(--warning-soft); padding: 1px 6px; border-radius: var(--r-xs);
   display: inline-block; white-space: nowrap;
 }
 .err-note {
-  font-size: 10.5px; color: #B91C1C;
-  background: #FEF2F2; padding: 1px 6px; border-radius: 4px;
+  font-size: 10.5px; color: var(--error);
+  background: var(--error-soft); padding: 1px 6px; border-radius: var(--r-xs);
   display: inline-block; white-space: nowrap;
 }
 
 .row-actions { text-align: right; white-space: nowrap; }
 .icon-btn {
-  width: 24px; height: 24px; border-radius: 5px;
-  border: none; background: transparent; color: #6B7280;
+  width: 24px; height: 24px; border-radius: var(--r-xs);
+  border: none; background: transparent; color: var(--ink-3);
   cursor: pointer; margin-left: 2px;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.icon-btn:hover { background: #F4F5F8; color: #111827; }
+.icon-btn:hover { background: var(--surface-3); color: var(--ink); }
+.icon-btn.zalo:hover { background: var(--brand-soft); color: var(--brand-700); }
+.icon-btn.ok { color: var(--success); }
+.icon-btn.ok:hover { background: var(--success-soft); }
 
 .loading-cell, .empty-cell {
   padding: 48px 16px; text-align: center;
-  color: #6B7280; font-style: italic; font-size: 13px;
+  color: var(--ink-3); font-style: italic; font-size: 13px;
 }
 
 .pag {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 14px; background: #fff;
-  border: 1px solid #E5E7EB; border-top: none;
-  border-radius: 0 0 10px 10px;
-  font-size: 11.5px; color: #6B7280;
+  padding: 12px 14px; background: var(--surface);
+  border: 1px solid var(--line); border-top: none;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  font-size: 11.5px; color: var(--ink-3);
 }
 .pag .ctrls { display: flex; gap: 4px; align-items: center; }
 .pag button {
   height: 26px; min-width: 26px; padding: 0 9px;
-  border: 1px solid #E5E7EB; background: #fff;
-  border-radius: 5px; font-size: 11px; cursor: pointer;
-  color: #4B5563; font-family: inherit;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r-xs); font-size: 11px; cursor: pointer;
+  color: var(--ink-2); font-family: inherit;
+  display: inline-flex; align-items: center; gap: 2px;
 }
-.pag button:hover:not(:disabled) { background: #F4F5F8; }
+.pag button:hover:not(:disabled) { background: var(--surface-3); }
 .pag button:disabled { opacity: 0.5; cursor: not-allowed; }
-.pag button.cur { background: #6366F1; color: white; border-color: #6366F1; }
+.pag button.cur { background: var(--brand); color: white; border-color: var(--brand); }
 
 .bulk-bar {
   position: fixed; left: 50%; bottom: 24px;
   transform: translateX(-50%);
-  background: #111827; color: white;
-  border-radius: 12px; padding: 10px 16px;
+  background: var(--ink); color: white;
+  border-radius: var(--r-lg); padding: 10px 16px;
   display: flex; align-items: center; gap: 12px;
-  box-shadow: 0 16px 36px rgba(17,24,39,.28); z-index: 50;
+  box-shadow: var(--sh-pop); z-index: 50;
 }
 .bulk-bar .ct { font-weight: 600; font-size: 13px; }
 .bulk-bar .ct em {
-  color: #FBBF24; font-style: normal; font-weight: 700;
-  margin-right: 4px; font-variant-numeric: tabular-nums;
+  color: var(--warning); font-style: normal; font-weight: 700;
+  margin-right: 4px; font-family: var(--mono); font-variant-numeric: tabular-nums;
 }
 .bulk-bar .div { width: 1px; height: 18px; background: rgba(255,255,255,.16); }
 .bulk-bar button {
   background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.12);
   color: white; font-size: 12px; padding: 6px 11px;
-  border-radius: 7px; cursor: pointer;
+  border-radius: var(--r-xs); cursor: pointer;
   display: inline-flex; gap: 5px; align-items: center;
   font-family: inherit;
 }
 .bulk-bar button:hover { background: rgba(255,255,255,.18); }
 .bulk-bar button.danger {
-  background: rgba(239,68,68,.18); border-color: rgba(239,68,68,.35);
-  color: #FCA5A5;
+  background: rgba(240,68,56,.18); border-color: rgba(240,68,56,.35);
+  color: #fca5a0;
 }
 .bulk-bar .x {
   cursor: pointer; opacity: 0.6; margin-left: 4px;
   background: transparent; border: none; color: white;
+  display: inline-flex; align-items: center;
 }
 </style>

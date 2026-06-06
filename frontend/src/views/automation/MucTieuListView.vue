@@ -1,42 +1,57 @@
 <template>
   <div class="mtl-page">
-    <!-- ================== HEADER ================== -->
-    <div class="crumb">
-      <a href="#" @click.prevent="router.push('/marketing/triggers')">Marketing</a>
-      <span class="sep">/</span>
-      <span>Mục tiêu</span>
-    </div>
-
-    <div class="topbar">
+    <!-- ================== TOPBAR (HS .mkt-top scaffold) ================== -->
+    <div class="mkt-top">
       <div>
-        <h1>Mục tiêu</h1>
-        <p class="sub">Quản lý chiến dịch mời kết bạn + bám đuổi</p>
+        <div class="mtt">Mục tiêu</div>
+        <div class="mts">Quản lý chiến dịch mời kết bạn + bám đuổi</div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" @click="onCreate">
-          <span>+</span> Tạo Mục tiêu mới
-        </button>
         <button
-          class="btn"
+          class="btn btn-ghost btn-sm"
           disabled
           title="Tính năng dự kiến phát hành ở Wave 4"
         >
-          <span>📥</span> Nhập từ Excel
+          <v-icon size="16">mdi-tray-arrow-down</v-icon> Nhập từ Excel
         </button>
+        <!-- #3 2026-06-06 (Anh chốt): nút bánh răng dẫn sang Cài đặt kỹ thuật tự động hoá -->
         <button
-          class="btn btn-ghost"
-          disabled
-          title="Tính năng dự kiến phát hành ở Wave 4"
+          class="btn btn-ghost btn-icon btn-sm"
+          title="Cài đặt kỹ thuật tự động hoá (nhịp quét, ngưỡng kẹt, timeout)"
+          @click="goTechSettings"
         >
-          <span>⚙</span>
+          <v-icon size="16">mdi-cog-outline</v-icon>
         </button>
+        <button class="btn btn-primary btn-sm" @click="onCreate">
+          <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo Mục tiêu mới
+        </button>
+      </div>
+    </div>
+
+    <!-- ================== STATS BAND (Atlas .mkt-stats) ================== -->
+    <div class="mkt-stats">
+      <div class="mstat">
+        <div class="mv num">{{ pageStats.activeRunning }} / {{ pageStats.totalGoals }}</div>
+        <div class="ml">Mục tiêu đang bật</div>
+      </div>
+      <div class="mstat">
+        <div class="mv num">{{ formatNum(pageStats.customersEntered) }}</div>
+        <div class="ml">Khách đã vào</div>
+      </div>
+      <div class="mstat">
+        <div class="mv num">{{ formatNum(pageStats.customersDone) }}</div>
+        <div class="ml">Đã hoàn thành</div>
+      </div>
+      <div class="mstat">
+        <div class="mv num">{{ pageStats.replyRate }}%</div>
+        <div class="ml">Tỉ lệ phản hồi</div>
       </div>
     </div>
 
     <!-- ================== FILTER BAR ================== -->
     <div class="filter-bar">
       <div class="search-wrap">
-        <span class="search-icon">🔍</span>
+        <v-icon class="search-icon" size="16">mdi-magnify</v-icon>
         <input
           v-model="searchInput"
           class="search-input"
@@ -49,11 +64,12 @@
         <span
           v-for="chip in statusChips"
           :key="chip.key"
-          class="chip"
+          class="fchip"
           :class="{ active: statusFilter === chip.key }"
           @click="statusFilter = chip.key"
         >
-          {{ chip.label }} <span class="count">{{ chipCount(chip.key) }}</span>
+          <span v-if="chip.dot" class="fdot" :style="{ background: chip.dot }"></span>
+          {{ chip.label }} <span class="count num">{{ chipCount(chip.key) }}</span>
         </span>
       </div>
 
@@ -66,8 +82,8 @@
           <option value="reply_desc">Sắp xếp: Phản hồi cao nhất</option>
         </select>
         <div class="view-toggle">
-          <button class="active">▦ Bảng</button>
-          <button disabled title="Defer Wave 4">▥ Card</button>
+          <button class="active"><v-icon size="15">mdi-table</v-icon> Bảng</button>
+          <button disabled title="Defer Wave 4"><v-icon size="15">mdi-view-grid-outline</v-icon> Card</button>
         </div>
       </div>
     </div>
@@ -85,7 +101,7 @@
               @click="sortKey = 'created_desc'"
             >
               Ngày tạo
-              <span class="sort-arrow">{{ sortKey === 'created_desc' ? '▼' : '⇅' }}</span>
+              <v-icon class="sort-arrow" size="13">{{ sortKey === 'created_desc' ? 'mdi-menu-down' : 'mdi-unfold-more-horizontal' }}</v-icon>
             </th>
             <th class="col-name">Mục tiêu</th>
             <th class="col-list">Tệp KH</th>
@@ -96,7 +112,7 @@
               @click="sortKey = 'progress_desc'"
             >
               Phase 1 · Mời KB
-              <span class="sort-arrow">{{ sortKey === 'progress_desc' ? '▼' : '⇅' }}</span>
+              <v-icon class="sort-arrow" size="13">{{ sortKey === 'progress_desc' ? 'mdi-menu-down' : 'mdi-unfold-more-horizontal' }}</v-icon>
             </th>
             <th class="col-p2">Phase 2 · Bám đuổi</th>
             <th
@@ -105,7 +121,7 @@
               @click="sortKey = 'reply_desc'"
             >
               Phản hồi
-              <span class="sort-arrow">{{ sortKey === 'reply_desc' ? '▼' : '⇅' }}</span>
+              <v-icon class="sort-arrow" size="13">{{ sortKey === 'reply_desc' ? 'mdi-menu-down' : 'mdi-unfold-more-horizontal' }}</v-icon>
             </th>
             <th class="col-status">Trạng thái</th>
             <th class="col-end">Ngày kết thúc</th>
@@ -132,7 +148,7 @@
           <tr v-else-if="error">
             <td colspan="10" class="empty-cell">
               <div class="empty-state">
-                <div class="empty-icon">⚠️</div>
+                <v-icon class="empty-icon" size="40" color="warning">mdi-alert-circle-outline</v-icon>
                 <div class="empty-title">Không tải được danh sách</div>
                 <div class="empty-desc">{{ error }}</div>
                 <button class="btn btn-primary" @click="loadList">Thử lại</button>
@@ -141,10 +157,10 @@
           </tr>
 
           <!-- Empty state -->
-          <tr v-else-if="!loading && items.length === 0">
+          <tr v-else-if="!loading && visibleItems.length === 0">
             <td colspan="10" class="empty-cell">
               <div class="empty-state">
-                <div class="empty-icon">🎯</div>
+                <v-icon class="empty-icon" size="40" color="#97a0b3">mdi-target</v-icon>
                 <div class="empty-title">
                   {{ searchInput || statusFilter !== 'all' ? 'Không có Mục tiêu nào khớp bộ lọc' : 'Chưa có Mục tiêu nào' }}
                 </div>
@@ -166,7 +182,7 @@
 
           <!-- Data rows -->
           <tr
-            v-for="(item, idx) in items"
+            v-for="(item, idx) in visibleItems"
             v-else
             :key="item.id"
             :class="{ active: activeId === item.id }"
@@ -248,6 +264,7 @@
             <!-- 9. Trạng thái -->
             <td>
               <span class="status" :class="statusClass(item.status)">
+                <span class="dot" :style="{ background: statusDot(item.status) }"></span>
                 {{ statusLabel(item) }}
               </span>
             </td>
@@ -289,13 +306,13 @@
           class="page-btn"
           :disabled="page <= 1"
           @click="page > 1 && (page--, loadList())"
-        >‹</button>
+        ><v-icon size="16">mdi-chevron-left</v-icon></button>
         <button class="page-btn active">{{ page }}</button>
         <button
           class="page-btn"
           :disabled="!hasNextPage"
           @click="hasNextPage && (page++, loadList())"
-        >›</button>
+        ><v-icon size="16">mdi-chevron-right</v-icon></button>
       </div>
     </div>
 
@@ -308,23 +325,32 @@
             <div style="flex:1; min-width:0">
               <h3 class="panel-title">{{ activeItem.name }}</h3>
               <div class="panel-meta-row">
-                <span class="status" :class="statusClass(activeItem.status)">{{ statusLabel(activeItem) }}</span>
+                <span class="status" :class="statusClass(activeItem.status)"><span class="dot" :style="{ background: statusDot(activeItem.status) }"></span>{{ statusLabel(activeItem) }}</span>
                 <span class="panel-meta">
                   · tạo {{ formatShortDate(activeItem.createdAt) }} · {{ activeItem.createdBy?.fullName ?? '—' }}
                 </span>
               </div>
             </div>
             <div class="menu-wrap">
-              <button class="panel-icon-btn" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen">⋯</button>
+              <button class="panel-icon-btn" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen"><v-icon size="18">mdi-dots-horizontal</v-icon></button>
               <div class="menu" :class="{ show: menuOpen }">
-                <div v-if="activeItem.status === 'running'" class="menu-item" @click="panelAction('pause')">⏸ Tạm dừng</div>
-                <div v-else-if="activeItem.status === 'paused'" class="menu-item" @click="panelAction('resume')">▶ Tiếp tục</div>
-                <div class="menu-item" @click="panelAction('duplicate')">📋 Sao chép</div>
-                <div class="menu-divider"></div>
-                <div class="menu-item danger" @click="panelAction('delete')">🗑 Xóa</div>
+                <!-- 2026-06-05 — Trong thùng rác (Đã xóa): Khôi phục + Xóa hẳn.
+                     Ngoài thùng rác: pause/resume/sao chép + Xóa (→ thùng rác). -->
+                <template v-if="activeItem.status === 'cancelled'">
+                  <div class="menu-item" @click="panelAction('restore')"><v-icon size="16">mdi-restore</v-icon> Khôi phục</div>
+                  <div class="menu-divider"></div>
+                  <div class="menu-item danger" @click="panelAction('hardDelete')"><v-icon size="16">mdi-delete-forever-outline</v-icon> Xóa hẳn vĩnh viễn</div>
+                </template>
+                <template v-else>
+                  <div v-if="activeItem.status === 'running'" class="menu-item" @click="panelAction('pause')"><v-icon size="16">mdi-pause</v-icon> Tạm dừng</div>
+                  <div v-else-if="activeItem.status === 'paused'" class="menu-item" @click="panelAction('resume')"><v-icon size="16">mdi-play</v-icon> Tiếp tục</div>
+                  <div class="menu-item" @click="panelAction('duplicate')"><v-icon size="16">mdi-content-copy</v-icon> Sao chép</div>
+                  <div class="menu-divider"></div>
+                  <div class="menu-item danger" @click="panelAction('cancel')"><v-icon size="16">mdi-delete-outline</v-icon> Xóa (vào thùng rác)</div>
+                </template>
               </div>
             </div>
-            <button class="panel-icon-btn" title="Đóng" @click="closePanel">✕</button>
+            <button class="panel-icon-btn" title="Đóng" @click="closePanel"><v-icon size="18">mdi-close</v-icon></button>
           </div>
         </div>
 
@@ -337,7 +363,7 @@
 
           <!-- Error state -->
           <div v-else-if="dashboardError" class="panel-error">
-            <div class="empty-icon">⚠️</div>
+            <v-icon class="empty-icon" size="32" color="warning">mdi-alert-circle-outline</v-icon>
             <div class="empty-title">Không tải được chi tiết</div>
             <button class="btn btn-sm btn-primary" @click="loadDashboard(activeItem.id)">Thử lại</button>
           </div>
@@ -367,7 +393,7 @@
 
             <!-- Danger CTA -->
             <div v-if="dashboardStats.noZalo > 0" class="cta-banner">
-              <span style="font-size:18px">🔴</span>
+              <v-icon size="18" color="error">mdi-phone-alert-outline</v-icon>
               <div class="cta-banner-text">
                 <strong>Không có Zalo ({{ formatNum(dashboardStats.noZalo) }} KH)</strong>
                 — gợi ý gọi điện qua Lead Pool
@@ -375,7 +401,7 @@
               <a
                 href="#"
                 @click.prevent="goLeadPool(activeItem.id)"
-              >Xem danh sách →</a>
+              >Xem danh sách <v-icon size="13">mdi-arrow-right</v-icon></a>
             </div>
 
             <!-- Phase 1 -->
@@ -456,8 +482,8 @@
                 <tbody>
                   <tr v-for="(n, idx) in topNicks" :key="n.nickId">
                     <td>
+                      <span class="rank" :class="`rank-${idx + 1}`">{{ idx + 1 }}</span>
                       {{ n.displayName ?? n.nickId.slice(0, 6) }}
-                      <span class="medal">{{ ['🥇', '🥈', '🥉'][idx] ?? '' }}</span>
                     </td>
                     <td>{{ formatNum(n.sent) }}</td>
                     <td>{{ formatNum(n.accepted) }}</td>
@@ -476,7 +502,7 @@
 
         <div class="panel-footer">
           <button class="btn btn-primary btn-block" @click="goDetail(activeItem.id)">
-            Mở trang chi tiết đầy đủ →
+            Mở trang chi tiết đầy đủ <v-icon size="16">mdi-arrow-right</v-icon>
           </button>
         </div>
       </template>
@@ -493,7 +519,7 @@ const router = useRouter();
 
 // ============ Types (FE-side, mirrors expected BE response) ============
 
-type MucTieuStatus = 'running' | 'paused' | 'done' | 'scheduled' | 'draft';
+type MucTieuStatus = 'running' | 'paused' | 'done' | 'scheduled' | 'draft' | 'cancelled';
 
 interface NickMini {
   id: string;
@@ -576,6 +602,15 @@ const items = ref<MucTieuListItem[]>([]);
 const total = ref(0);
 const statusCounts = ref<Record<string, number>>({});
 
+// 2026-06-05 (Anh chốt) — "Tất cả" KHÔNG hiện Nháp + Đã xóa (cho gọn). Lọc FE-side
+// để không phá hợp đồng BE (BE default vẫn trả mọi state). Chỉ hiện draft/cancelled
+// khi anh bấm đúng chip của chúng.
+const visibleItems = computed(() =>
+  statusFilter.value === 'all'
+    ? items.value.filter((i) => i.status !== 'cancelled' && i.status !== 'draft')
+    : items.value,
+);
+
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -609,14 +644,19 @@ const chipToBeState: Record<Exclude<'all' | MucTieuStatus, 'all'>, string> = {
   done: 'completed',
   scheduled: 'draft',
   draft: 'draft',
+  cancelled: 'cancelled',
 };
 
-const statusChips: { key: 'all' | MucTieuStatus; label: string }[] = [
+// label = text thuần (không emoji); dot = màu trạng thái (HS .status .dot).
+const statusChips: { key: 'all' | MucTieuStatus; label: string; dot?: string }[] = [
   { key: 'all',       label: 'Tất cả' },
-  { key: 'running',   label: '🟢 Đang chạy' },
-  { key: 'paused',    label: '⏸ Tạm dừng' },
-  { key: 'done',      label: '✅ Hoàn tất' },
-  { key: 'scheduled', label: '🟡 Hẹn lịch' },
+  { key: 'running',   label: 'Đang chạy',  dot: 'var(--success)' },
+  { key: 'paused',    label: 'Tạm dừng',   dot: 'var(--ink-4)' },
+  { key: 'done',      label: 'Hoàn tất',   dot: 'var(--info)' },
+  { key: 'scheduled', label: 'Hẹn lịch',   dot: 'var(--warning)' },
+  // 2026-06-05 (Anh chốt) — 2 chip mới: Nháp (draft) + Đã xóa (cancelled, thùng rác).
+  { key: 'draft',     label: 'Nháp',       dot: 'var(--chip-purple)' },
+  { key: 'cancelled', label: 'Đã xóa',     dot: 'var(--ink-4)' },
 ];
 
 // Display count for a chip — reads BE-keyed statusCounts via chipToBeState mapping.
@@ -668,7 +708,9 @@ const stateToStatus: Record<string, MucTieuStatus> = {
   paused: 'paused',
   completed: 'done',
   draft: 'draft',
-  cancelled: 'draft', // UI ẩn cancelled mặc định; fallback hiển thị Nháp.
+  // 2026-06-05 (Anh chốt) — TÁCH cancelled khỏi draft (trước gộp → chip "Đã xóa"
+  // không khớp item nào, item đã xóa hiện nhầm "Nháp"). Giờ cancelled = chip Đã xóa.
+  cancelled: 'cancelled',
 };
 
 // Raw BE shape (mirrors muc-tieu-list-service.MucTieuListItem)
@@ -852,23 +894,39 @@ function closePanel() {
   }, 250);
 }
 
-function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'delete') {
+function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'cancel' | 'restore' | 'hardDelete') {
   menuOpen.value = false;
   if (!activeItem.value) return;
   const id = activeItem.value.id;
-  // Light-weight actions — defer real impl to detail page
-  if (action === 'delete') {
-    if (!confirm(`Xoá Mục tiêu "${activeItem.value.name}"?`)) return;
+  const name = activeItem.value.name;
+  const errOf = (err: unknown): string => {
+    const e = err as { response?: { data?: { error?: string; hint?: string } }; message?: string };
+    return e.response?.data?.hint ?? e.response?.data?.error ?? e.message ?? 'lỗi';
+  };
+  // 2026-06-05 — "Xóa" = đưa vào thùng rác (soft, cancel). KHÔNG xoá hẳn ở đây.
+  if (action === 'cancel') {
+    if (!confirm(`Chuyển Mục tiêu "${name}" vào thùng rác (Đã xóa)?`)) return;
+    void api
+      .post(`/automation/triggers/${id}/cancel`)
+      .then(() => { closePanel(); void loadList(); })
+      .catch((err: unknown) => alert(`Không xoá được: ${errOf(err)}`));
+    return;
+  }
+  // Khôi phục từ thùng rác → về Tạm dừng (paused), anh bấm "Bắt đầu" để chạy lại.
+  if (action === 'restore') {
+    void api
+      .post(`/automation/triggers/${id}/restore`)
+      .then(() => { closePanel(); void loadList(); })
+      .catch((err: unknown) => alert(`Không khôi phục được: ${errOf(err)}`));
+    return;
+  }
+  // Xóa HẲN vĩnh viễn (chỉ trong thùng rác). Giữ KH trong Tệp gốc.
+  if (action === 'hardDelete') {
+    if (!confirm(`Xoá HẲN "${name}" vĩnh viễn? Không khôi phục được.\n(Khách hàng vẫn giữ trong Tệp gốc.)`)) return;
     void api
       .delete(`/automation/triggers/${id}`)
-      .then(() => {
-        closePanel();
-        void loadList();
-      })
-      .catch((err: unknown) => {
-        const e = err as { response?: { data?: { error?: string } }; message?: string };
-        alert(`Không xoá được: ${e.response?.data?.error ?? e.message ?? 'lỗi'}`);
-      });
+      .then(() => { closePanel(); void loadList(); })
+      .catch((err: unknown) => alert(`Không xoá hẳn được: ${errOf(err)}`));
     return;
   }
   if (action === 'pause') {
@@ -895,6 +953,11 @@ function onCreate() {
   void router.push('/marketing/triggers/tao-moi');
 }
 
+// #3 2026-06-06 (Anh chốt): nút bánh răng → trang Cài đặt kỹ thuật tự động hoá.
+function goTechSettings() {
+  void router.push('/settings/channels/automation');
+}
+
 function goDetail(id: string) {
   // Wave 3 Day 1 — MucTieuDetailView (Dashboard + Log) thay TriggerDetailView legacy.
   void router.push(`/marketing/triggers/${id}`);
@@ -903,6 +966,33 @@ function goDetail(id: string) {
 function goLeadPool(id: string) {
   void router.push({ path: '/leads/stuck', query: { source: 'muc-tieu', id } });
 }
+
+// ============ Page-level stats band (.mkt-stats) ============
+// Tổng hợp từ statusCounts (server) + các counter per-item của trang hiện tại.
+// "Khách đã vào" = tổng KH đã vào Sequence (enrolling + done); "Đã hoàn thành" =
+// tổng KH đi hết chuỗi; "Tỉ lệ phản hồi" = reply / (KH đã vào chuỗi) — chặn 0.
+const pageStats = computed(() => {
+  const activeRunning = statusCounts.value.active ?? 0;
+  const totalGoals = statusCounts.value.all ?? total.value ?? items.value.length;
+  let entered = 0;
+  let done = 0;
+  let replies = 0;
+  for (const it of items.value) {
+    const enrolling = it.enrollingSequence ?? 0;
+    const completed = it.completedKHCount ?? it.completedSequence ?? 0;
+    entered += enrolling + completed;
+    done += completed;
+    replies += it.replyCount ?? 0;
+  }
+  const replyRate = entered > 0 ? Math.min(100, Math.round((replies / entered) * 100)) : 0;
+  return {
+    activeRunning,
+    totalGoals,
+    customersEntered: entered,
+    customersDone: done,
+    replyRate,
+  };
+});
 
 // ============ Derived stats for side panel ============
 
@@ -981,14 +1071,27 @@ function statusClass(status: MucTieuStatus): string {
 }
 
 function statusLabel(item: MucTieuListItem): string {
-  if (item.status === 'running') return '🟢 Đang chạy';
-  if (item.status === 'paused') return '⏸ Tạm dừng';
-  if (item.status === 'done') return '✅ Hoàn tất';
+  if (item.status === 'running') return 'Đang chạy';
+  if (item.status === 'paused') return 'Tạm dừng';
+  if (item.status === 'done') return 'Hoàn tất';
   if (item.status === 'scheduled') {
-    if (item.scheduledAt) return `🟡 Hẹn ${formatShortDateTime(item.scheduledAt)}`;
-    return '🟡 Hẹn lịch';
+    if (item.scheduledAt) return `Hẹn ${formatShortDateTime(item.scheduledAt)}`;
+    return 'Hẹn lịch';
   }
-  return '📝 Nháp';
+  if (item.status === 'cancelled') return 'Đã xóa';
+  return 'Nháp';
+}
+
+// Màu dot trạng thái (HS .status .dot) theo state.
+function statusDot(status: MucTieuStatus): string {
+  switch (status) {
+    case 'running':   return 'var(--success)';
+    case 'paused':    return 'var(--ink-4)';
+    case 'done':      return 'var(--info)';
+    case 'scheduled': return 'var(--warning)';
+    case 'cancelled': return 'var(--ink-4)';
+    default:          return 'var(--chip-purple)';
+  }
 }
 
 function nickInitials(name: string): string {
@@ -1111,7 +1214,7 @@ onUnmounted(() => {
   --mtl-bg-soft: var(--surface-3, #f1f4f9);
   --mtl-bg-hover: var(--brand-softer, #f2f8fc);
   --mtl-border: var(--line, #e7eaf0);
-  --mtl-border-strong: #cdd4e0;
+  --mtl-border-strong: var(--line, #e7eaf0);
   --mtl-text-1: var(--ink, #141a24);
   --mtl-text-2: var(--ink-2, #475066);
   --mtl-text-3: var(--ink-3, #6b7488);
@@ -1125,12 +1228,12 @@ onUnmounted(() => {
   --mtl-warning: var(--warning, #f5a524);
   --mtl-warning-bg: var(--warning-soft, #fdf3e2);
   --mtl-danger: var(--error, #f04438);
-  --mtl-danger-bg: #fdeceb;
-  --mtl-purple: #6554C0;
-  --mtl-purple-bg: #EAE6FF;
-  --mtl-shadow-1: 0 1px 2px rgba(20, 26, 36, 0.05);
-  --mtl-shadow-2: 0 4px 12px rgba(20, 26, 36, 0.12);
-  --mtl-shadow-panel: -8px 0 24px rgba(20, 26, 36, 0.10);
+  --mtl-danger-bg: var(--error-soft, #fdeceb);
+  --mtl-purple: var(--chip-purple, #8b5cf6);
+  --mtl-purple-bg: var(--chip-purple-bg, #f1ecfe);
+  --mtl-shadow-1: var(--sh-xs);
+  --mtl-shadow-2: var(--sh-md);
+  --mtl-shadow-panel: var(--sh-lg);
 
   /* 2026-06-04 v2 — Nằm trong BotAutoShell, bỏ min-width: 1280px (gây crop) */
   width: 100%;
@@ -1141,20 +1244,25 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 
-/* ============================ HEADER ============================ */
-.crumb { font-size: 12px; color: var(--mtl-text-3); margin-bottom: 8px; }
-.crumb a { color: var(--mtl-text-3); text-decoration: none; cursor: pointer; }
-.crumb a:hover { color: var(--mtl-primary); }
-.crumb .sep { margin: 0 6px; color: var(--mtl-text-mute); }
-
-.topbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
-.topbar h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; color: var(--mtl-text-1); }
-.topbar .sub { font-size: 13px; color: var(--mtl-text-3); margin: 0; }
+/* ============================ HEADER (HS .mkt-top scaffold) ============================ */
+/* Override .mkt-top global cho page context (.mtl-page đã có padding 24px) */
+.mtl-page .mkt-top {
+  position: static;
+  padding: 0 0 16px;
+  border-bottom: 0;
+  background: transparent;
+  align-items: flex-start;
+}
+.mtl-page .mkt-top .mtt { font-size: 18px; }
 .actions { display: flex; gap: 8px; flex-shrink: 0; }
+.actions .btn[disabled] { opacity: 0.55; }
+
+/* Stats band — .mkt-stats/.mstat global; chỉ chỉnh margin trong page */
+.mtl-page .mkt-stats { margin-bottom: 16px; }
 
 .btn {
   padding: 8px 14px;
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--mtl-border-strong);
   border-radius: 6px;
   font-size: 13px;
@@ -1195,43 +1303,45 @@ onUnmounted(() => {
   border: 1px solid var(--mtl-border-strong);
   border-radius: 6px;
   font-size: 13px;
-  background: white;
+  background: var(--surface);
   font-family: inherit;
   color: var(--mtl-text-1);
   transition: border-color 0.15s;
 }
 .search-input:focus { outline: none; border-color: var(--mtl-primary); box-shadow: 0 0 0 3px var(--brand-soft, rgba(23, 134, 190, 0.18)); }
 .search-icon {
-  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
-  color: var(--mtl-text-3); font-size: 14px;
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  color: var(--mtl-text-mute);
 }
 
+/* Filter chip (HS) — dot màu trạng thái + count mono */
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip {
-  padding: 6px 12px;
-  background: white;
+.fchip {
+  padding: 5px 11px;
+  background: var(--surface);
   border: 1px solid var(--mtl-border);
-  border-radius: 14px;
-  font-size: 12px;
-  font-weight: 500;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--mtl-text-2);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background .14s, border-color .14s, color .14s;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   user-select: none;
 }
-.chip:hover { background: var(--mtl-bg-soft); border-color: var(--mtl-border-strong); }
-.chip.active { background: var(--mtl-primary-bg); border-color: var(--mtl-primary); color: var(--mtl-primary); font-weight: 600; }
-.chip .count { color: var(--mtl-text-3); font-size: 11px; }
-.chip.active .count { color: var(--mtl-primary); }
+.fchip:hover { background: var(--mtl-bg-soft); border-color: var(--mtl-border-strong); }
+.fchip.active { background: var(--mtl-primary-bg); border-color: var(--mtl-primary); color: var(--mtl-primary); }
+.fdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.fchip .count { color: var(--mtl-text-mute); font-size: 11.5px; }
+.fchip.active .count { color: var(--mtl-primary); }
 
 .filter-spacer { flex: 1; }
 .filter-right { display: flex; gap: 8px; align-items: center; }
 .sort-dd {
   padding: 7px 12px;
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--mtl-border-strong);
   border-radius: 6px;
   font-size: 12px;
@@ -1242,7 +1352,7 @@ onUnmounted(() => {
 .view-toggle { display: flex; border: 1px solid var(--mtl-border-strong); border-radius: 6px; overflow: hidden; }
 .view-toggle button {
   padding: 6px 10px;
-  background: white;
+  background: var(--surface);
   border: none;
   font-size: 12px;
   color: var(--mtl-text-3);
@@ -1254,7 +1364,7 @@ onUnmounted(() => {
 
 /* ============================ TABLE ============================ */
 .table-card {
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--mtl-border);
   border-radius: 6px;
   /* IMPORTANT: KHÔNG overflow:hidden — cắt sticky context của <thead> bên trong.
@@ -1271,7 +1381,7 @@ thead {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #FFFFFF;
+  background: var(--surface);
 }
 thead tr {
   border-bottom: 1px solid var(--mtl-border);
@@ -1280,7 +1390,7 @@ thead th {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #FFFFFF;
+  background: var(--surface);
   text-align: left;
   padding: 10px 14px;
   font-size: 11px;
@@ -1293,9 +1403,9 @@ thead th {
   border-bottom: 1px solid var(--mtl-border);
   white-space: nowrap;
   /* Crisp drop shadow so row 1 visibly slides UNDER the header on scroll. */
-  box-shadow: 0 1px 0 var(--mtl-border), 0 2px 4px rgba(9, 30, 66, 0.06);
+  box-shadow: 0 1px 0 var(--mtl-border), 0 2px 4px rgba(20, 26, 36, 0.06);
 }
-thead th:hover { background: #ECEEF1; color: var(--mtl-text-2); }
+thead th:hover { background: var(--surface-3); color: var(--mtl-text-2); }
 thead th .sort-arrow { color: var(--mtl-text-mute); font-size: 10px; margin-left: 4px; }
 thead th.sorted .sort-arrow { color: var(--mtl-primary); }
 
@@ -1352,13 +1462,13 @@ tbody tr:last-child { border-bottom: none; }
 /* Ngày kết thúc / ETA */
 .end-real { font-family: var(--mono, monospace); font-size: 11px; color: var(--mtl-text-2); white-space: nowrap; }
 .end-eta { font-size: 12px; font-weight: 700; color: var(--mtl-primary); white-space: nowrap; letter-spacing: .1px; }
-.end-eta.stalled { color: #d97706; }
+.end-eta.stalled { color: var(--warning); }
 .end-eta.scheduled { color: var(--mtl-warning, #b45309); }
 .end-sub { font-size: 10px; color: var(--mtl-text-mute); margin-top: 1px; }
 
 .row-name { font-weight: 600; color: var(--mtl-text-1); font-size: 13px; line-height: 1.3; }
 .row-sub { font-size: 11px; color: var(--mtl-text-3); margin-top: 2px; }
-/* I3 2026-06-03 — ETA dự đoán còn lại: font to-rõ-đậm + icon ⏱ (Anh chốt). */
+/* I3 2026-06-03 — ETA dự đoán còn lại: font to-rõ-đậm (Anh chốt). */
 .eta-line { font-size: 13px; font-weight: 700; color: var(--mtl-primary, #1786be); margin-top: 4px; letter-spacing: 0.1px; }
 .eta-line.stalled { color: #d97706; }
 .text-mute { color: var(--mtl-text-mute); }
@@ -1392,10 +1502,11 @@ tbody tr:last-child { border-bottom: none; }
   text-transform: uppercase;
 }
 .avatar:first-child { margin-left: 0; }
-.avatar.a2 { background: #FFE0B2; color: #B45309; }
-.avatar.a3 { background: #D1FAE5; color: #047857; }
-.avatar.a4 { background: #E0E7FF; color: #4F46E5; }
-.avatar.a5 { background: #FCE7F3; color: #BE185D; }
+/* Palette HS đa sắc cho nick (nền nhạt + chữ đậm cùng tông) */
+.avatar.a2 { background: var(--warning-soft); color: #b45309; }
+.avatar.a3 { background: var(--success-soft); color: #157f3c; }
+.avatar.a4 { background: var(--chip-purple-bg); color: #6d28d9; }
+.avatar.a5 { background: #fce7f3; color: #be185d; }
 .avatar-more {
   margin-left: 4px;
   font-size: 11px;
@@ -1414,11 +1525,13 @@ tbody tr:last-child { border-bottom: none; }
   font-weight: 500;
   white-space: nowrap;
 }
-.status.running { background: var(--mtl-success-bg); color: #006644; }
+.status.running { background: var(--mtl-success-bg); color: #157f3c; }
 .status.done { background: var(--mtl-primary-bg); color: var(--mtl-primary); }
 .status.paused { background: var(--mtl-bg-soft); color: var(--mtl-text-2); }
 .status.scheduled { background: var(--mtl-warning-bg); color: #974F00; }
 .status.draft { background: var(--mtl-purple-bg); color: var(--mtl-purple); }
+/* 2026-06-05 — Đã xóa (thùng rác): xám trung tính, KHÔNG đỏ gắt (chỉ là đã huỷ). */
+.status.cancelled { background: var(--mtl-bg-soft); color: var(--mtl-text-3); }
 
 /* Reply cell */
 .reply-num { font-weight: 600; color: var(--mtl-text-1); }
@@ -1440,10 +1553,10 @@ tbody tr:last-child { border-bottom: none; }
 .empty-desc { font-size: 13px; color: var(--mtl-text-3); margin-bottom: 8px; text-align: center; }
 
 .skeleton-row { cursor: default; }
-.skeleton-row:hover { background: white; }
+.skeleton-row:hover { background: var(--surface); }
 .sk-bar {
   height: 10px;
-  background: linear-gradient(90deg, #EEF1F4 0%, #F7F8FA 50%, #EEF1F4 100%);
+  background: linear-gradient(90deg, var(--surface-3) 0%, var(--surface-2) 50%, var(--surface-3) 100%);
   background-size: 200% 100%;
   border-radius: 3px;
   animation: sk-shimmer 1.4s infinite;
@@ -1474,7 +1587,7 @@ tbody tr:last-child { border-bottom: none; }
   min-width: 28px; height: 28px;
   padding: 0 8px;
   border: 1px solid var(--mtl-border);
-  background: white;
+  background: var(--surface);
   border-radius: 4px;
   font-size: 12px;
   color: var(--mtl-text-2);
@@ -1488,7 +1601,7 @@ tbody tr:last-child { border-bottom: none; }
 /* ============================ SIDE PANEL ============================ */
 .panel-overlay {
   position: fixed; inset: 0;
-  background: rgba(9, 30, 66, 0.30);
+  background: rgba(20, 26, 36, 0.30);
   z-index: 90;
   opacity: 0;
   pointer-events: none;
@@ -1501,7 +1614,7 @@ tbody tr:last-child { border-bottom: none; }
   top: 0; right: 0;
   height: 100vh;
   width: 460px;
-  background: white;
+  background: var(--surface);
   z-index: 100;
   transform: translateX(100%);
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1515,7 +1628,7 @@ tbody tr:last-child { border-bottom: none; }
 .panel-header {
   padding: 16px 20px;
   border-bottom: 1px solid var(--mtl-border);
-  background: white;
+  background: var(--surface);
   flex-shrink: 0;
 }
 .panel-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -1559,22 +1672,22 @@ tbody tr:last-child { border-bottom: none; }
 .stat-label { font-size: 11px; color: var(--mtl-text-3); margin-bottom: 2px; }
 .stat-value { font-size: 18px; font-weight: 700; color: var(--mtl-text-1); line-height: 1.1; }
 .stat-card.green { background: var(--mtl-success-bg); }
-.stat-card.green .stat-value { color: #006644; }
+.stat-card.green .stat-value { color: #157f3c; }
 .stat-card.red { background: var(--mtl-danger-bg); }
 .stat-card.red .stat-value { color: var(--mtl-danger); }
 
 /* Danger CTA banner */
 .cta-banner {
   background: var(--mtl-danger-bg);
-  border: 1px solid #FFBDAD;
-  border-radius: 6px;
+  border: 1px solid #f6b9b4;
+  border-radius: var(--r-sm);
   padding: 10px 12px;
   margin-bottom: 16px;
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.cta-banner-text { flex: 1; font-size: 12px; color: #8B1A0A; }
+.cta-banner-text { flex: 1; font-size: 12px; color: #b42318; }
 .cta-banner-text strong { color: var(--mtl-danger); }
 .cta-banner a { color: var(--mtl-danger); font-weight: 600; text-decoration: none; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .cta-banner a:hover { text-decoration: underline; }
@@ -1603,7 +1716,16 @@ tbody tr:last-child { border-bottom: none; }
 .nick-table th { text-align: left; padding: 6px 4px; color: var(--mtl-text-3); font-weight: 600; font-size: 11px; border-bottom: 1px solid var(--mtl-border); }
 .nick-table th:last-child, .nick-table td:last-child { text-align: right; }
 .nick-table td { padding: 7px 4px; border-bottom: 1px solid var(--mtl-border); color: var(--mtl-text-1); }
-.nick-table td .medal { margin-left: 4px; }
+/* Huy chương = số thứ hạng (thay medal emoji theo quy tắc no-emoji) */
+.rank {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%; margin-right: 6px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  background: var(--surface-3); color: var(--ink-3); vertical-align: middle;
+}
+.rank-1 { background: var(--warning-soft); color: #b45309; }
+.rank-2 { background: var(--surface-3); color: var(--ink-2); }
+.rank-3 { background: #f4e6da; color: #92500f; }
 .accept-bar {
   display: inline-block;
   width: 38px;
@@ -1621,7 +1743,7 @@ tbody tr:last-child { border-bottom: none; }
 .panel-footer {
   padding: 12px 20px;
   border-top: 1px solid var(--mtl-border);
-  background: white;
+  background: var(--surface);
   flex-shrink: 0;
 }
 
@@ -1631,7 +1753,7 @@ tbody tr:last-child { border-bottom: none; }
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--mtl-border);
   border-radius: 6px;
   box-shadow: var(--mtl-shadow-2);

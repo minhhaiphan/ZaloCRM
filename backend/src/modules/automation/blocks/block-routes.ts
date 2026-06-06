@@ -16,6 +16,7 @@ import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
+import { resolveBlockContent } from './resolve-block-content.js';
 import {
   isSupportedActionType,
   validateBlockContent,
@@ -368,53 +369,13 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       if (!block) return reply.status(404).send({ error: 'block not found' });
 
       const content = block.content as Record<string, unknown>;
-      const resolved: Array<{ messageType: string; payload: unknown }> = [];
-
-      if (block.actionType === 'request_friend') {
-        const greetings = Array.isArray(content?.greetingVariants) ? content.greetingVariants as string[] : [];
-        if (greetings.length === 0) {
-          return reply.status(422).send({ error: 'BLOCK_EMPTY_TEXT', detail: 'Khối không có biến thể lời chào nào' });
-        }
-        const pick = greetings[Math.floor(Math.random() * greetings.length)];
-        resolved.push({ messageType: 'friend_request', payload: { greeting: pick } });
-      } else if (block.actionType === 'send_message') {
-        const components = Array.isArray(content?.components) ? content.components as Array<Record<string, unknown>> : [];
-        // Legacy shape fallback: { textVariants: string[], attachments: [...] }
-        const legacyTextVariants = Array.isArray(content?.textVariants) ? content.textVariants as string[] : null;
-        const legacyAttachments = Array.isArray(content?.attachments) ? content.attachments as Array<Record<string, unknown>> : null;
-        if (components.length === 0 && !legacyTextVariants && !legacyAttachments) {
-          return reply.status(422).send({ error: 'BLOCK_EMPTY_TEXT', detail: 'Khối chưa có thành phần nào' });
-        }
-        if (legacyTextVariants && legacyTextVariants.length > 0) {
-          const pick = legacyTextVariants[Math.floor(Math.random() * legacyTextVariants.length)];
-          resolved.push({ messageType: 'text', payload: { text: pick } });
-        }
-        for (const c of components) {
-          if (c.kind === 'text') {
-            const def = c.defaultVariant as Record<string, unknown> | undefined;
-            const variants = Array.isArray(c.variants) ? c.variants as Array<Record<string, unknown>> : [];
-            const pool = [def, ...variants].filter((v) => v && typeof (v as any).text === 'string' && (v as any).text.length > 0);
-            if (pool.length === 0) continue;
-            const pick = pool[Math.floor(Math.random() * pool.length)] as Record<string, unknown>;
-            resolved.push({ messageType: 'text', payload: { text: pick.text, styles: pick.styles ?? null } });
-          } else if (c.kind === 'image') {
-            resolved.push({ messageType: 'image', payload: { url: c.url, caption: c.caption } });
-          } else if (c.kind === 'album') {
-            resolved.push({ messageType: 'album', payload: { items: c.items } });
-          } else if (c.kind === 'file') {
-            resolved.push({ messageType: 'file', payload: { url: c.url, filename: c.filename, sizeBytes: c.sizeBytes, mimeType: c.mimeType } });
-          } else if (c.kind === 'video') {
-            resolved.push({ messageType: 'video', payload: { url: c.url, thumbnailUrl: c.thumbnailUrl, durationSec: c.durationSec } });
-          }
-        }
-        if (legacyAttachments) {
-          for (const a of legacyAttachments) {
-            resolved.push({ messageType: String(a.kind), payload: a });
-          }
-        }
-      } else if (block.actionType === 'update_status') {
-        resolved.push({ messageType: 'update_status', payload: content });
+      // 2026-06-06 (Approach A) — dùng module chung resolveBlockContent (loop ĐỦ
+      // components đúng thứ tự + styles). Engine send-message handler dùng cùng hàm.
+      const r = resolveBlockContent(block.actionType, content);
+      if (!r.ok) {
+        return reply.status(422).send({ error: r.error ?? 'BLOCK_EMPTY', detail: r.detail });
       }
+      const resolved = r.resolved;
 
       // Bump lastUsedAt + usageCount (fire-and-forget)
       void prisma.block.update({

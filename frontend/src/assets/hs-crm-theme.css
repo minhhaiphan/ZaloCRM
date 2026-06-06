@@ -139,6 +139,10 @@ input, select, textarea { font-family: inherit; }
 .btn-ghost:hover { background: var(--surface-3); color: var(--ink); }
 .btn-soft { background: var(--brand-soft); color: var(--brand-700); }
 .btn-soft:hover { background: #dde7ff; }
+.btn-danger { background: var(--error); color: #fff; box-shadow: var(--sh-xs); }
+.btn-danger:hover { background: #d8392d; }
+.btn-danger-soft { background: var(--error-soft); color: var(--error); }
+.btn-danger-soft:hover { background: #fbdcd9; }
 .btn-sm { height: 32px; padding: 0 11px; font-size: 12.5px; border-radius: var(--r-xs); }
 .btn-icon { width: 38px; padding: 0; justify-content: center; }
 .btn-icon.btn-sm { width: 32px; }
@@ -198,6 +202,10 @@ input, select, textarea { font-family: inherit; }
 .tag[data-c="green"]  { color: var(--chip-green);  border-color: #a9dcba; }
 .tag[data-c="blue"]   { color: var(--chip-blue);   border-color: #a6cef5; }
 .tag[data-c="purple"] { color: var(--chip-purple); border-color: #cdbcf9; }
+/* CRM lead-kind tags (cold/warm/hot) — outlined, dùng cho nhãn phân loại lead */
+.tag[data-c="cold-lead"] { color: var(--chip-blue);  border-color: #a6cef5; }
+.tag[data-c="warm-lead"] { color: #b45309;           border-color: #f4cf8f; }
+.tag[data-c="hot-lead"]  { color: var(--chip-red);   border-color: #f6b9b4; }
 
 /* Status pill (pipeline / KH status) */
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }

@@ -100,6 +100,13 @@ export interface AutomationSequence {
   enrolledCount: number;
   completedCount: number;
   failedCount: number;
+  // Roll-up counters cached (đồng bộ từ các Mục tiêu/trigger dùng luồng — cron
+  // stats-reconcile). UI thẻ luồng ưu tiên đọc cached, fallback live nếu chưa sync.
+  enrolledCountCached?: number;
+  completedCountCached?: number;
+  replyCountCached?: number;
+  blockCountCached?: number;
+  countersLastSyncedAt?: string | null;
   enabled: boolean;
   createdById: string;
   createdAt: string;

@@ -99,9 +99,13 @@ async function writePhase2Sentinel(
   }
 }
 
-// Test mode: 1 phút cố định (anh chốt cho test loop)
-// Prod mode: 20-40 phút random (anh chốt design)
-const TEST_MODE = process.env.FRIEND_INVITE_TEST_MODE === 'true';
+// #3 2026-06-06 (Anh chốt): BỎ chế độ test/prod hardcode. Nhịp gửi lời mời giờ
+// đọc từ cấu hình Mục tiêu (cột friend_req_interval_min/max_minutes) — Anh nhập
+// trên UI. Muốn "test nhanh 1 phút" thì set min=max=1 ngay trên Mục tiêu, không
+// còn phụ thuộc biến môi trường FRIEND_INVITE_TEST_MODE nữa.
+// Fallback khi nick chưa gắn Mục tiêu nào (hiếm): 20-40 phút như default cũ.
+const DEFAULT_INTERVAL_MIN_MS = 20 * 60_000;
+const DEFAULT_INTERVAL_MAX_MS = 40 * 60_000;
 
 interface WorkerState {
   timeoutId: NodeJS.Timeout | null;
@@ -115,12 +119,34 @@ interface WorkerState {
 const nickWorkers = new Map<string, WorkerState>();
 
 /**
- * Random delay 20-40 phút (prod) or 1 phút (test) trong millisecond.
+ * Nhịp gửi (ms) giữa 2 lần gửi lời mời của 1 nick — random trong [min, max] phút
+ * ĐỌC TỪ CẤU HÌNH Mục tiêu (Anh nhập trên UI), không còn hardcode.
+ *
+ * 1 nick có thể phục vụ nhiều Mục tiêu cấu hình nhịp khác nhau → lấy khoảng RỘNG
+ * NHẤT (min của các min, max của các max) để không nick nào bị ép nhanh hơn mức
+ * Mục tiêu cẩn trọng nhất cho phép. Không có Mục tiêu active → fallback 20-40 phút.
  */
-function getRandomDelayMs(): number {
-  if (TEST_MODE) return 60_000; // 1 phút
-  const minMs = 20 * 60_000;
-  const maxMs = 40 * 60_000;
+async function getNextDelayMs(nickId: string): Promise<number> {
+  let minMs = DEFAULT_INTERVAL_MIN_MS;
+  let maxMs = DEFAULT_INTERVAL_MAX_MS;
+  try {
+    const rows = await prisma.$queryRaw<Array<{ min_min: number | null; max_max: number | null }>>`
+      SELECT MIN(friend_req_interval_min_minutes) AS min_min,
+             MAX(friend_req_interval_max_minutes) AS max_max
+      FROM automation_triggers
+      WHERE event_type = 'friend_invite_to_list'
+        AND state = 'active'
+        AND (segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
+    `;
+    const r = rows[0];
+    if (r?.min_min != null && r?.max_max != null) {
+      minMs = Math.max(0, Number(r.min_min)) * 60_000;
+      maxMs = Math.max(Number(r.max_max), Number(r.min_min)) * 60_000;
+    }
+  } catch (err) {
+    logger.warn(`[nick-worker] getNextDelayMs read config failed nick=${nickId}, dùng default 20-40m:`, err);
+  }
+  if (maxMs <= minMs) return minMs;
   return minMs + Math.random() * (maxMs - minMs);
 }
 
@@ -139,21 +165,8 @@ async function recoverTodayCount(nickId: string): Promise<number> {
   return Number(result[0]?.cnt ?? 0n);
 }
 
-/**
- * Working hours check — đọc từ Sequence.runtimeRules.allowedHourRange [start, end] (giờ VN).
- * Anh có thể chỉnh trong UI Sequence. Default 6h-22h nếu không có sequence hoặc rule.
- *
- * Fix 2026-05-30: hardcode 6-22 trước đây bỏ qua cấu hình UI của anh — gây bug worker
- * silent return khi anh chỉnh 23h trong Sequence nhưng vẫn bị chặn lúc 22:01.
- */
-function getAllowedHourRange(runtimeRules: unknown): [number, number] {
-  const rules = runtimeRules as { allowedHourRange?: [number, number] } | null | undefined;
-  const range = rules?.allowedHourRange;
-  if (Array.isArray(range) && range.length === 2 && typeof range[0] === 'number' && typeof range[1] === 'number') {
-    return [range[0], range[1]];
-  }
-  return [6, 22]; // default conservative
-}
+// #3 2026-06-06: bỏ getAllowedHourRange (đọc Sequence.runtimeRules) — Gate 1 giờ
+// đọc thẳng cột send_hour_start/end của Mục tiêu (xem runTick).
 
 function isWithinWorkingHours(allowedRange: [number, number] = [6, 22]): boolean {
   // Asia/Ho_Chi_Minh = UTC+7
@@ -204,17 +217,21 @@ export async function startNickWorker(nickId: string, orgId: string): Promise<vo
   // 20-40 phút random window. Prevents predictable cadence per nick.
   const scheduleNext = (): void => {
     if (state.stopped) return;
-    const next = getRandomDelayMs();
-    state.timeoutId = setTimeout(() => {
-      void runTick(nickId)
-        .catch((err) => logger.error(`[nick-worker] tick error for nick=${nickId}:`, err))
-        .finally(() => scheduleNext());
-    }, next);
+    // Nhịp đọc từ cấu hình Mục tiêu mỗi lần lên lịch → Anh chỉnh nhịp trên UI là
+    // áp dụng ngay từ lượt kế tiếp, không cần restart worker.
+    void getNextDelayMs(nickId).then((next) => {
+      if (state.stopped) return;
+      state.timeoutId = setTimeout(() => {
+        void runTick(nickId)
+          .catch((err) => logger.error(`[nick-worker] tick error for nick=${nickId}:`, err))
+          .finally(() => scheduleNext());
+      }, next);
+    });
   };
   scheduleNext();
 
   logger.info(
-    `[nick-worker] spawned nick=${nickId} todayCount=${todayCount} ${TEST_MODE ? '(TEST mode 1min)' : '(prod 20-40min jittered)'}`,
+    `[nick-worker] spawned nick=${nickId} todayCount=${todayCount} (nhịp gửi đọc từ cấu hình Mục tiêu)`,
   );
 
   // Immediate first tick (after small jitter 1-5s) — don't wait full delay on spawn.
@@ -320,29 +337,23 @@ async function runTick(nickId: string): Promise<void> {
   if (!worker) return;
   if (worker.isBusy) return; // skip if previous tick still running
 
-  // Gate 1: working hours — đọc UNION allowedHourRange từ các Sequence của active
-  // triggers dùng nick này. Mở rộng nhất (min start, max end) để 1 nick phục vụ
-  // nhiều Sequence cấu hình giờ khác nhau (vd anh chỉnh 23h cho 1 Sequence test).
-  const activeRules = await prisma.automationSequence.findMany({
-    where: {
-      triggers: {
-        some: {
-          // Fix 2026-05-30 22:55 — bỏ filter state='active' để áp dụng giờ làm việc
-          // cho cả outbox của trigger đã completed (workflow vẫn cần welcome + bám đuổi).
-          eventType: 'friend_invite_to_list',
-          segmentSpec: { path: ['nickIds'], array_contains: nickId },
-        },
-      },
-    },
-    select: { runtimeRules: true },
-  }).catch(() => [] as Array<{ runtimeRules: unknown }>);
-  let unionStart = 24, unionEnd = 0;
-  for (const seq of activeRules) {
-    const [s, e] = getAllowedHourRange(seq.runtimeRules);
-    if (s < unionStart) unionStart = s;
-    if (e > unionEnd) unionEnd = e;
-  }
-  const effectiveRange: [number, number] = activeRules.length > 0 ? [unionStart, unionEnd] : [6, 22];
+  // Gate 1: working hours — #3 2026-06-06 (Anh chốt): ĐỌC TỪ CỘT send_hour_start/end
+  // của chính Mục tiêu (Anh nhập trên wizard), thay vì Sequence.runtimeRules như cũ
+  // (cột UI trước đây bị worker bỏ qua → ô giờ vô tác dụng). 1 nick phục vụ nhiều
+  // Mục tiêu giờ khác nhau → lấy khoảng RỘNG NHẤT (min start, max end). Không có Mục
+  // tiêu active nào → fallback 6-22h.
+  const hourRows = await prisma.$queryRaw<Array<{ min_start: number | null; max_end: number | null }>>`
+    SELECT MIN(send_hour_start) AS min_start, MAX(send_hour_end) AS max_end
+    FROM automation_triggers
+    WHERE event_type = 'friend_invite_to_list'
+      AND state = 'active'
+      AND (segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
+  `.catch(() => [] as Array<{ min_start: number | null; max_end: number | null }>);
+  const hr = hourRows[0];
+  const effectiveRange: [number, number] =
+    hr?.min_start != null && hr?.max_end != null
+      ? [Number(hr.min_start), Number(hr.max_end)]
+      : [6, 22];
   if (!isWithinWorkingHours(effectiveRange)) {
     logger.debug(`[nick-worker] ${nickId} skip tick: outside working hours ${effectiveRange[0]}-${effectiveRange[1]}h VN`);
     return;
@@ -720,12 +731,30 @@ async function runTick(nickId: string): Promise<void> {
         return;
       }
 
+      // Detect giới hạn PHÍA NICK (không phải lỗi của KH) — phải xử như soft-fail.
+      // Fix 2026-06-06 (Anh báo + verify):
+      //   - 221 "Vượt quá số request cho phép" — rate-limit tạm thời, reset theo ngày.
+      //   - 224 "...xoá bớt bạn bè / nâng cấp zBusiness" — danh bạ nick ĐẦY.
+      // Cả 2 trước đây rơi nhánh hard-fail → append failedNickIds → KH bị đánh
+      // failed_permanent OAN khi mọi nick cùng dính. Bản chất là "nick này tạm thời
+      // không gửi được", KHÔNG phải "KH này hỏng". Soft-fail: thả KH về queue cho
+      // nick KHÁC gửi; nick dính giới hạn tự bỏ lượt, hồi khi Zalo nới / admin dọn bạn.
+      const isNickLimit =
+        code === 221 || code === '221' ||
+        code === 224 || code === '224' ||
+        msg.includes('Vượt quá số request') ||
+        msg.includes('số request cho phép') ||
+        msg.includes('xoá bớt bạn bè') ||
+        msg.includes('zBusiness') ||
+        msg.includes('zalo:221') ||
+        msg.includes('zalo:224');
+
       // Distinguish RATE_LIMITED (retry) vs hard error (release pool)
-      if (code === 'RATE_LIMITED' || code === 'NOT_CONNECTED' || msg.includes('timeout')) {
+      if (code === 'RATE_LIMITED' || code === 'NOT_CONNECTED' || msg.includes('timeout') || isNickLimit) {
         // ── Sprint v3 (2026-06-03) — Sửa 2.5 + 3.8 ──
         // Anh chốt: BỎ SOFT_FAIL_CAP escalate. Nick offline thì SKIP TURN (release
         // entry về queue, tăng rateLimitCount cho metric), nick online lại sẽ pick
-        // bình thường. KHÔNG cấm nick vĩnh viễn vì lỗi tạm thời (timeout/socket).
+        // bình thường. KHÔNG cấm nick vĩnh viễn vì lỗi tạm thời (timeout/socket/221).
         // failedNickIds CHỈ append khi lỗi cứng thật (KH chặn / KH không có Zalo).
         const updated = await prisma.customerListEntry.update({
           where: { id: entry.id },
@@ -738,7 +767,7 @@ async function runTick(nickId: string): Promise<void> {
           select: { rateLimitCount: true },
         });
         logger.warn(
-          `[nick-worker] ${nickId} entry=${entry.id} soft fail (${code || 'timeout'}) count=${updated.rateLimitCount} — skip turn, KHÔNG escalate (Sprint v3): ${msg}`,
+          `[nick-worker] ${nickId} entry=${entry.id} soft fail (${isNickLimit ? 'ZALO_NICK_LIMIT_221/224' : code || 'timeout'}) count=${updated.rateLimitCount} — skip turn, KHÔNG escalate (Sprint v3): ${msg}`,
         );
       } else {
         // Hard fail — append failedNickIds

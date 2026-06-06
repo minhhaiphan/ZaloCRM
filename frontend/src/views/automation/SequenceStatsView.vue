@@ -17,30 +17,36 @@
 -->
 
 <template>
-  <div class="stats-page">
+  <div class="mkt-main stats-page">
     <!-- Page header -->
-    <div class="page-header">
+    <div class="mkt-top">
       <div>
         <div class="breadcrumb">
           <RouterLink to="/marketing/sequences">Sequences</RouterLink>
           <span class="sep">›</span>
           <span>{{ sequenceName }}</span>
         </div>
-        <h1>📊 {{ sequenceName }} — Thống kê</h1>
+        <div class="mtt">
+          <v-icon size="20">mdi-chart-box-outline</v-icon>
+          {{ sequenceName }} — Thống kê
+        </div>
       </div>
-      <button class="back-btn" @click="goBack">← Quay lại</button>
+      <button class="btn btn-ghost btn-sm" @click="goBack">
+        <v-icon size="15">mdi-arrow-left</v-icon> Quay lại
+      </button>
     </div>
 
     <!-- Loading state -->
     <div v-if="loadingOverview && !overview" class="loading-state">
-      <div class="spinner" /> Đang tải...
+      <div class="spin spinner" /> Đang tải...
     </div>
 
-    <template v-else-if="overview">
+    <div v-else-if="overview" class="mkt-body">
       <!-- Health alert banner -->
       <div v-if="healthAlerts.length > 0" class="alert-banner" :class="`alert-${healthLevel}`">
         <div class="alert-header">
-          ⚠️ Cảnh báo HEALTH ({{ healthAlerts.length }} vấn đề)
+          <v-icon size="16">mdi-alert-outline</v-icon>
+          Cảnh báo sức khoẻ ({{ healthAlerts.length }} vấn đề)
         </div>
         <ul class="alert-items">
           <li v-for="(msg, idx) in healthAlerts" :key="idx">{{ msg }}</li>
@@ -70,42 +76,42 @@
       <!-- KPI Hero row 1 -->
       <div class="kpi-grid">
         <div class="kpi-card">
-          <div class="kpi-label">📨 Đã enroll</div>
-          <div class="kpi-value">{{ formatNum(overview.enroll30d) }}</div>
+          <div class="kpi-label"><v-icon size="13">mdi-account-arrow-right-outline</v-icon> Đã enroll</div>
+          <div class="kpi-value num">{{ formatNum(overview.enroll30d) }}</div>
           <div class="kpi-sub">
-            contact <span class="delta">+{{ formatNum(overview.enroll24h) }} / 24h</span>
+            contact <span class="delta num">+{{ formatNum(overview.enroll24h) }} / 24h</span>
           </div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">▶️ Đang chạy</div>
-          <div class="kpi-value">{{ formatNum(activeCount) }}</div>
-          <div class="kpi-sub">{{ activePercent }}% — step trung bình {{ avgStep }}</div>
+          <div class="kpi-label"><v-icon size="13">mdi-play-circle-outline</v-icon> Đang chạy</div>
+          <div class="kpi-value num">{{ formatNum(activeCount) }}</div>
+          <div class="kpi-sub"><span class="num">{{ activePercent }}%</span> — step trung bình <span class="num">{{ avgStep }}</span></div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">✅ Hoàn tất</div>
-          <div class="kpi-value">{{ formatNum(overview.completedCached) }}</div>
-          <div class="kpi-sub">{{ completedPercent }}% — full path</div>
+          <div class="kpi-label"><v-icon size="13">mdi-check-circle-outline</v-icon> Hoàn tất</div>
+          <div class="kpi-value num">{{ formatNum(overview.completedCached) }}</div>
+          <div class="kpi-sub"><span class="num">{{ completedPercent }}%</span> — full path</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">❌ Bỏ dở</div>
-          <div class="kpi-value">{{ formatNum(droppedCount) }}</div>
-          <div class="kpi-sub">{{ droppedPercent }}% — skip + fail</div>
+          <div class="kpi-label"><v-icon size="13">mdi-close-circle-outline</v-icon> Bỏ dở</div>
+          <div class="kpi-value num">{{ formatNum(droppedCount) }}</div>
+          <div class="kpi-sub"><span class="num">{{ droppedPercent }}%</span> — skip + fail</div>
         </div>
       </div>
 
       <!-- KPI Hero row 2 -->
       <div class="kpi-grid row-2">
         <div class="kpi-card">
-          <div class="kpi-label">📈 Enroll mới</div>
-          <div class="kpi-value">
+          <div class="kpi-label"><v-icon size="13">mdi-trending-up</v-icon> Enroll mới</div>
+          <div class="kpi-value num">
             {{ formatNum(overview.enroll24h) }}
             <span class="unit">/ 24h</span>
           </div>
-          <div class="kpi-sub">7d: {{ formatNum(overview.enroll7d) }} · 30d: {{ formatNum(overview.enroll30d) }}</div>
+          <div class="kpi-sub">7d: <span class="num">{{ formatNum(overview.enroll7d) }}</span> · 30d: <span class="num">{{ formatNum(overview.enroll30d) }}</span></div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">💬 Tin đã gửi</div>
-          <div class="kpi-value">
+          <div class="kpi-label"><v-icon size="13">mdi-message-outline</v-icon> Tin đã gửi</div>
+          <div class="kpi-value num">
             {{ formatNum(overview.sentMessagesTotal) }}
           </div>
           <div class="kpi-sub">Tổng số tin đã gửi</div>
@@ -113,22 +119,22 @@
         <div class="kpi-card kpi-donut" v-if="outcomes">
           <div class="donut-wrap">
             <div class="donut" :style="donutStyle(outcomes.rates.replyRate)">
-              <div class="donut-value">{{ outcomes.rates.replyRate.toFixed(1) }}%</div>
+              <div class="donut-value num">{{ outcomes.rates.replyRate.toFixed(1) }}%</div>
             </div>
           </div>
           <div>
-            <div class="kpi-label">💬 Tỷ lệ Reply</div>
+            <div class="kpi-label"><v-icon size="13">mdi-message-reply-outline</v-icon> Tỷ lệ Reply</div>
             <div class="kpi-sub">
-              {{ formatNum(outcomes.reply) }} / {{ formatNum(outcomes.totalEnrolled) }} trong chuỗi
+              <span class="num">{{ formatNum(outcomes.reply) }}</span> / <span class="num">{{ formatNum(outcomes.totalEnrolled) }}</span> trong chuỗi
             </div>
           </div>
         </div>
       </div>
 
       <!-- FUNNEL section -->
-      <div class="section" v-if="funnel">
+      <div class="card card-pad section" v-if="funnel">
         <div class="section-header">
-          <span>🔻 Funnel theo bước</span>
+          <span><v-icon size="16">mdi-filter-variant</v-icon> Funnel theo bước</span>
           <span class="right">{{ rangeLabel(range) }} · Cache 60s</span>
         </div>
 
@@ -138,106 +144,107 @@
           class="funnel-row"
         >
           <div class="step-name">
-            Bước {{ step.stepIdx + 1 }}
+            Bước <span class="num">{{ step.stepIdx + 1 }}</span>
             <span class="sub" v-if="getStepLabel(step.stepIdx)">"{{ getStepLabel(step.stepIdx) }}"</span>
           </div>
           <div class="funnel-bar">
-            <div class="funnel-fill" :style="{ width: funnelPct(step) + '%' }">
+            <div class="funnel-fill num" :style="{ width: funnelPct(step) + '%' }">
               {{ formatNum(step.entered) }}
             </div>
           </div>
           <div class="funnel-stats">
-            <span>📨 Gửi: {{ formatNum(step.sent) }}</span>
-            <span>⏭ Skip: {{ formatNum(step.skipped) }} · ❌ Fail: {{ formatNum(step.failed) }}</span>
+            <span><v-icon size="12">mdi-send</v-icon> Gửi: <span class="num">{{ formatNum(step.sent) }}</span></span>
+            <span><v-icon size="12">mdi-skip-next</v-icon> Skip: <span class="num">{{ formatNum(step.skipped) }}</span> · <v-icon size="12">mdi-alert-circle-outline</v-icon> Fail: <span class="num">{{ formatNum(step.failed) }}</span></span>
           </div>
-          <div class="drop-pct" :class="dropClass(step.dropOffPct)">
+          <div class="drop-pct num" :class="dropClass(step.dropOffPct)">
             {{ step.stepIdx === 0 ? '100%' : `↓ ${step.dropOffPct}%` }}
           </div>
         </div>
       </div>
 
       <!-- OUTCOME cards -->
-      <div class="section" v-if="outcomes">
+      <div class="card card-pad section" v-if="outcomes">
         <div class="section-header">
-          <span>💬 OUTCOME (Reaction + Block + Friend)</span>
+          <span><v-icon size="16">mdi-message-outline</v-icon> Outcome (Reaction + Block + Friend)</span>
           <span class="right">Cache 5 phút</span>
         </div>
         <div class="outcome-grid">
           <div class="outcome-card">
             <div class="outcome-label">Reply rate</div>
-            <div class="outcome-icon">💬</div>
-            <div class="outcome-value">{{ outcomes.rates.replyRate.toFixed(1) }}%</div>
-            <div class="outcome-count">{{ formatNum(outcomes.reply) }} / {{ formatNum(outcomes.totalEnrolled) }}</div>
+            <div class="outcome-icon"><v-icon size="20">mdi-message-reply-outline</v-icon></div>
+            <div class="outcome-value num">{{ outcomes.rates.replyRate.toFixed(1) }}%</div>
+            <div class="outcome-count num">{{ formatNum(outcomes.reply) }} / {{ formatNum(outcomes.totalEnrolled) }}</div>
           </div>
           <div class="outcome-card">
             <div class="outcome-label">Thả tim (+)</div>
-            <div class="outcome-icon">❤️👍🌹</div>
-            <div class="outcome-value success">{{ outcomes.rates.positiveReactionRate.toFixed(1) }}%</div>
-            <div class="outcome-count">{{ formatNum(outcomes.reactionPositive) }} / {{ formatNum(outcomes.totalEnrolled) }}</div>
+            <div class="outcome-icon"><v-icon size="20">mdi-heart-outline</v-icon></div>
+            <div class="outcome-value success num">{{ outcomes.rates.positiveReactionRate.toFixed(1) }}%</div>
+            <div class="outcome-count num">{{ formatNum(outcomes.reactionPositive) }} / {{ formatNum(outcomes.totalEnrolled) }}</div>
           </div>
           <div class="outcome-card">
-            <div v-if="outcomes.rates.negativeReactionRate > 0.2" class="outcome-alert">⚠️</div>
+            <div v-if="outcomes.rates.negativeReactionRate > 0.2" class="outcome-alert"><v-icon size="11" color="white">mdi-alert</v-icon></div>
             <div class="outcome-label">Phản ứng tiêu cực</div>
-            <div class="outcome-icon">😡👎</div>
-            <div class="outcome-value" :class="outcomes.rates.negativeReactionRate > 0.2 ? 'danger' : ''">
+            <div class="outcome-icon"><v-icon size="20">mdi-emoticon-angry-outline</v-icon></div>
+            <div class="outcome-value num" :class="outcomes.rates.negativeReactionRate > 0.2 ? 'danger' : ''">
               {{ outcomes.rates.negativeReactionRate.toFixed(1) }}%
             </div>
             <div class="outcome-count">
-              {{ formatNum(outcomes.reactionNegative) }} / {{ formatNum(outcomes.totalEnrolled) }}
-              <span v-if="outcomes.rates.negativeReactionRate > 0.2"> — > 0.2% warning</span>
+              <span class="num">{{ formatNum(outcomes.reactionNegative) }} / {{ formatNum(outcomes.totalEnrolled) }}</span>
+              <span v-if="outcomes.rates.negativeReactionRate > 0.2"> — &gt; 0.2% warning</span>
             </div>
           </div>
           <div class="outcome-card">
             <div class="outcome-label">KH chặn nick</div>
-            <div class="outcome-icon">🚫</div>
-            <div class="outcome-value" :class="outcomes.rates.blockRate > 2 ? 'danger' : 'warning'">
+            <div class="outcome-icon"><v-icon size="20">mdi-cancel</v-icon></div>
+            <div class="outcome-value num" :class="outcomes.rates.blockRate > 2 ? 'danger' : 'warning'">
               {{ outcomes.rates.blockRate.toFixed(1) }}%
             </div>
-            <div class="outcome-count">
+            <div class="outcome-count num">
               {{ formatNum(outcomes.block) }} / {{ formatNum(outcomes.totalEnrolled) }}
             </div>
           </div>
         </div>
         <div v-if="outcomes.friendAccept > 0 || outcomes.friendReject > 0" class="friend-stat">
-          🤝 <strong>Friend accept rate:</strong>
-          {{ friendAcceptRate.toFixed(1) }}%
-          ({{ formatNum(outcomes.friendAccept) }} /
-          {{ formatNum(outcomes.friendAccept + outcomes.friendReject) }} lời mời)
+          <v-icon size="14">mdi-handshake-outline</v-icon> <strong>Friend accept rate:</strong>
+          <span class="num">{{ friendAcceptRate.toFixed(1) }}%</span>
+          (<span class="num">{{ formatNum(outcomes.friendAccept) }}</span> /
+          <span class="num">{{ formatNum(outcomes.friendAccept + outcomes.friendReject) }}</span> lời mời)
         </div>
       </div>
 
       <!-- HEALTH section -->
-      <div class="section" v-if="health">
+      <div class="card card-pad section" v-if="health">
         <div class="section-header">
-          <span>❤️‍🩹 HEALTH (sức khoẻ realtime)</span>
+          <span><v-icon size="16">mdi-heart-pulse</v-icon> Sức khoẻ realtime</span>
           <span class="right">30s polling · Page Visibility API</span>
         </div>
 
         <div class="health-row">
           <div class="health-stat">
             <div class="key">Worker heartbeat</div>
-            <div class="val" :class="heartbeatClass">
-              {{ health.workerHeartbeatSec >= 0 ? `✓ ${formatTimeAgo(health.workerHeartbeatSec)}` : '— never' }}
+            <div class="val num" :class="heartbeatClass">
+              <v-icon v-if="health.workerHeartbeatSec >= 0" size="13">mdi-check</v-icon>
+              {{ health.workerHeartbeatSec >= 0 ? formatTimeAgo(health.workerHeartbeatSec) : '— never' }}
             </div>
           </div>
           <div class="health-stat">
             <div class="key">Tasks kẹt</div>
-            <div class="val" :class="stuckClass">{{ health.stuckTaskCount }}</div>
+            <div class="val num" :class="stuckClass">{{ health.stuckTaskCount }}</div>
           </div>
           <div class="health-stat">
             <div class="key">Failed rate 24h</div>
-            <div class="val" :class="failedClass">{{ health.failedRate24h.toFixed(1) }}%</div>
+            <div class="val num" :class="failedClass">{{ health.failedRate24h.toFixed(1) }}%</div>
           </div>
           <div class="health-stat">
             <div class="key">Total finished 24h</div>
-            <div class="val">{{ formatNum(health.totalFinished24h) }}</div>
+            <div class="val num">{{ formatNum(health.totalFinished24h) }}</div>
           </div>
         </div>
 
         <!-- Top problem nicks -->
         <div v-if="problemNicks.length > 0" class="nick-section">
-          <div class="nick-title">🔧 Top {{ problemNicks.length }} nick có vấn đề:</div>
-          <table class="nick-table">
+          <div class="nick-title"><v-icon size="14">mdi-wrench-outline</v-icon> Top {{ problemNicks.length }} nick có vấn đề:</div>
+          <table class="tbl">
             <thead>
               <tr>
                 <th>Nick</th>
@@ -250,16 +257,16 @@
             </thead>
             <tbody>
               <tr v-for="nick in problemNicks" :key="nick.nickId">
-                <td class="nick-name">{{ nick.nickName }}</td>
-                <td>{{ nick.attempts24h }}</td>
-                <td>{{ nick.failed24h }}</td>
-                <td class="error-rate" :class="nick.errorRate >= 50 ? 'danger' : nick.errorRate >= 20 ? 'warning' : ''">
+                <td class="cell-strong">{{ nick.nickName }}</td>
+                <td class="num">{{ nick.attempts24h }}</td>
+                <td class="num">{{ nick.failed24h }}</td>
+                <td class="error-rate num" :class="nick.errorRate >= 50 ? 'danger' : nick.errorRate >= 20 ? 'warning' : ''">
                   {{ nick.errorRate.toFixed(1) }}%
                 </td>
-                <td>{{ nick.capPct.toFixed(0) }}%</td>
+                <td class="num">{{ nick.capPct.toFixed(0) }}%</td>
                 <td>
-                  <span class="status-pill" :class="nickStatusClass(nick)">
-                    {{ nick.status === 'connected' ? '✓ connected' : nick.status }}
+                  <span class="status" :class="nickStatusClass(nick)">
+                    <span class="dot"></span>{{ nick.status === 'connected' ? 'connected' : nick.status }}
                   </span>
                 </td>
               </tr>
@@ -269,7 +276,7 @@
 
         <!-- Skip breakdown -->
         <div v-if="health.skipReasonBreakdown24h.length > 0" class="nick-section">
-          <div class="nick-title">📊 Skip reason 24h (categorize):</div>
+          <div class="nick-title"><v-icon size="14">mdi-chart-donut</v-icon> Skip reason 24h (categorize):</div>
           <div
             v-for="cat in health.skipReasonBreakdown24h"
             :key="cat.category"
@@ -277,8 +284,8 @@
           >
             <div class="skip-cat-dot" :class="`cat-${cat.category}`" />
             <div class="cat-label">{{ categoryLabel(cat.category) }}</div>
-            <div class="cat-count">{{ formatNum(cat.count) }}</div>
-            <div class="cat-pct">{{ skipPct(cat.count) }}%</div>
+            <div class="cat-count num">{{ formatNum(cat.count) }}</div>
+            <div class="cat-pct num">{{ skipPct(cat.count) }}%</div>
           </div>
         </div>
       </div>
@@ -289,7 +296,7 @@
         <strong>{{ formatSyncTime(overview.countersLastSyncedAt) }}</strong>
         <a v-if="isAdmin" href="#" @click.prevent="reconcileNow">[Admin] Manual reconcile drift</a>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -510,7 +517,7 @@ function formatSyncTime(iso: string | null): string {
 function donutStyle(pct: number): Record<string, string> {
   const deg = Math.min(360, (pct / 100) * 360);
   return {
-    background: `conic-gradient(#1786be 0deg ${deg}deg, #f1f4f9 ${deg}deg 360deg)`,
+    background: `conic-gradient(var(--brand) 0deg ${deg}deg, var(--surface-3) ${deg}deg 360deg)`,
   };
 }
 
@@ -525,7 +532,7 @@ function categoryLabel(cat: string): string {
     case 'benign': return 'Benign (already_friend, no_zalo, stop_on_accept)';
     case 'throttle': return 'Throttle (giờ ngoài, gap nick, recency)';
     case 'capacity': return 'Capacity (quota_capped, cap_message)';
-    case 'config_error': return '⚠️ Config error (block_archived, rule_disabled)';
+    case 'config_error': return 'Config error (block_archived, rule_disabled)';
     default: return cat;
   }
 }
@@ -672,82 +679,65 @@ watch(sequenceId, () => {
 
 <style scoped>
 .stats-page {
-  max-width: 1366px;
-  margin: 0 auto;
-  padding: 24px;
   font-size: 13px;
-  color: #141a24;
+  color: var(--ink);
 }
-
-.page-header {
+.mkt-top > div { min-width: 0; }
+.mkt-top .mtt {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-}
-.page-header h1 {
-  margin: 4px 0 0;
-  font-size: 20px;
-  font-weight: 700;
+  gap: 8px;
+  margin-top: 2px;
 }
 .breadcrumb {
   font-size: 12px;
-  color: #6b7488;
+  color: var(--ink-3);
 }
 .breadcrumb a {
-  color: #1786be;
+  color: var(--brand);
   text-decoration: none;
 }
 .breadcrumb .sep { margin: 0 4px; }
-.back-btn {
-  padding: 8px 12px;
-  background: white;
-  border: 1px solid #cdd4e0;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-}
-.back-btn:hover { background: #f2f8fc; }
 
 .loading-state {
   text-align: center;
   padding: 64px;
-  color: #6b7488;
+  color: var(--ink-3);
 }
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #e7eaf0;
-  border-top-color: #1786be;
+  border: 3px solid var(--line);
+  border-top-color: var(--brand);
   border-radius: 50%;
   display: inline-block;
   margin-bottom: 12px;
-  animation: spin 0.8s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Alert banner */
 .alert-banner {
   border: 1px solid;
-  border-radius: 6px;
+  border-radius: var(--r-md);
   padding: 10px 14px;
   margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
+  box-shadow: var(--sh-xs);
 }
-.alert-banner.alert-red {
-  background: #fdeceb;
-  border-color: #f04438;
-  color: #f04438;
-}
-.alert-banner.alert-yellow {
-  background: #fdf3e2;
-  border-color: #f5a524;
-  color: #f5a524;
-}
-.alert-header {
+.alert-banner .alert-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 600;
   font-size: 13px;
+}
+.alert-banner.alert-red {
+  background: var(--error-soft);
+  border-color: var(--error);
+  color: var(--error);
+}
+.alert-banner.alert-yellow {
+  background: var(--warning-soft);
+  border-color: var(--warning);
+  color: var(--warning);
 }
 .alert-items {
   margin: 6px 0 0 0;
@@ -760,28 +750,28 @@ watch(sequenceId, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
-  border: 1px solid #e7eaf0;
-  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   padding: 10px 16px;
   margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
+  box-shadow: var(--sh-xs);
 }
 .range-buttons { display: flex; gap: 4px; }
 .range-btn {
   padding: 5px 12px;
-  background: white;
-  border: 1px solid #cdd4e0;
-  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
   font-size: 12px;
   cursor: pointer;
-  color: #475066;
+  color: var(--ink-2);
   font-family: inherit;
 }
 .range-btn.active {
-  background: #1786be;
-  color: white;
-  border-color: #1786be;
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
   font-weight: 600;
 }
 .toggle-system {
@@ -789,13 +779,13 @@ watch(sequenceId, () => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #475066;
+  color: var(--ink-2);
   cursor: pointer;
 }
 .toggle-system input { cursor: pointer; }
 .toggle-system small {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
 }
 
 /* KPI grid */
@@ -809,15 +799,18 @@ watch(sequenceId, () => {
   grid-template-columns: repeat(3, 1fr);
 }
 .kpi-card {
-  background: white;
-  border: 1px solid #e7eaf0;
-  border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-xs);
   padding: 12px 14px;
 }
 .kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -827,15 +820,16 @@ watch(sequenceId, () => {
   font-size: 26px;
   font-weight: 700;
   line-height: 1.1;
+  color: var(--ink);
 }
 .kpi-value .unit {
   font-size: 12px;
-  color: #6b7488;
+  color: var(--ink-3);
   font-weight: 400;
 }
 .kpi-sub {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   margin-top: 4px;
 }
 .kpi-sub .delta {
@@ -858,7 +852,7 @@ watch(sequenceId, () => {
   content: '';
   position: absolute;
   inset: 8px;
-  background: white;
+  background: var(--surface);
   border-radius: 50%;
 }
 .donut-value {
@@ -869,17 +863,12 @@ watch(sequenceId, () => {
   justify-content: center;
   font-weight: 700;
   font-size: 11px;
-  color: #141a24;
+  color: var(--ink);
   z-index: 2;
 }
 
-/* Section */
+/* Section (card) */
 .section {
-  background: white;
-  border: 1px solid #e7eaf0;
-  border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
-  padding: 16px;
   margin-bottom: 12px;
 }
 .section-header {
@@ -888,79 +877,91 @@ watch(sequenceId, () => {
   align-items: center;
   font-size: 13px;
   font-weight: 600;
+  color: var(--ink);
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #e7eaf0;
+  border-bottom: 1px solid var(--line);
+}
+.section-header > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 .section-header .right {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   font-weight: 400;
 }
 
 /* Funnel */
 .funnel-row {
   display: grid;
-  grid-template-columns: 140px 1fr 200px 80px;
+  grid-template-columns: 140px 1fr 210px 80px;
   gap: 12px;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px dashed #e7eaf0;
+  border-bottom: 1px dashed var(--line);
 }
 .funnel-row:last-child { border-bottom: none; }
 .step-name {
   font-weight: 500;
-  color: #141a24;
+  color: var(--ink);
 }
 .step-name .sub {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   font-weight: 400;
   display: block;
 }
 .funnel-bar {
   height: 24px;
-  background: #f1f4f9;
-  border-radius: 4px;
+  background: var(--surface-3);
+  border-radius: var(--r-xs);
   position: relative;
   overflow: hidden;
 }
 .funnel-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1786be, #5bb8e5);
-  border-radius: 4px;
+  background: linear-gradient(90deg, var(--brand), var(--brand-bright));
+  border-radius: var(--r-xs);
   display: flex;
   align-items: center;
   padding-left: 10px;
-  color: white;
+  color: #fff;
   font-weight: 600;
   font-size: 12px;
   transition: width 0.3s ease;
 }
 .funnel-stats {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+.funnel-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .drop-pct {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   font-size: 11px;
   font-weight: 600;
-  background: #f1f4f9;
-  color: #6b7488;
+  background: var(--surface-3);
+  color: var(--ink-3);
 }
 .drop-pct.high {
-  background: #fdeceb;
-  color: #f04438;
+  background: var(--error-soft);
+  color: var(--error);
 }
 .drop-pct.mid {
-  background: #fdf3e2;
-  color: #f5a524;
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 /* Outcome */
@@ -970,16 +971,16 @@ watch(sequenceId, () => {
   gap: 12px;
 }
 .outcome-card {
-  background: white;
-  border: 1px solid #e7eaf0;
-  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   padding: 12px;
   text-align: center;
   position: relative;
 }
 .outcome-label {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   text-transform: uppercase;
   font-weight: 600;
   margin-bottom: 6px;
@@ -988,36 +989,43 @@ watch(sequenceId, () => {
   font-size: 24px;
   font-weight: 700;
   line-height: 1;
+  color: var(--ink);
 }
-.outcome-value.danger { color: #f04438; }
+.outcome-value.danger { color: var(--error); }
 .outcome-value.success { color: #157f3c; }
-.outcome-value.warning { color: #f5a524; }
+.outcome-value.warning { color: var(--warning); }
 .outcome-count {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   margin: 4px 0 8px;
 }
 .outcome-icon {
-  font-size: 20px;
+  color: var(--ink-4);
   margin: 4px 0;
 }
 .outcome-alert {
   position: absolute;
   top: 6px;
   right: 6px;
-  background: #f04438;
-  color: white;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--error);
+  color: #fff;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
 }
 .friend-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
   margin-top: 12px;
   padding: 10px;
-  background: #e7f7ef;
+  background: var(--success-soft);
   border-left: 3px solid #157f3c;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   font-size: 12px;
 }
 
@@ -1027,66 +1035,42 @@ watch(sequenceId, () => {
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid #e7eaf0;
+  border-bottom: 1px solid var(--line);
 }
 .health-row:last-child { border-bottom: none; }
 .health-stat .key {
-  color: #6b7488;
+  color: var(--ink-3);
   font-size: 11px;
 }
 .health-stat .val {
   font-size: 16px;
   font-weight: 700;
-  color: #141a24;
+  color: var(--ink);
   margin-top: 2px;
 }
-.health-stat .val.danger { color: #f04438; }
-.health-stat .val.warning { color: #f5a524; }
+.health-stat .val.danger { color: var(--error); }
+.health-stat .val.warning { color: var(--warning); }
 .health-stat .val.success { color: #157f3c; }
 
 .nick-section { margin-top: 16px; }
 .nick-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #475066;
+  color: var(--ink-2);
   margin-bottom: 8px;
 }
-.nick-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 12px;
-}
-.nick-table th {
-  background: #f1f4f9;
-  padding: 6px 10px;
-  text-align: left;
-  font-weight: 600;
-  font-size: 11px;
-  color: #6b7488;
-  text-transform: uppercase;
-  border-bottom: 1px solid #e7eaf0;
-}
-.nick-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #e7eaf0;
-}
-.nick-table .nick-name {
-  font-weight: 600;
-  color: #141a24;
-}
-.error-rate.danger { color: #f04438; font-weight: 600; }
-.error-rate.warning { color: #f5a524; font-weight: 600; }
-.status-pill {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-}
-.status-pill.connected { background: #e7f7ef; color: #157f3c; }
-.status-pill.warning { background: #fdf3e2; color: #f5a524; }
-.status-pill.danger { background: #fdeceb; color: #f04438; }
+.nick-section .tbl { margin-top: 8px; }
+.error-rate.danger { color: var(--error); font-weight: 600; }
+.error-rate.warning { color: var(--warning); font-weight: 600; }
+.status.connected { color: #157f3c; }
+.status.connected .dot { background: var(--success); }
+.status.warning { color: var(--warning); }
+.status.warning .dot { background: var(--warning); }
+.status.danger { color: var(--error); }
+.status.danger .dot { background: var(--error); }
 
 /* Skip breakdown */
 .skip-breakdown-row {
@@ -1094,7 +1078,7 @@ watch(sequenceId, () => {
   gap: 12px;
   align-items: center;
   padding: 6px 0;
-  border-bottom: 1px dashed #e7eaf0;
+  border-bottom: 1px dashed var(--line);
 }
 .skip-breakdown-row:last-child { border-bottom: none; }
 .skip-cat-dot {
@@ -1103,15 +1087,15 @@ watch(sequenceId, () => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.skip-cat-dot.cat-benign { background: #6b7488; }
-.skip-cat-dot.cat-throttle { background: #f5a524; }
-.skip-cat-dot.cat-capacity { background: #5b21b6; }
-.skip-cat-dot.cat-config_error { background: #f04438; }
+.skip-cat-dot.cat-benign { background: var(--ink-3); }
+.skip-cat-dot.cat-throttle { background: var(--warning); }
+.skip-cat-dot.cat-capacity { background: var(--chip-purple); }
+.skip-cat-dot.cat-config_error { background: var(--error); }
 .cat-label { flex: 1; font-size: 12px; }
-.cat-count { font-weight: 600; color: #141a24; }
+.cat-count { font-weight: 600; color: var(--ink); }
 .cat-pct {
   font-size: 11px;
-  color: #6b7488;
+  color: var(--ink-3);
   min-width: 40px;
   text-align: right;
 }
@@ -1119,13 +1103,13 @@ watch(sequenceId, () => {
 /* Footer */
 .footer-note {
   text-align: center;
-  color: #6b7488;
+  color: var(--ink-3);
   font-size: 11px;
   margin-top: 16px;
 }
-.footer-note strong { color: #475066; }
+.footer-note strong { color: var(--ink-2); }
 .footer-note a {
-  color: #1786be;
+  color: var(--brand);
   margin-left: 8px;
   text-decoration: none;
 }
