@@ -105,8 +105,11 @@ export const config = {
   /* --- Phase 2 token hardening 2026-06-08 --- */
   // Access token sống ngắn (chuỗi @fastify/jwt expiresIn). Mất token chỉ dùng được vài phút.
   accessTokenTtl: envValue('ACCESS_TOKEN_TTL') || '15m',
-  // Refresh token sống dài (ms). Mặc định 30 ngày.
+  // Refresh token sống dài (ms) — sliding mỗi lần xoay. Mặc định 30 ngày.
   refreshTokenTtlMs: parseInt(envValue('REFRESH_TOKEN_TTL_MS') || String(30 * 24 * 60 * 60 * 1000)),
+  // Tuổi thọ TUYỆT ĐỐI của một family (ms) — session không xoay quá hạn này dù
+  // rotate liên tục. Chống refresh token đánh cắp sống vĩnh viễn. Mặc định 90 ngày.
+  refreshFamilyMaxMs: parseInt(envValue('REFRESH_FAMILY_MAX_MS') || String(90 * 24 * 60 * 60 * 1000)),
   // Grace window (ms) hấp thụ race đa tab: token vừa xoay trong cửa sổ này bị
   // gửi lại -> cấp token mới cùng family thay vì coi là reuse (đá session oan).
   refreshGraceMs: parseInt(envValue('REFRESH_GRACE_MS') || '20000'),

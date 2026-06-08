@@ -13,6 +13,7 @@ import type { Server, Socket } from 'socket.io';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { getSocketAuth } from '../../shared/realtime/socket-auth.js';
+import { withTenant } from '../../shared/tenant/tenant-context.js';
 
 export function registerZaloSocketHandlers(io: Server): void {
   io.on('connection', (socket: Socket) => {
@@ -28,10 +29,14 @@ export function registerZaloSocketHandlers(io: Server): void {
       const ctx = getSocketAuth(socket);
       if (!ctx) return; // chưa auth → bỏ qua (io.use lẽ ra đã chặn)
       try {
-        const account = await prisma.zaloAccount.findUnique({
-          where: { id: data.accountId },
-          select: { orgId: true },
-        });
+        // Bọc withTenant: socket chạy ngoài request context — cần scope tenant
+        // tường minh để qua tenant-guard khi bật enforce (Phase 1a).
+        const account = await withTenant(ctx.orgId, () =>
+          prisma.zaloAccount.findUnique({
+            where: { id: data.accountId },
+            select: { orgId: true },
+          }),
+        );
         // IDOR guard: account không tồn tại hoặc khác org → từ chối join.
         if (!account || account.orgId !== ctx.orgId) {
           logger.warn(

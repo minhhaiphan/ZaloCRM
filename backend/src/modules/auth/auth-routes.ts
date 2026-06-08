@@ -103,6 +103,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         const rotated = await rotateRefreshToken(raw, deviceMeta(request));
         const payload = await buildAccessPayload(rotated.userId);
         const token = signAccess(app, payload);
+        auditSecurityAsync({
+          action: 'refresh_rotate',
+          orgId: payload.orgId,
+          userId: rotated.userId,
+          details: { ip: request.ip },
+        });
         return { token, refreshToken: rotated.token, user: payload };
       } catch (err) {
         if (err instanceof RefreshReuseError) {
