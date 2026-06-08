@@ -23,8 +23,11 @@ export async function authMiddleware(
   const claim = request.user;
   if (claim?.id) {
     // Check token version — revoke JWT khi đổi password / admin reset.
-    // Optimization: chỉ query DB nếu token có claim 'tv' (mới). Token cũ không có tv → skip.
-    if (typeof claim.tv === 'number') {
+    // Phase 2 (10A): ACCESS token ngắn (typ:'access', 15') BỎ check tv mỗi request
+    //   → không +1 DB roundtrip mỗi API call; thu hồi enforce ở bước /auth/refresh.
+    //   Token bị lộ chỉ sống tối đa 15' (revocation SLA ≤15').
+    // Legacy 7d (không có typ): GIỮ check tv để backward-compat (4A).
+    if (claim.typ !== 'access' && typeof claim.tv === 'number') {
       // runSystemQuery: lookup user để verify token chạy TRƯỚC khi có tenant
       // context → bypass tenant-guard hợp lệ (Phase 1a).
       const dbUser = await runSystemQuery(() =>

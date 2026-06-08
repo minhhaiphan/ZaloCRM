@@ -22,6 +22,31 @@ export interface JwtPayload {
   tv: number;
 }
 
+/**
+ * Phase 2 2026-06-08 — dựng JwtPayload từ userId, dùng cho /auth/refresh (sau khi
+ * xoay refresh token thì cấp access token mới). Throw nếu user không tồn tại / bị khoá.
+ */
+export async function buildAccessPayload(userId: string): Promise<JwtPayload> {
+  const user = await runSystemQuery(() =>
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, phone: true, role: true, orgId: true, jwtTokenVersion: true, isActive: true },
+    }),
+  );
+  if (!user || !user.isActive) {
+    const err = new Error('Tài khoản không tồn tại hoặc đã bị khoá') as Error & { statusCode: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return {
+    id: user.id,
+    email: user.email ?? user.phone ?? user.id,
+    role: user.role,
+    orgId: user.orgId,
+    tv: user.jwtTokenVersion,
+  };
+}
+
 // Check if any users exist — true means first-run setup is needed
 export async function checkSetupStatus(): Promise<{ needsSetup: boolean }> {
   // runSystemQuery: chạy trước khi có org nào → bypass tenant-guard (Phase 1a).

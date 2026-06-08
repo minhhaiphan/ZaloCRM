@@ -33,11 +33,17 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data.needsSetup;
   }
 
+  // Phase 2 token hardening 2026-06-08 — lưu access + refresh token.
+  function persistTokens(accessToken: string, refreshToken?: string) {
+    token.value = accessToken;
+    localStorage.setItem('token', accessToken);
+    if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+  }
+
   async function setup(data: { orgName: string; fullName: string; email: string; password: string }) {
     const res = await api.post('/setup', data);
-    token.value = res.data.token;
     user.value = res.data.user;
-    localStorage.setItem('token', res.data.token);
+    persistTokens(res.data.token, res.data.refreshToken);
   }
 
   // Phase Onboarding v1 2026-05-24 — identifier accept cả email vừa phone
@@ -45,9 +51,8 @@ export const useAuthStore = defineStore('auth', () => {
     // BE expect field 'email' nhưng accept cả phone — gửi raw identifier qua field email
     // để backward-compat (BE auto-detect '@' hoặc digit-only).
     const res = await api.post('/auth/login', { email: identifier, password });
-    token.value = res.data.token;
     user.value = res.data.user;
-    localStorage.setItem('token', res.data.token);
+    persistTokens(res.data.token, res.data.refreshToken);
   }
 
   async function fetchProfile() {
@@ -74,9 +79,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // Revoke refresh token family phía server (fire-and-forget — không chặn UI).
+    const rt = localStorage.getItem('refreshToken');
+    if (rt) api.post('/auth/logout', { refreshToken: rt }).catch(() => {});
     token.value = '';
     user.value = null;
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
   }
 
   async function init() {

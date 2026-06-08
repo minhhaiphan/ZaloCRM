@@ -101,4 +101,13 @@ export const config = {
     const v = (envValue('TENANT_GUARD_MODE') || 'off').toLowerCase();
     return v === 'warn' || v === 'enforce' ? v : 'off';
   })() as 'off' | 'warn' | 'enforce',
+
+  /* --- Phase 2 token hardening 2026-06-08 --- */
+  // Access token sống ngắn (chuỗi @fastify/jwt expiresIn). Mất token chỉ dùng được vài phút.
+  accessTokenTtl: envValue('ACCESS_TOKEN_TTL') || '15m',
+  // Refresh token sống dài (ms). Mặc định 30 ngày.
+  refreshTokenTtlMs: parseInt(envValue('REFRESH_TOKEN_TTL_MS') || String(30 * 24 * 60 * 60 * 1000)),
+  // Grace window (ms) hấp thụ race đa tab: token vừa xoay trong cửa sổ này bị
+  // gửi lại -> cấp token mới cùng family thay vì coi là reuse (đá session oan).
+  refreshGraceMs: parseInt(envValue('REFRESH_GRACE_MS') || '20000'),
 };
