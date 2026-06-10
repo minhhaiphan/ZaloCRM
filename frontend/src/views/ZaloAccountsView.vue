@@ -44,17 +44,16 @@
           ({{ privacyCounter.used }}/{{ privacyCounter.max }})
         </span>
       </button>
+      <!-- GỠ 2026-06-10 (CEO-review): tab "Sửa nick nhận thông báo" (setup thủ công)
+           đã bỏ — gây bug gửi nhầm UID. Nick nhận giờ chỉ đến từ luồng tạo user bằng SĐT
+           + Check Live ở trang Thông báo hệ thống. Ẩn nút, không cho vào tab. -->
       <button
-        v-if="canManageZalo"
+        v-if="false"
         class="za-tab"
         :class="{ active: activeTab === 'internal-contact' }"
         @click="setTab('internal-contact')"
-        title="Chỉ admin/owner — sale không truy cập tab này. Dùng để sửa nick nhận thông báo sau khi đã tạo user."
       >
         🏠 Sửa nick nhận thông báo
-        <span v-if="internalContactBadge" class="za-tab-counter" :class="{ full: !internalContactReady }">
-          {{ internalContactBadge }}
-        </span>
       </button>
     </div>
 
@@ -327,8 +326,10 @@ const reconnectingIds = ref<Set<string>>(new Set());
 // RBAC 2026-06-08 — quản lý nick + sửa liên lạc nội bộ của sale theo grants 'zalo_account.edit'
 // (owner/admin tự bypass). Thay cho check legacy role.
 const canManageZalo = computed(() => authStore.canAccess('zalo_account', 'edit'));
+// GỠ 2026-06-10 (CEO-review): bỏ 'internal-contact' khỏi tab hợp lệ — URL hack
+// ?tab=internal-contact sẽ rơi về 'manage'. Cơ chế setup thủ công đã gỡ.
 type TabKey = 'manage' | 'privacy' | 'internal-contact';
-const VALID_TABS: TabKey[] = ['manage', 'privacy', 'internal-contact'];
+const VALID_TABS: TabKey[] = ['manage', 'privacy'];
 const activeTab = ref<TabKey>(VALID_TABS.includes(route.query.tab as TabKey) ? (route.query.tab as TabKey) : 'manage');
 function setTab(t: TabKey) {
   activeTab.value = t;

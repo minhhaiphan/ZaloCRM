@@ -211,6 +211,23 @@
          Zalo render LIVE đã nằm ngay trong tab "Tin chào mừng". -->
 
 
+    <div class="d-flex align-center justify-space-between mb-2 px-1">
+      <div class="text-caption text-medium-emphasis">
+        Check Live: nick gửi tìm SĐT nhân viên → xác minh UID đúng người. Đổi nick gửi thì bấm "Check hàng loạt".
+      </div>
+      <v-btn
+        size="small"
+        color="primary"
+        variant="tonal"
+        :loading="recheckingAll"
+        :disabled="!senderId || recheckingAll"
+        prepend-icon="mdi-refresh"
+        @click="recheckAll"
+      >
+        Check hàng loạt
+      </v-btn>
+    </div>
+
     <v-card variant="outlined" class="notify-card">
       <v-table density="comfortable" class="recipient-table">
         <thead>
@@ -259,11 +276,12 @@
               <v-btn
                 size="small"
                 variant="tonal"
+                color="primary"
                 :loading="lookupUserId === row.user.id"
                 :disabled="!canLookup(row)"
                 @click="lookupUid(row)"
               >
-                Tìm UID
+                Check Live
               </v-btn>
             </td>
           </tr>
@@ -434,6 +452,85 @@
       </v-window-item>
     </v-window>
 
+    <!-- Popup kết quả Check Live (2026-06-10) -->
+    <v-dialog v-model="checkLiveDialog" max-width="480">
+      <v-card v-if="checkLiveResult" class="pa-2">
+        <v-card-title class="d-flex align-center ga-2">
+          <template v-if="checkLiveResult.verdict === 'pass'">
+            <v-icon color="success">mdi-check-circle</v-icon> UID đúng
+          </template>
+          <template v-else-if="checkLiveResult.verdict === 'updated'">
+            <v-icon color="info">mdi-autorenew</v-icon> Đã cập nhật UID mới
+          </template>
+          <template v-else-if="checkLiveResult.verdict === 'name_mismatch'">
+            <v-icon color="error">mdi-alert</v-icon> Cảnh báo: UID lệch người
+          </template>
+          <template v-else>
+            <v-icon color="warning">mdi-account-question</v-icon> Không tìm thấy Zalo
+          </template>
+        </v-card-title>
+        <v-card-text>
+          <div class="mb-2"><strong>Nhân viên:</strong> {{ checkLiveResult.userName }}</div>
+          <div v-if="checkLiveResult.verdict === 'pass'" class="text-success">
+            UID khớp đúng người (<strong>{{ checkLiveResult.zaloName }}</strong>). Sẵn sàng nhận thông báo.
+          </div>
+          <div v-else-if="checkLiveResult.verdict === 'updated'">
+            <div class="text-info mb-1">UID đã thay đổi và được cập nhật lại cho đúng.</div>
+            <div class="text-caption">UID cũ: <code>{{ checkLiveResult.previousUid || '—' }}</code></div>
+            <div class="text-caption">UID mới: <code>{{ checkLiveResult.uid }}</code> (<strong>{{ checkLiveResult.zaloName }}</strong>)</div>
+          </div>
+          <div v-else-if="checkLiveResult.verdict === 'name_mismatch'" class="text-error">
+            UID tìm được trỏ tới <strong>"{{ checkLiveResult.zaloName }}"</strong> — KHÔNG khớp nhân viên
+            <strong>"{{ checkLiveResult.userName }}"</strong>. Đã CHẶN để tránh gửi nhầm.
+            Kiểm tra lại SĐT nhân viên hoặc danh bạ nick gửi.
+          </div>
+          <div v-else class="text-warning">
+            {{ checkLiveResult.error || 'SĐT này không có tài khoản Zalo.' }}
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="checkLiveDialog = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Popup kết quả Check hàng loạt -->
+    <v-dialog v-model="recheckAllDialog" max-width="560">
+      <v-card v-if="recheckAllResult" class="pa-2">
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon color="primary">mdi-refresh</v-icon> Kết quả check hàng loạt
+        </v-card-title>
+        <v-card-text>
+          <div class="d-flex flex-wrap ga-2 mb-3">
+            <v-chip size="small" color="success" variant="tonal">✅ Đúng: {{ recheckAllResult.summary.ready || 0 }}</v-chip>
+            <v-chip size="small" color="info" variant="tonal">🔄 Đã đổi UID: {{ recheckAllResult.summary.updated || 0 }}</v-chip>
+            <v-chip size="small" color="error" variant="tonal">⚠️ Lệch người: {{ recheckAllResult.summary.mismatch || 0 }}</v-chip>
+            <v-chip size="small" color="warning" variant="tonal">Không Zalo: {{ recheckAllResult.summary.no_zalo || 0 }}</v-chip>
+            <v-chip size="small" variant="tonal">Lỗi tra: {{ recheckAllResult.summary.failed || 0 }}</v-chip>
+          </div>
+          <div v-if="recheckAllResult.changes.length" class="text-caption text-medium-emphasis mb-1">Thay đổi đáng chú ý:</div>
+          <v-list v-if="recheckAllResult.changes.length" density="compact">
+            <v-list-item v-for="(c, i) in recheckAllResult.changes" :key="i">
+              <template #prepend>
+                <v-icon size="small" :color="c.verdict === 'updated' ? 'info' : 'error'">
+                  {{ c.verdict === 'updated' ? 'mdi-autorenew' : 'mdi-alert' }}
+                </v-icon>
+              </template>
+              <v-list-item-title class="text-body-2">
+                {{ c.userName }} → {{ c.verdict === 'updated' ? 'cập nhật UID mới' : 'LỆCH người' }} ({{ c.zaloName }})
+              </v-list-item-title>
+            </v-list-item>
+          </v-list>
+          <div v-else class="text-success text-body-2">Tất cả UID đã đúng, không có thay đổi.</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="recheckAllDialog = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Panel chi tiết tin -->
     <v-dialog v-model="showLogDetail" max-width="560">
       <v-card v-if="detailLog" class="pa-1">
@@ -503,6 +600,7 @@ interface RecipientRow {
     id: string;
     fullName: string;
     email: string;
+    phone?: string | null;
     role: string;
     departmentMember: { deptRole: string | null; department: { id: string; name: string; path: string } | null } | null;
     permissionGroup: { id: string; name: string; isSystem: boolean } | null;
@@ -757,34 +855,72 @@ async function saveSender(value: unknown) {
   }
 }
 
+// Check Live (2026-06-10): nút chỉ cần user CÓ SĐT (bỏ phụ thuộc nick nội bộ cũ).
 function canLookup(row: RecipientRow) {
-  return Boolean(senderId.value && row.internalContactNick?.id && row.internalContactNick?.phone && lookupUserId.value !== row.user.id);
+  return Boolean(senderId.value && row.user.phone && lookupUserId.value !== row.user.id);
 }
+
+// Popup kết quả Check Live
+const checkLiveDialog = ref(false);
+const checkLiveResult = ref<{
+  verdict: string; userName: string; zaloName: string | null;
+  uid: string | null; previousUid: string | null; changed: boolean; error: string | null;
+} | null>(null);
 
 async function lookupUid(row: RecipientRow) {
   lookupUserId.value = row.user.id;
   lookupError.value = '';
   lookupSuccess.value = '';
   try {
-    const { data } = await api.post(`/system-notifications/recipients/${row.user.id}/lookup-uid`);
+    const { data } = await api.post(`/system-notifications/recipients/${row.user.id}/check-live`);
     const recipient = data.recipient;
     if (recipient) {
       row.recipient = {
         id: recipient.id,
         status: recipient.status,
         error: recipient.error,
-        conversationId: recipient.conversationId,
+        conversationId: recipient.conversationId ?? row.recipient.conversationId,
         threadIdInSenderView: recipient.threadIdInSenderView,
         lastVerifiedAt: recipient.lastVerifiedAt,
       };
     }
-    lookupSuccess.value = data.found ? `Đã lưu UID cho ${row.user.fullName}` : `Chưa tìm thấy UID cho ${row.user.fullName}`;
+    // Mở popup báo admin kết quả (đúng/đổi UID/lệch tên/không có Zalo)
+    checkLiveResult.value = {
+      verdict: data.verdict,
+      userName: data.userName ?? row.user.fullName,
+      zaloName: data.zaloName ?? null,
+      uid: data.uid ?? null,
+      previousUid: data.previousUid ?? null,
+      changed: Boolean(data.changed),
+      error: data.error ?? null,
+    };
+    checkLiveDialog.value = true;
     await fetchRecipients();
   } catch (err: any) {
-    lookupError.value = err?.response?.data?.error || 'Lỗi tìm UID';
+    lookupError.value = err?.response?.data?.error || 'Lỗi Check Live';
     await fetchRecipients();
   } finally {
     lookupUserId.value = null;
+  }
+}
+
+// Check hàng loạt khi đổi nick gửi
+const recheckingAll = ref(false);
+const recheckAllResult = ref<{ summary: Record<string, number>; changes: Array<{ userName: string | null; verdict: string; zaloName: string | null }> } | null>(null);
+const recheckAllDialog = ref(false);
+
+async function recheckAll() {
+  recheckingAll.value = true;
+  lookupError.value = '';
+  try {
+    const { data } = await api.post('/system-notifications/recipients/recheck-all');
+    recheckAllResult.value = { summary: data.summary, changes: data.changes ?? [] };
+    recheckAllDialog.value = true;
+    await fetchRecipients();
+  } catch (err: any) {
+    lookupError.value = err?.response?.data?.error || 'Lỗi check hàng loạt';
+  } finally {
+    recheckingAll.value = false;
   }
 }
 

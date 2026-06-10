@@ -360,9 +360,8 @@ async function bootstrap() {
       const { startAutoTagsAggregateCron } = await import('./modules/tags/contact-autotags-dirty.js');
       startAutoTagsAggregateCron();
     }
-    // Phase Internal Contact 2-method 2026-05-23 — cleanup pending handshake > 7 ngày (3am daily)
-    const { startInternalContactCleanupCron } = await import('./modules/system-notifications/internal-contact-service.js');
-    startInternalContactCleanupCron();
+    // XÓA 2026-06-10 (CEO-review): cron cleanup handshake pending — cơ chế setup nick
+    // nội bộ thủ công đã gỡ bỏ (gây bug gửi nhầm UID). Không còn handshake pending để dọn.
     // Phase Lead Pool 2026-05-24 — auto-return expired leads 2am daily
     startLeadPoolCron();
     // Phase Multi-Source Lead Ads 2026-05-27 — outbox worker (LISTEN/NOTIFY + 30s poll)
