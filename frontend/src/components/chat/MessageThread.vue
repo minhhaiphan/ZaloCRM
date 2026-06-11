@@ -670,6 +670,20 @@
           @created="onAppointmentCreated"
         />
 
+        <!-- Gợi ý ảnh kho theo ngữ cảnh khách (GĐ3a-4) -->
+        <div v-if="mediaSuggestions.length" class="media-suggest-bar">
+          <span class="ms-label">✨ Gợi ý ảnh dự án:</span>
+          <button
+            v-for="a in mediaSuggestions" :key="a.id"
+            class="ms-chip" :disabled="sendingSuggestId === a.id"
+            :title="'Gửi: ' + a.name"
+            @click="sendSuggestion(a)"
+          >
+            <img v-if="a.thumbnailUrl" :src="a.thumbnailUrl" alt="" />
+            <span class="ms-name">{{ a.name }}</span>
+          </button>
+        </div>
+
         <!-- Picker chèn ảnh từ Kho phương tiện (GĐ2) -->
         <MediaPickerPopover
           v-if="showMediaPicker && conversation?.id"
@@ -816,7 +830,7 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
-import { saveFromChat } from '@/api/media';
+import { saveFromChat, suggestMedia, sendMediaToConversation, type MediaAssetItem } from '@/api/media';
 import MediaPickerPopover from '@/components/media/MediaPickerPopover.vue';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
@@ -1247,6 +1261,7 @@ watch(() => props.conversation?.id, (newId, oldId) => {
     void touchAccountSync(accId, threadId);
     void touchConversationProfile(newId);  // refresh contact profile from SDK
   }
+  void loadMediaSuggestions(); // gợi ý ảnh kho theo tag khách (GĐ3a-4)
 }, { immediate: true });
 
 /* Optimistic UI FULL: update cả allLabels (dropdown ✓) + friendship.crmTagsPerNick
@@ -2056,6 +2071,31 @@ async function onSendSticker(sticker: { id: number; catId: number; type: number 
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const showMediaPicker = ref(false); // picker chèn ảnh từ Kho (GĐ2)
+// Gợi ý ảnh theo ngữ cảnh (GĐ3a-4): match tag khách với tag ảnh kho.
+const mediaSuggestions = ref<MediaAssetItem[]>([]);
+const sendingSuggestId = ref<string | null>(null);
+async function loadMediaSuggestions() {
+  mediaSuggestions.value = [];
+  const cid = props.conversation?.id;
+  if (!cid) return;
+  try {
+    const res = await suggestMedia(cid);
+    mediaSuggestions.value = res.items;
+  } catch { /* im lặng — gợi ý là phụ */ }
+}
+async function sendSuggestion(a: MediaAssetItem) {
+  if (sendingSuggestId.value) return;
+  sendingSuggestId.value = a.id;
+  try {
+    await sendMediaToConversation(a.id, props.conversation!.id);
+    toast.success(`Đã gửi "${a.name}"`);
+    mediaSuggestions.value = mediaSuggestions.value.filter((x) => x.id !== a.id);
+  } catch (e: any) {
+    toast.warning(e?.response?.data?.error || 'Gửi thất bại');
+  } finally {
+    sendingSuggestId.value = null;
+  }
+}
 const dragDepth = ref(0);
 const isDraggingFiles = ref(false);
 
@@ -3710,4 +3750,20 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
 .manage-icon { font-size: 14px; }
+
+/* Dải gợi ý ảnh kho theo ngữ cảnh (GĐ3a-4) */
+.media-suggest-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 12px; margin: 0 0 6px; background: #a8d8c4; border: 1px solid #8fc7af;
+  border-radius: 10px; font-size: 12.5px;
+}
+.media-suggest-bar .ms-label { color: #0a2e0e; font-weight: 500; flex-shrink: 0; }
+.ms-chip {
+  display: inline-flex; align-items: center; gap: 6px; background: #fff;
+  border: 1px solid #8fc7af; border-radius: 9999px; padding: 3px 10px 3px 3px;
+  cursor: pointer; font-size: 12px; color: #181d26; max-width: 180px;
+}
+.ms-chip:disabled { opacity: .6; cursor: default; }
+.ms-chip img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.ms-chip .ms-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

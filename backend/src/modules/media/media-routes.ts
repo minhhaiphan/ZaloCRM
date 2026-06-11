@@ -494,4 +494,59 @@ export async function mediaRoutes(app: FastifyInstance) {
       return { folder: { id: folder.id, name: folder.name } };
     },
   );
+
+  // ── GET /api/v1/media/suggest?conversationId= — gợi ý ảnh theo NGỮ CẢNH (GĐ3a-4)
+  // Match MediaAsset.tagIds với tag/dự án của Contact đang chat. Chỉ ảnh CÔNG KHAI
+  // hoặc CỦA CHÍNH sale (không lộ ảnh riêng tư người khác — privacy).
+  app.get(
+    '/api/v1/media/suggest',
+    { preHandler: requireGrant('media', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const q = request.query as { conversationId?: string };
+      if (!q.conversationId) return { items: [], matchedTags: [] };
+
+      const conv = await prisma.conversation.findFirst({
+        where: { id: q.conversationId, orgId: user.orgId },
+        include: { contact: { select: { tags: true, autoTags: true } } },
+      });
+      if (!conv?.contact) return { items: [], matchedTags: [] };
+
+      // Gom tag khách (manual + auto, lowercase). Bỏ prefix 'auto:'.
+      const raw = [
+        ...(Array.isArray(conv.contact.tags) ? conv.contact.tags : []),
+        ...(Array.isArray(conv.contact.autoTags) ? conv.contact.autoTags : []),
+      ].map((t) => String(t).replace(/^auto:/, '').trim().toLowerCase()).filter(Boolean);
+      const custTags = [...new Set(raw)];
+      if (custTags.length === 0) return { items: [], matchedTags: [] };
+
+      // Ảnh kho có tagIds giao với tag khách + (public HOẶC của mình) + chưa archive.
+      const assets = await prisma.mediaAsset.findMany({
+        where: {
+          orgId: user.orgId,
+          archivedAt: null,
+          kind: 'image',
+          OR: [{ visibility: 'public' }, { ownerUserId: userId }],
+        },
+        orderBy: [{ usageCount: 'desc' }],
+        take: 50,
+        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
+      });
+
+      // Lọc app-side: asset có ÍT NHẤT 1 tag khớp tag khách (so lowercase).
+      const matched = assets
+        .map((a) => ({ a, hits: a.tagIds.filter((t) => custTags.includes(t.toLowerCase())) }))
+        .filter((x) => x.hits.length > 0)
+        .slice(0, 8);
+
+      const items = matched.map(({ a }) => ({
+        id: a.id, name: a.name, kind: a.kind,
+        url: a.blobs[0]?.publicUrl ?? null,
+        thumbnailUrl: a.thumbnailUrl ?? a.blobs[0]?.publicUrl ?? null,
+        tagIds: a.tagIds,
+      }));
+      return { items, matchedTags: [...new Set(matched.flatMap((m) => m.hits))] };
+    },
+  );
 }

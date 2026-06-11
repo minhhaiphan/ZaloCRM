@@ -104,6 +104,14 @@ export async function listMediaFolders(): Promise<MediaFolder[]> {
   return data.folders as MediaFolder[];
 }
 
+/** Gợi ý ảnh theo ngữ cảnh hội thoại (match tag khách). */
+export async function suggestMedia(
+  conversationId: string,
+): Promise<{ items: MediaAssetItem[]; matchedTags: string[] }> {
+  const { data } = await api.get('/media/suggest', { params: { conversationId } });
+  return data;
+}
+
 /** Tạo thư mục. */
 export async function createMediaFolder(
   name: string,
