@@ -307,13 +307,22 @@
                 >
                   <div class="bed-media-row">
                     <label class="bed-field-label">URL</label>
-                    <input
-                      v-model="(c as any).url"
-                      type="text"
-                      class="bed-input"
-                      placeholder="https://..."
-                      @input="markDirty"
-                    />
+                    <div style="display:flex; gap:6px; flex:1;">
+                      <input
+                        v-model="(c as any).url"
+                        type="text"
+                        class="bed-input"
+                        placeholder="Chọn từ Kho hoặc dán https://..."
+                        style="flex:1;"
+                        @input="markDirty"
+                      />
+                      <button class="bed-add-btn" type="button" style="white-space:nowrap;" @click="openMediaPicker(idx)">
+                        <v-icon size="14">mdi-image-multiple-outline</v-icon> Chọn từ Kho
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="(c as any).url" class="bed-media-row">
+                    <img :src="(c as any).url" alt="" style="max-height:70px; border:1px solid #ddd; border-radius:6px; object-fit:contain;" />
                   </div>
                   <div v-if="c.kind === 'file'" class="bed-media-row">
                     <label class="bed-field-label">Tên file</label>
@@ -353,7 +362,10 @@
                     />
                     <button class="bed-comp-x" @click="removeAlbumItemOf(idx, i as number)"><v-icon size="13">mdi-close</v-icon></button>
                   </div>
-                  <button class="bed-add-btn" @click="addAlbumItemOf(idx)">+ Thêm ảnh</button>
+                  <div style="display:flex; gap:6px;">
+                    <button class="bed-add-btn" @click="addAlbumItemOf(idx)">+ Thêm URL</button>
+                    <button class="bed-add-btn" @click="openMediaPicker(idx, true)"><v-icon size="13">mdi-image-multiple-outline</v-icon> Chọn từ Kho</button>
+                  </div>
                 </div>
               </div>
 
@@ -505,6 +517,14 @@
 
       <div v-if="error" class="bed-error">{{ error }}</div>
     </div>
+
+    <!-- Media GĐ3: dialog chọn ảnh từ Kho phương tiện -->
+    <MediaPickerDialog
+      v-if="mediaPickerFor"
+      :multiple="mediaPickerFor.album"
+      @pick="onMediaPicked"
+      @close="mediaPickerFor = null"
+    />
   </v-dialog>
 </template>
 
@@ -513,6 +533,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { blocksApi } from '@/api/automation';
 import { type Block, type BlockFolder, type BlockActionType } from '@/api/automation/types';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
+import MediaPickerDialog from '@/components/media/MediaPickerDialog.vue';
 import { useAuthStore } from '@/stores/auth';
 
 // ── Zalo rich-format render (COPY từ chat/special-message-renderer.vue 2026-06-06) ──
@@ -928,6 +949,30 @@ function removeAlbumItemOf(compIdx: number, i: number) {
   if (c?.kind !== 'album') return;
   (c as AlbumComponent).items?.splice(i, 1);
   markDirty();
+}
+
+// Media GĐ3: chèn ảnh từ Kho phương tiện vào component (thay vì dán URL tay).
+const mediaPickerFor = ref<{ compIdx: number; album: boolean } | null>(null);
+function openMediaPicker(compIdx: number, album = false) {
+  mediaPickerFor.value = { compIdx, album };
+}
+function onMediaPicked(assets: Array<{ id: string; url: string | null; name: string }>) {
+  const target = mediaPickerFor.value;
+  if (!target) return;
+  const c = components.value[target.compIdx] as any;
+  if (!c) return;
+  if (target.album && c.kind === 'album') {
+    if (!c.items) c.items = [];
+    for (const a of assets) {
+      if (a.url && c.items.length < 10) c.items.push({ url: a.url, mediaAssetId: a.id });
+    }
+  } else if (assets[0]?.url) {
+    // single: set url + mediaAssetId (engine resolve url; mediaAssetId để đếm dùng GĐ4).
+    c.url = assets[0].url;
+    c.mediaAssetId = assets[0].id;
+  }
+  markDirty();
+  mediaPickerFor.value = null;
 }
 
 // Tags — nhập inline ngay tại UI (anh chốt 2026-06-08, KHÔNG prompt() Chrome).

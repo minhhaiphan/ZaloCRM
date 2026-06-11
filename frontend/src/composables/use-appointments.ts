@@ -33,6 +33,10 @@ export interface Appointment {
   // Người phụ trách lịch hẹn (BE trả qua APPOINTMENT_INCLUDE). Dùng cho màu/filter theo sale.
   assignedUserId?: string | null;
   assignedUser?: { id: string; fullName: string | null } | null;
+  // Alias cũ — code AppointmentEditor dùng assignedTo?.id (merge từ stash khi giải
+  // conflict 2026-06-11, giữ để không vỡ component). durationMin đã khai báo ở trên.
+  assignedToId?: string | null;
+  assignedTo?: { id: string; fullName: string | null; email: string } | null;
 }
 
 export interface AppointmentFilters {
@@ -101,11 +105,11 @@ export function saleColor(userId: string | null | undefined): { bg: string; soft
 }
 
 export function appointmentOwnerId(a: Appointment): string | null {
-  return a.assignedToId || a.statusChangedBy?.id || null;
+  return a.assignedUserId || a.statusChangedBy?.id || null;
 }
 
 export function appointmentOwnerName(a: Appointment): string {
-  return a.assignedTo?.fullName || a.statusChangedBy?.fullName || a.statusChangedBy?.email || 'Chưa gán';
+  return a.assignedUser?.fullName || a.statusChangedBy?.fullName || a.statusChangedBy?.email || 'Chưa gán';
 }
 
 export function typeIcon(type: string): string {
