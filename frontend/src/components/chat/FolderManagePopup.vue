@@ -104,8 +104,8 @@
               <div class="np-body">
                 <div class="np-name">{{ acc.displayName || 'Chưa đặt tên' }}</div>
                 <div class="np-sub">
-                  <span class="status-dot" :class="{ off: acc.status !== 'connected' }"></span>
-                  {{ acc.status === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
+                  <span class="status-dot" :class="{ off: (acc.liveStatus || acc.status) !== 'connected' }"></span>
+                  {{ (acc.liveStatus || acc.status) === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
                 </div>
               </div>
               <div v-if="viewAccountId === acc.id && viewFolderId === null" class="np-check">✓</div>
@@ -212,8 +212,8 @@
                 <div v-else class="nick-avatar" :style="{ background: accountGradient(acc.id) }">{{ initials(acc.displayName) }}</div>
                 <div class="nick-name" :title="acc.displayName || ''">{{ acc.displayName || 'Chưa đặt tên' }}</div>
                 <div class="nick-meta">
-                  <span class="dot" :class="{ red: acc.status !== 'connected' }"></span>
-                  {{ acc.status === 'connected' ? 'Active' : 'Offline' }}
+                  <span class="dot" :class="{ red: (acc.liveStatus || acc.status) !== 'connected' }"></span>
+                  {{ (acc.liveStatus || acc.status) === 'connected' ? 'Active' : 'Offline' }}
                 </div>
               </button>
             </div>
