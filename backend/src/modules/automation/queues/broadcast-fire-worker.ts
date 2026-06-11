@@ -24,6 +24,8 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { withTenant } from '../../../shared/tenant/tenant-context.js';
 import { zaloOps } from '../../../shared/zalo-operations.js';
+// Media GĐ3b 2026-06-11 — broadcast gửi media (Đường B: download URL → temp → sendFile).
+import { downloadMediaToTemp } from '../../chat/chat-media-helpers.js';
 import { applyContactAggregateFromMessage } from '../../contacts/contact-aggregate.js';
 import { getBullMQRedis } from './redis-connection.js';
 import {
@@ -387,6 +389,7 @@ async function sendBroadcastMessage(
   threadId: string,
   template: string,
   vars: { gender: string; name: string; sale: string },
+  mediaItems: Array<{ kind: 'image' | 'file'; url: string; filename?: string }> = [],
 ): Promise<{ ok: boolean; messageId?: string; error?: string; permanent?: boolean }> {
   const rendered = renderTemplatePure(template, vars);
   const automationTaskId = `bc-${broadcastId}-${contactId}`;
@@ -429,6 +432,32 @@ async function sendBroadcastMessage(
         senderType: 'self',
       },
     }).catch((err: any) => logger.warn(`[broadcast] aggregate failed: ${err.message}`));
+
+    // GĐ3b: gửi MEDIA sau text (Đường B — download URL → temp → sendFile).
+    // Lỗi media KHÔNG làm fail cả broadcast (text đã gửi) — chỉ log.
+    for (const mi of mediaItems) {
+      let tmp: { path: string; cleanup: () => Promise<void> } | null = null;
+      try {
+        tmp = await downloadMediaToTemp({ url: mi.url, filename: mi.filename }, mi.kind);
+        await zaloOps.sendFile(nickId, threadId, 0, [tmp.path], null, '');
+        await prisma.message.create({
+          data: {
+            conversationId,
+            senderType: 'self',
+            senderName: 'Broadcast',
+            content: JSON.stringify({ href: mi.url, name: mi.filename, kind: mi.kind }),
+            contentType: mi.kind,
+            sentAt: new Date(),
+            sentVia: 'automation',
+            automationTaskId,
+          },
+        }).catch(() => {});
+      } catch (mErr: any) {
+        logger.warn(`[broadcast] media gửi lỗi (text đã gửi) nick ${nickId}: ${mErr?.message ?? mErr}`);
+      } finally {
+        await tmp?.cleanup().catch(() => {});
+      }
+    }
 
     return { ok: true, messageId };
   } catch (err: any) {
@@ -508,8 +537,17 @@ async function processBroadcastTick(
 
   // Load template
   const block = await prisma.block.findUnique({ where: { id: bc.blockId }, select: { content: true } });
-  const content = block?.content as { textVariants?: string[] } | null;
+  const content = block?.content as { textVariants?: string[]; components?: any[] } | null;
   const templates = Array.isArray(content?.textVariants) ? content!.textVariants! : [];
+  // GĐ3b: media components (image/album/file) trong block → gửi kèm broadcast.
+  const blockMediaItems: Array<{ kind: 'image' | 'file'; url: string; filename?: string }> = [];
+  for (const c of (Array.isArray(content?.components) ? content!.components! : [])) {
+    if (c?.kind === 'image' && typeof c.url === 'string' && c.url) blockMediaItems.push({ kind: 'image', url: c.url });
+    else if (c?.kind === 'file' && typeof c.url === 'string' && c.url) blockMediaItems.push({ kind: 'file', url: c.url, filename: c.filename });
+    else if (c?.kind === 'album' && Array.isArray(c.items)) {
+      for (const it of c.items) if (it?.url) blockMediaItems.push({ kind: 'image', url: it.url });
+    }
+  }
   if (templates.length === 0) {
     await prisma.automationBroadcast.update({
       where: { id: broadcastId },
@@ -616,6 +654,7 @@ async function processBroadcastTick(
       sendResult = await sendBroadcastMessage(
         broadcastId, contactId, convId, nickId, candidate.uidInNick,
         template, { gender: candidate.gender, name: candidate.contactName, sale: saleName },
+        blockMediaItems,
       );
       phaseUsed = 'phase1';
     } else if (cfg.allowStrangerSend) {
@@ -633,6 +672,7 @@ async function processBroadcastTick(
             sendResult = await sendBroadcastMessage(
               broadcastId, contactId, p2.conversationId, p2.nickId, p2.uidInNick,
               template, { gender: p2.gender, name: p2.contactName, sale: saleName },
+              blockMediaItems,
             );
             phaseUsed = 'phase2';
           } else if (p2.kind === 'no_zalo') {
