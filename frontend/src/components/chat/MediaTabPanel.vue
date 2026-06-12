@@ -36,19 +36,49 @@
 
     <!-- ════════ ẢNH / VIDEO / TỆP: kho media ════════ -->
     <template v-else>
-      <!-- Search dùng CHUNG cho 3 sub-tab + nút Lọc (gộp Công/Riêng + lọc sâu) -->
+      <!-- Search dùng CHUNG cho 3 sub-tab + nút Sắp xếp (xoay vòng) + nút Lọc -->
       <div class="mtp-search">
         <span class="mtp-inp">
           <SearchIcon :size="14" :stroke-width="1.9" />
           <input v-model="search" :placeholder="searchPlaceholder" @input="debouncedReload" />
         </span>
-        <button class="mtp-fbtn" :class="{ on: showFilter }" @click="showFilter = !showFilter">
+        <!-- Nút Sắp xếp: bấm xoay vòng Gửi nhiều → Gửi gần nhất → Mới upload (anh chốt 2026-06-12) -->
+        <button class="mtp-fbtn" :title="`Sắp xếp: ${sortLabel} (bấm để đổi)`" @click="cycleSort">
+          <ArrowUpDownIcon :size="13" :stroke-width="1.9" />
+          {{ sortLabel }}
+        </button>
+        <button class="mtp-fbtn" :class="{ on: showFilter }" title="Lọc theo quyền + thời gian + cỡ" @click="showFilter = !showFilter">
           <FilterIcon :size="13" :stroke-width="1.9" />
-          Lọc<span class="mtp-vis">· {{ visLabel }}</span>
+          <span class="mtp-vis">{{ visLabel }}</span>
         </button>
       </div>
 
-      <!-- Bảng lọc (ẩn/hiện): Quyền + sắp xếp + thời gian + cỡ + tag -->
+      <!-- Chip Thư mục — gom ảnh/tệp theo dự án (kho đã có folder) -->
+      <div v-if="folders.length" class="mtp-chips">
+        <button class="mtp-chip" :class="{ on: folderId === '' }" @click="setFolder('')">Tất cả thư mục</button>
+        <button
+          v-for="f in folders"
+          :key="f.id"
+          class="mtp-chip"
+          :class="{ on: folderId === f.id }"
+          @click="setFolder(f.id)"
+        >
+          <FolderIcon :size="11" :stroke-width="1.9" />{{ f.name }}
+        </button>
+      </div>
+
+      <!-- Chip Tag dự án — lọc nhanh (gom từ tag của các mục đang có) -->
+      <div v-if="availableTags.length" class="mtp-chips">
+        <button
+          v-for="tag in availableTags"
+          :key="tag"
+          class="mtp-chip mtp-chip--tag"
+          :class="{ on: tagFilter === tag }"
+          @click="toggleTagFilter(tag)"
+        >#{{ tag }}</button>
+      </div>
+
+      <!-- Bảng lọc (ẩn/hiện): Quyền + thời gian + cỡ (sắp xếp + tag đã ra ngoài) -->
       <div v-if="showFilter" class="mtp-filter">
         <div class="mtp-frow">
           <span class="mtp-flabel">Quyền</span>
@@ -59,12 +89,6 @@
           </div>
         </div>
         <div class="mtp-frow">
-          <select v-model="sortBy" class="mtp-sel" @change="reload">
-            <option value="recent">Gần đây dùng</option>
-            <option value="newest">Mới tải lên</option>
-            <option value="most_used">Hay dùng nhất</option>
-            <option value="name">Tên A→Z</option>
-          </select>
           <select v-model="sinceBy" class="mtp-sel" @change="reload">
             <option value="">Mọi lúc</option>
             <option value="7d">7 ngày</option>
@@ -77,7 +101,6 @@
             <option value="medium">1–10MB</option>
             <option value="large">&gt; 10MB</option>
           </select>
-          <input v-model="tagFilter" class="mtp-taginp" placeholder="tag" @input="debouncedReload" />
         </div>
       </div>
 
@@ -154,8 +177,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import {
-  listMedia, sendMediaToConversation, sendAlbumToConversation,
-  type MediaAssetItem, type ListMediaParams,
+  listMedia, listMediaFolders, sendMediaToConversation, sendAlbumToConversation,
+  type MediaAssetItem, type ListMediaParams, type MediaFolder,
 } from '@/api/media';
 import type { Contact } from '@/composables/use-contacts';
 import { useToast } from '@/composables/use-toast';
@@ -169,6 +192,8 @@ import {
   Filter as FilterIcon,
   Send as SendIcon,
   Play as PlayIcon,
+  ArrowUpDown as ArrowUpDownIcon,
+  Folder as FolderIcon,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -199,10 +224,30 @@ const counts = ref<Record<string, number | null>>({ image: null, video: null, fi
 
 const showFilter = ref(false);
 const visFilter = ref<'' | 'public' | 'private'>('');
-const sortBy = ref<'recent' | 'newest' | 'most_used' | 'name'>('recent');
+// Nút Sắp xếp xoay vòng (anh chốt 2026-06-12): Gửi nhiều → Gửi gần nhất → Mới upload.
+// Mặc định 'most_used' (Gửi nhiều) — mục hay gửi cho khách luôn ở trên, ổn định, dễ lấy nhanh.
+type SortMode = 'most_used' | 'recent' | 'newest';
+const SORT_CYCLE: { mode: SortMode; label: string }[] = [
+  { mode: 'most_used', label: 'Gửi nhiều' },
+  { mode: 'recent', label: 'Gửi gần nhất' },
+  { mode: 'newest', label: 'Mới upload' },
+];
+const sortBy = ref<SortMode>('most_used');
+const sortLabel = computed(() => SORT_CYCLE.find((s) => s.mode === sortBy.value)?.label ?? 'Gửi nhiều');
 const sinceBy = ref<'' | '7d' | '30d' | '90d'>('');
 const sizeBy = ref<'' | 'small' | 'medium' | 'large'>('');
 const tagFilter = ref('');
+
+// Thư mục (gom theo dự án) — load 1 lần, lọc theo kind đang xem.
+const allFolders = ref<MediaFolder[]>([]);
+const folderId = ref('');
+const folders = computed(() => allFolders.value.filter((f) => f.kind === subTab.value));
+// Tag dự án — gom từ tagIds của các mục đang hiện (chip lọc nhanh).
+const availableTags = computed(() => {
+  const set = new Set<string>();
+  for (const a of items.value) for (const t of a.tagIds || []) set.add(t);
+  return Array.from(set).sort().slice(0, 12);
+});
 
 // Album (chỉ ảnh).
 const multiMode = ref(false);
@@ -240,10 +285,25 @@ function debouncedReload() { if (timer) clearTimeout(timer); timer = setTimeout(
 function setSubTab(k: SubKind) {
   if (subTab.value === k) return;
   subTab.value = k;
+  // Đổi loại → reset thư mục + tag (thư mục/tag thuộc riêng từng loại).
+  folderId.value = '';
+  tagFilter.value = '';
   if (k !== 'image') { multiMode.value = false; picked.value = new Set(); } // album chỉ cho ảnh
   if (k !== 'block') reload();
 }
 function setVis(v: '' | 'public' | 'private') { visFilter.value = v; reload(); }
+
+// Bấm nút Sắp xếp → nhảy sang bộ kế tiếp, hết thì quay về đầu.
+function cycleSort() {
+  const i = SORT_CYCLE.findIndex((s) => s.mode === sortBy.value);
+  sortBy.value = SORT_CYCLE[(i + 1) % SORT_CYCLE.length].mode;
+  reload();
+}
+function setFolder(id: string) { folderId.value = id; reload(); }
+function toggleTagFilter(tag: string) {
+  tagFilter.value = tagFilter.value === tag ? '' : tag;
+  reload();
+}
 
 function toggleMultiMode() {
   multiMode.value = !multiMode.value;
@@ -267,6 +327,7 @@ async function reload() {
       q: search.value || undefined,
       visibility: visFilter.value || undefined,
       tag: tagFilter.value || undefined,
+      folderId: folderId.value || undefined,
       since: sinceBy.value || undefined,
       sort: sortBy.value,
       limit: 40,
@@ -329,7 +390,11 @@ async function sendAlbum() {
   }
 }
 
-onMounted(reload);
+onMounted(async () => {
+  // Load thư mục 1 lần (để dựng chip gom theo dự án); lỗi thì bỏ qua, không chặn kho.
+  listMediaFolders().then((f) => { allFolders.value = f; }).catch(() => { allFolders.value = []; });
+  await reload();
+});
 </script>
 
 <style scoped>
@@ -384,7 +449,22 @@ onMounted(reload);
 .mtp-seg button:last-child { border-right: none; }
 .mtp-seg button.on { background: var(--at-action-soft); color: var(--at-action); font-weight: 700; }
 .mtp-sel { border: 1px solid var(--at-hairline); border-radius: 6px; padding: 4px 8px; font-size: 11.5px; color: var(--at-ink); background: #fff; outline: none; font-family: inherit; }
-.mtp-taginp { border: 1px solid var(--at-hairline); border-radius: 6px; padding: 4px 9px; font-size: 11.5px; width: 70px; outline: none; }
+
+/* Chip Thư mục + Tag dự án (1 dòng cuộn ngang nếu nhiều) */
+.mtp-chips {
+  display: flex; gap: 5px; padding: 0 12px 8px; flex-shrink: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.mtp-chips::-webkit-scrollbar { display: none; }
+.mtp-chip {
+  flex-shrink: 0; border: 1px solid var(--at-hairline); background: #fff; border-radius: 9999px;
+  padding: 3px 10px; font-size: 11px; font-weight: 600; color: var(--at-body); cursor: pointer;
+  white-space: nowrap; font-family: inherit; display: inline-flex; align-items: center; gap: 4px;
+}
+.mtp-chip:hover { border-color: var(--at-action); color: var(--at-action); }
+.mtp-chip.on { background: var(--at-action-soft); border-color: var(--at-action); color: var(--at-action); }
+.mtp-chip--tag { color: var(--at-hint); }
+.mtp-chip--tag.on { color: var(--at-action); }
 
 /* album bar */
 .mtp-album { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--at-ink);
