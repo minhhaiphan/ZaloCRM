@@ -519,3 +519,31 @@ CREATE POLICY tenant_isolation ON "zalo_labels"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
 
+-- ── Phase Media Library 2026-06-11 — 3 bảng media có org_id ────────────────
+-- media_album_items + media_upload_refs KHÔNG có org_id → bảo vệ gián tiếp qua
+-- FK cascade (album→org, blob→org). Chỉ cần policy cho 3 bảng có org_id.
+
+-- media_blobs
+ALTER TABLE "media_blobs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "media_blobs" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "media_blobs";
+CREATE POLICY tenant_isolation ON "media_blobs"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- media_assets
+ALTER TABLE "media_assets" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "media_assets" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "media_assets";
+CREATE POLICY tenant_isolation ON "media_assets"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- media_albums
+ALTER TABLE "media_albums" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "media_albums" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "media_albums";
+CREATE POLICY tenant_isolation ON "media_albums"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+

@@ -36,6 +36,7 @@ export const RESOURCES = [
   'audit_log',          // Activity / Audit log
   'settings',           // App settings
   'care_session',       // Phiên chăm sóc (CareSession) — 2026-06-07
+  'media',              // Kho phương tiện (ảnh/album/file/video) — 2026-06-11
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -60,6 +61,9 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   settings: ['access', 'create', 'edit'],
   // Phiên chăm sóc — access=xem phiên mình, view_all=xem cả org (scope theo dept tree).
   care_session: ['access', 'view_all'],
+  // Kho phương tiện — access=xem/dùng kho, create=tải lên/lưu, edit=sửa quyền/tag/watermark,
+  // delete=archive, view_all=xem cả org bỏ qua scope owner (admin/marketing).
+  media: ['access', 'create', 'edit', 'delete', 'view_all'],
 };
 
 // JSON shape lưu trong permission_groups.grants:
@@ -155,6 +159,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       engagement_score: viewAll('engagement_score'),
       audit_log: viewAll('audit_log'),
       settings: { access: true },
+      media: viewAll('media'), // xem cả kho org
     } as GrantsJson,
   },
   {
@@ -176,6 +181,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       engagement_score: viewAll('engagement_score'),
       audit_log: { access: true },
       settings: { access: true },
+      media: { access: true, create: true, edit: true, delete: true, view_all: true }, // full trong scope dept
     } as GrantsJson,
   },
   {
@@ -194,6 +200,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       zalo_account: { access: true },
       engagement_score: { access: true },
       audit_log: { access: true },
+      media: { access: true, create: true, edit: true }, // kho của mình (scope owner)
     } as GrantsJson,
   },
   {
@@ -213,6 +220,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       // Ownership check ở requireAccountManagement đảm bảo chỉ đụng nick mình owner.
       zalo_account: { access: true, create: true, delete: true },
       engagement_score: { access: true },
+      media: { access: true, create: true, edit: true }, // kho của mình (scope owner) — sale dùng nhiều nhất
     } as GrantsJson,
   },
   {
@@ -229,6 +237,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       block: { access: true, create: true, edit: true, delete: true, view_all: true },
       engagement_score: viewAll('engagement_score'),
       audit_log: { access: true },
+      media: { access: true, create: true, edit: true, delete: true, view_all: true }, // tài sản marketing dùng chung
     } as GrantsJson,
   },
   {

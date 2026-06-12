@@ -20,7 +20,8 @@ import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor
 import { uploadBuffer, type UploadResult } from '../../shared/storage/minio-client.js';
 import { logger } from '../../shared/utils/logger.js';
 // Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
-import { getUserFullName } from './chat-helpers.js';
+// 2026-06-11 — createMediaMessage gộp 4 block message.create lặp (DRY, eng review E4).
+import { getUserFullName, createMediaMessage } from './chat-helpers.js';
 
 const IMAGE_MAX = 100 * 1024 * 1024;
 const VIDEO_MAX = 500 * 1024 * 1024;
@@ -163,22 +164,15 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           for (const i of imageIndexes) {
             const mirror = mirrors[i];
-            const msg = await prisma.message.create({
-              data: {
-                id: randomUUID(),
-                conversationId: id,
-                zaloMsgId: zaloMsgId || null,
-                zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-                senderType: 'self',
-                senderUid: conversation.zaloAccount.zaloUid || '',
-                senderName: 'Staff',
-                sentVia: 'user',
-                metadata: { sender: { kind: 'user_crm', name: userFullName } },
-                content: JSON.stringify({ href: mirror.url, thumb: mirror.url, size: mirror.size }),
-                contentType: 'image',
-                sentAt: new Date(),
-                repliedByUserId: user.id,
-              },
+            const msg = await createMediaMessage({
+              conversationId: id,
+              zaloAccount: conversation.zaloAccount,
+              repliedByUserId: user.id,
+              zaloMsgId,
+              contentType: 'image',
+              content: JSON.stringify({ href: mirror.url, thumb: mirror.url, size: mirror.size }),
+              metadata: { sender: { kind: 'user_crm', name: userFullName } },
+              sentVia: 'user',
             });
             created.push(msg);
           }
@@ -209,28 +203,15 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             const zaloMsgId = String((sendResult as any)?.msgId || (sendResult as any)?.data?.msgId || '');
             const mirror = mirrors[i];
             const thumbUrl = thumbnailMirror?.url ?? mirror.url;
-            const msg = await prisma.message.create({
-              data: {
-                id: randomUUID(),
-                conversationId: id,
-                zaloMsgId: zaloMsgId || null,
-                zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-                senderType: 'self',
-                senderUid: conversation.zaloAccount.zaloUid || '',
-                senderName: 'Staff',
-                sentVia: 'user',
-                metadata: { sender: { kind: 'user_crm', name: userFullName } },
-                content: JSON.stringify({
-                  href: mirror.url,
-                  thumb: thumbUrl,
-                  thumbUrl,
-                  thumbnail: thumbUrl,
-                  size: mirror.size,
-                }),
-                contentType: 'video',
-                sentAt: new Date(),
-                repliedByUserId: user.id,
-              },
+            const msg = await createMediaMessage({
+              conversationId: id,
+              zaloAccount: conversation.zaloAccount,
+              repliedByUserId: user.id,
+              zaloMsgId,
+              contentType: 'video',
+              content: JSON.stringify({ href: mirror.url, thumb: thumbUrl, thumbUrl, thumbnail: thumbUrl, size: mirror.size }),
+              metadata: { sender: { kind: 'user_crm', name: userFullName } },
+              sentVia: 'user',
             });
             created.push(msg);
           } catch (err) {
@@ -246,28 +227,15 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
             const mirror = mirrors[i];
             const thumbUrl = thumbnailMirror?.url ?? mirror.url;
-            const msg = await prisma.message.create({
-              data: {
-                id: randomUUID(),
-                conversationId: id,
-                zaloMsgId: zaloMsgId || null,
-                zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-                senderType: 'self',
-                senderUid: conversation.zaloAccount.zaloUid || '',
-                senderName: 'Staff',
-                sentVia: 'user',
-                metadata: { sender: { kind: 'user_crm', name: userFullName } },
-                content: JSON.stringify({
-                  href: mirror.url,
-                  thumb: thumbUrl,
-                  thumbUrl,
-                  thumbnail: thumbUrl,
-                  size: mirror.size,
-                }),
-                contentType: 'video',
-                sentAt: new Date(),
-                repliedByUserId: user.id,
-              },
+            const msg = await createMediaMessage({
+              conversationId: id,
+              zaloAccount: conversation.zaloAccount,
+              repliedByUserId: user.id,
+              zaloMsgId,
+              contentType: 'video',
+              content: JSON.stringify({ href: mirror.url, thumb: thumbUrl, thumbUrl, thumbnail: thumbUrl, size: mirror.size }),
+              metadata: { sender: { kind: 'user_crm', name: userFullName } },
+              sentVia: 'user',
             });
             created.push(msg);
           }
@@ -287,20 +255,13 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           const mirror = mirrors[i];
           const f = files[i];
-          const msg = await prisma.message.create({
-            data: {
-              id: randomUUID(),
-              conversationId: id,
-              zaloMsgId: zaloMsgId || null,
-              zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-              senderType: 'self',
-              senderUid: conversation.zaloAccount.zaloUid || '',
-              senderName: 'Staff',
-              content: JSON.stringify({ href: mirror.url, name: f.filename, size: mirror.size, mime: f.mimeType }),
-              contentType: 'file',
-              sentAt: new Date(),
-              repliedByUserId: user.id,
-            },
+          const msg = await createMediaMessage({
+            conversationId: id,
+            zaloAccount: conversation.zaloAccount,
+            repliedByUserId: user.id,
+            zaloMsgId,
+            contentType: 'file',
+            content: JSON.stringify({ href: mirror.url, name: f.filename, size: mirror.size, mime: f.mimeType }),
           });
           created.push(msg);
         }

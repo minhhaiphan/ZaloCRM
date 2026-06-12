@@ -507,6 +507,9 @@
           <button class="icon-tool" title="Gửi file" @click="onPickFile">
             <PaperclipIcon :size="18" :stroke-width="1.5" />
           </button>
+          <button class="icon-tool" title="Chèn ảnh từ Kho" @click="showMediaPicker = !showMediaPicker">
+            <ImagesIcon :size="18" :stroke-width="1.5" />
+          </button>
           <span class="toolbar-divider"></span>
 
           <!-- Group 2: Contact / format -->
@@ -667,6 +670,28 @@
           @created="onAppointmentCreated"
         />
 
+        <!-- Gợi ý ảnh kho theo ngữ cảnh khách (GĐ3a-4) -->
+        <div v-if="mediaSuggestions.length" class="media-suggest-bar">
+          <span class="ms-label">✨ Gợi ý ảnh dự án:</span>
+          <button
+            v-for="a in mediaSuggestions" :key="a.id"
+            class="ms-chip" :disabled="sendingSuggestId === a.id"
+            :title="'Gửi: ' + a.name"
+            @click="sendSuggestion(a)"
+          >
+            <img v-if="a.thumbnailUrl" :src="a.thumbnailUrl" alt="" />
+            <span class="ms-name">{{ a.name }}</span>
+          </button>
+        </div>
+
+        <!-- Picker chèn ảnh từ Kho phương tiện (GĐ2) -->
+        <MediaPickerPopover
+          v-if="showMediaPicker && conversation?.id"
+          :conversation-id="conversation.id"
+          @close="showMediaPicker = false"
+          @sent="showMediaPicker = false"
+        />
+
         <!-- Hidden file inputs cho upload ảnh / file -->
         <input
           ref="imageInputRef"
@@ -697,6 +722,8 @@
       @delete="onDelete"
       @undo="onUndo"
       @forward="showForwardDialog = true"
+      @save-media="onSaveToMedia"
+      @favorite-media="onFavoriteFromChat"
       @copy="() => {}"
     />
 
@@ -804,6 +831,8 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
+import { saveFromChat, suggestMedia, sendMediaToConversation, toggleFavorite, type MediaAssetItem } from '@/api/media';
+import MediaPickerPopover from '@/components/media/MediaPickerPopover.vue';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
 // để Wave 3 evaluateStatusGate đọc đúng cột. Trước đây CareStatusBadge ghi enum legacy
@@ -858,6 +887,7 @@ function onPrivacyUnlocked() {
 
 // Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ thay MDI)
 import {
+  Images as ImagesIcon,
   Image as ImageIcon,
   Paperclip as PaperclipIcon,
   Contact as ContactIcon,
@@ -1232,6 +1262,7 @@ watch(() => props.conversation?.id, (newId, oldId) => {
     void touchAccountSync(accId, threadId);
     void touchConversationProfile(newId);  // refresh contact profile from SDK
   }
+  void loadMediaSuggestions(); // gợi ý ảnh kho theo tag khách (GĐ3a-4)
 }, { immediate: true });
 
 /* Optimistic UI FULL: update cả allLabels (dropdown ✓) + friendship.crmTagsPerNick
@@ -2040,6 +2071,32 @@ async function onSendSticker(sticker: { id: number; catId: number; type: number 
 // ── File / image upload ─────────────────────────────────────────────────────
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const showMediaPicker = ref(false); // picker chèn ảnh từ Kho (GĐ2)
+// Gợi ý ảnh theo ngữ cảnh (GĐ3a-4): match tag khách với tag ảnh kho.
+const mediaSuggestions = ref<MediaAssetItem[]>([]);
+const sendingSuggestId = ref<string | null>(null);
+async function loadMediaSuggestions() {
+  mediaSuggestions.value = [];
+  const cid = props.conversation?.id;
+  if (!cid) return;
+  try {
+    const res = await suggestMedia(cid);
+    mediaSuggestions.value = res.items;
+  } catch { /* im lặng — gợi ý là phụ */ }
+}
+async function sendSuggestion(a: MediaAssetItem) {
+  if (sendingSuggestId.value) return;
+  sendingSuggestId.value = a.id;
+  try {
+    await sendMediaToConversation(a.id, props.conversation!.id);
+    toast.success(`Đã gửi "${a.name}"`);
+    mediaSuggestions.value = mediaSuggestions.value.filter((x) => x.id !== a.id);
+  } catch (e: any) {
+    toast.warning(e?.response?.data?.error || 'Gửi thất bại');
+  } finally {
+    sendingSuggestId.value = null;
+  }
+}
 const dragDepth = ref(0);
 const isDraggingFiles = ref(false);
 
@@ -2265,6 +2322,45 @@ function onEdit() {
 }
 function onDelete() { if (contextMsg.value) emit('delete-message', contextMsg.value.id); }
 function onUndo() { if (contextMsg.value) emit('undo-message', contextMsg.value.id); }
+
+// Lưu ảnh/file từ chat vào Kho phương tiện — Phase Media Library 2026-06-11.
+// visibility: 'private' = Kho cá nhân (mặc định) / 'public' = Kho chung (G3 submenu).
+async function onSaveToMedia(visibility: 'private' | 'public' = 'private') {
+  const msg = contextMsg.value;
+  if (!msg) return;
+  try {
+    const res = await saveFromChat(msg.id, visibility);
+    const where = visibility === 'public' ? 'Kho chung' : 'Kho cá nhân';
+    toast.success(res.deduped
+      ? `Đã có sẵn trong kho — không tốn thêm dung lượng (${where})`
+      : `Đã lưu "${res.asset.name}" vào ${where}`);
+  } catch (e: any) {
+    const code = e?.response?.data?.code;
+    if (code === 'PRIVACY_LOCKED') {
+      toast.warning('Tin từ nick Riêng tư — chỉ chính chủ nick mới lưu được');
+    } else {
+      toast.warning(e?.response?.data?.error || 'Không lưu được vào kho');
+    }
+  }
+}
+
+// "Thêm vào Yêu thích" từ bong bóng chat (G3): lưu private trước rồi gắn ⭐.
+async function onFavoriteFromChat() {
+  const msg = contextMsg.value;
+  if (!msg) return;
+  try {
+    const res = await saveFromChat(msg.id, 'private');
+    await toggleFavorite(res.asset.id);
+    toast.success(`Đã lưu "${res.asset.name}" và thêm vào ⭐ Yêu thích`);
+  } catch (e: any) {
+    const code = e?.response?.data?.code;
+    if (code === 'PRIVACY_LOCKED') {
+      toast.warning('Tin từ nick Riêng tư — chỉ chính chủ nick mới lưu được');
+    } else {
+      toast.warning(e?.response?.data?.error || 'Không thêm được vào Yêu thích');
+    }
+  }
+}
 
 
 function onForward(targetIds: string[]) {
@@ -3677,4 +3773,20 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
 .manage-icon { font-size: 14px; }
+
+/* Dải gợi ý ảnh kho theo ngữ cảnh (GĐ3a-4) */
+.media-suggest-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 12px; margin: 0 0 6px; background: #a8d8c4; border: 1px solid #8fc7af;
+  border-radius: 10px; font-size: 12.5px;
+}
+.media-suggest-bar .ms-label { color: #0a2e0e; font-weight: 500; flex-shrink: 0; }
+.ms-chip {
+  display: inline-flex; align-items: center; gap: 6px; background: #fff;
+  border: 1px solid #8fc7af; border-radius: 9999px; padding: 3px 10px 3px 3px;
+  cursor: pointer; font-size: 12px; color: #181d26; max-width: 180px;
+}
+.ms-chip:disabled { opacity: .6; cursor: default; }
+.ms-chip img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.ms-chip .ms-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

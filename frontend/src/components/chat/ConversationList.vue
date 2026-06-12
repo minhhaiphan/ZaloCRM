@@ -809,7 +809,10 @@ function fmtDuration(sec: number): string {
 const _previewCache = new WeakMap<Conversation, { sig: string; result: PreviewResult }>();
 function lastMessagePreviewResult(conv: Conversation): PreviewResult {
   const msg = conv.messages?.[0];
-  const sig = msg ? `${msg.id}|${msg.isDeleted ? 1 : 0}|${msg.content?.length ?? 0}` : 'none';
+  // 2026-06-12 — chữ ký dùng CHÍNH content + editedAt (không phải content.length): tin
+  // SỬA cùng độ dài (vd "ok" → "oke" thì khác, nhưng "abc" → "xyz" cùng 3 ký tự) trước
+  // đây không invalidate. Fix object-mới ở socket đã che, đây là lớp 2 cho memoize tự đúng.
+  const sig = msg ? `${msg.id}|${msg.isDeleted ? 1 : 0}|${msg.content ?? ''}|${msg.editedAt ?? ''}` : 'none';
   const hit = _previewCache.get(conv);
   if (hit && hit.sig === sig) return hit.result;
   const result = computeLastMessagePreview(conv);

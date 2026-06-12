@@ -151,6 +151,11 @@ model Organization {
   facebookFormMappings    FacebookFormMapping[]
   // Phase FB 2-tab 2026-06-10 — config FB App per-org (điền qua UI, fallback env).
   facebookAppConfig       FacebookAppConfig?
+  // Phase Media Library 2026-06-11 — kho phương tiện (ảnh/album/file/video) + dedup.
+  mediaBlobs              MediaBlob[]
+  mediaAssets             MediaAsset[]
+  mediaAlbums             MediaAlbum[]
+  mediaUsageEvents        MediaUsageEvent[]
 
   @@map("organizations")
 }
@@ -275,6 +280,11 @@ model User {
   refreshTokens             RefreshToken[]
   // Phase FB Lead Ads "Form" 2026-06-09 — round-robin chia lead cho sale.
   customerListAssignments   CustomerListSaleAssignment[]
+  // Phase Media Library 2026-06-11 — kho phương tiện (owner + người tạo).
+  ownedMediaAssets          MediaAsset[]                 @relation("MediaAssetOwner")
+  createdMediaAssets        MediaAsset[]                 @relation("MediaAssetCreatedBy")
+  ownedMediaAlbums          MediaAlbum[]                 @relation("MediaAlbumOwner")
+  createdMediaAlbums        MediaAlbum[]                 @relation("MediaAlbumCreatedBy")
 
   @@map("users")
 }
@@ -3416,4 +3426,157 @@ model FacebookAppConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("facebook_app_configs")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase Media Library 2026-06-11 (Anh chốt qua office-hours + CEO/Eng/Design review)
+// Mô hình 2 tầng (eng review E2/E3):
+//   • MediaBlob  = OBJECT THÔ trên MinIO, dedup theo sha256 BYTES THẬT LƯU.
+//                  1 Asset có nhiều Blob variant (original / watermarked / compressed).
+//   • MediaAsset = DANH TÍNH + metadata + quyền (KHÔNG mang minioKey trực tiếp).
+//   Dedup ở tầng Blob (hash), query kho ở tầng Asset.
+// INVARIANT: object immutable, "xóa" = archive (archivedAt), không 404 lịch sử chat.
+// (MediaUploadRef cache forward-ref ĐÃ BỎ 2026-06-12: zca-js không forward được media
+//  → luôn gửi lẻ Đường B, ref không bao giờ dùng. Xem reference_zalo_forward_media_impossible.)
+// ════════════════════════════════════════════════════════════════════════════
+
+// MediaBlob — object thô trên MinIO. Dedup theo contentHash (sha256 bytes đã lưu).
+// 1 asset → nhiều blob variant. Gửi N lần cùng 1 variant = 1 object duy nhất.
+model MediaBlob {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  assetId     String   @map("asset_id")
+  // sha256 của BYTES THẬT LƯU lên MinIO (đã nén nếu là variant compressed/original-nén).
+  contentHash String   @map("content_hash")
+  variantType String   @default("original") @map("variant_type") // 'original' | 'watermarked' | 'compressed'
+  minioKey    String   @map("minio_key") // key trên MinIO: media/{contentHash}{ext}
+  publicUrl   String   @map("public_url")
+  mimeType    String   @map("mime_type")
+  sizeBytes   Int      @map("size_bytes")
+  width       Int?
+  height      Int?
+  durationSec Int?     @map("duration_sec") // video
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org        Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  asset      MediaAsset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  // Dedup key: cùng org + cùng bytes = 1 blob. statObject + upsert chống trùng.
+  @@unique([orgId, contentHash])
+  @@index([assetId])
+  @@map("media_blobs")
+}
+
+// MediaAsset — danh tính 1 "tấm ảnh/file" trong kho (vd "Bảng giá EGV").
+// Pattern copy từ MessageTemplate (org/owner/visibility/createdBy/tagIds/usageCount).
+model MediaAsset {
+  id                  String    @id @default(uuid())
+  orgId               String    @map("org_id")
+  kind                String // 'image' | 'video' | 'file'
+  name                String
+  // ownerUserId: chủ sở hữu (sale lưu/tải lên). NULL = tài sản chung org.
+  ownerUserId         String?   @map("owner_user_id")
+  // visibility: 'private' (chỉ owner) | 'public' (cả org). Mặc định private — fail-closed.
+  visibility          String    @default("private")
+  // source: phân biệt nguồn nạp để audit privacy. 'upload' = sale/admin tải lên;
+  // 'saved_from_chat' = lưu từ bong bóng chat (có thể chứa PII khách).
+  source              String    @default("upload")
+  // Nếu lưu từ chat của nick Riêng tư (privacyMode='main'): nick nguồn để enforce redact.
+  sourceZaloAccountId String?   @map("source_zalo_account_id")
+  folderId            String?   @map("folder_id") // MediaAlbum dùng làm "thư mục" (parentId=null)
+  tagIds              String[]  @default([]) @map("tag_ids") // tag dự án (EGV/HS...) — Gin index
+  originalFilename    String?   @map("original_filename")
+  thumbnailUrl        String?   @map("thumbnail_url") // video thumbnail
+  // Watermark per-ảnh (GĐ2): BẬT/TẮT + góc + độ mờ. Khi BẬT, gửi đi dùng blob 'watermarked'.
+  watermarkEnabled    Boolean   @default(false) @map("watermark_enabled")
+  watermarkPosition   String    @default("bottom-right") @map("watermark_position") // bottom-right|bottom-left|top-right|top-left|center
+  watermarkOpacity    Float     @default(0.65) @map("watermark_opacity")
+  usageCount          Int       @default(0) @map("usage_count")
+  lastUsedAt          DateTime? @map("last_used_at")
+  archivedAt          DateTime? @map("archived_at") // soft delete — KHÔNG xóa object MinIO
+  createdById         String?   @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  org        Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner      User?            @relation("MediaAssetOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdBy  User?            @relation("MediaAssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  folder     MediaAlbum?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  blobs      MediaBlob[]
+  albumItems MediaAlbumItem[]
+  usageEvents MediaUsageEvent[]
+
+  @@index([orgId, kind])
+  @@index([orgId, visibility])
+  @@index([orgId, ownerUserId])
+  @@index([orgId, archivedAt])
+  @@index([folderId])
+  @@index([tagIds], type: Gin)
+  @@map("media_assets")
+}
+
+// MediaAlbum — thư mục/bộ sưu tập (gồm cả "Yêu thích" cá nhân tự động).
+// Pattern copy y MessageTemplateFolder. visibility='public' → cả org; 'private' → owner.
+model MediaAlbum {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  name        String
+  // kind: 'folder' (thư mục thường) | 'favorite' (bộ sưu tập Yêu thích cá nhân tự động).
+  kind        String   @default("folder")
+  visibility  String   @default("private")
+  ownerUserId String?  @map("owner_user_id")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner     User?            @relation("MediaAlbumOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdBy User             @relation("MediaAlbumCreatedBy", fields: [createdById], references: [id])
+  items     MediaAlbumItem[]
+  assets    MediaAsset[] // assets dùng album này làm folder
+
+  @@index([orgId, visibility])
+  @@index([orgId, ownerUserId])
+  @@index([orgId, kind])
+  @@map("media_albums")
+}
+
+// MediaAlbumItem — 1 asset trong 1 album (bảng nối N-N + thứ tự).
+model MediaAlbumItem {
+  id           String   @id @default(uuid())
+  albumId      String   @map("album_id")
+  mediaAssetId String   @map("media_asset_id")
+  position     Int      @default(0)
+  caption      String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  album MediaAlbum @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  asset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([albumId, mediaAssetId])
+  @@index([mediaAssetId])
+  @@map("media_album_items")
+}
+
+// MediaUsageEvent — log từng lần media được gửi (tách event type để sau aggregate).
+// Codex/observability S8 + usageCount-tách-event: usageCount giữ tổng (đếm nhanh),
+// event này lưu chi tiết loại (sent_chat / sent_album / broadcast / saved_public).
+model MediaUsageEvent {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  mediaAssetId String   @map("media_asset_id")
+  // eventType: 'sent_chat' | 'sent_album' | 'broadcast' | 'saved_from_chat' | 'made_public'
+  eventType    String   @map("event_type")
+  userId       String?  @map("user_id") // ai thực hiện (audit privacy)
+  conversationId String? @map("conversation_id")
+  meta         Json?    // dữ liệu phụ (vd albumCount, deduped, fromPrivateNick)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  asset MediaAsset   @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, eventType])
+  @@index([mediaAssetId])
+  @@index([orgId, createdAt])
+  @@map("media_usage_events")
 }

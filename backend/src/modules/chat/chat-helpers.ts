@@ -11,6 +11,7 @@
  * per request.
  */
 
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 
 const userNameCache = new Map<string, { name: string; ts: number }>();
@@ -43,4 +44,50 @@ export function buildSaleCrmSenderMeta(userFullName: string) {
   return {
     sender: { kind: 'user_crm' as const, name: userFullName },
   };
+}
+
+/**
+ * createMediaMessage — Phase Media Library 2026-06-11 (eng review E4 / DRY).
+ *
+ * Gộp 4 block prisma.message.create LẶP trong chat-attachment-routes
+ * (image batch / video-success / video-fallback / file) thành 1 helper.
+ * Trước: 4 chỗ copy cùng base (id/zaloMsgId/senderType/senderUid/...) chỉ khác
+ * content+contentType → sửa privacy/field 1 chỗ phải nhớ 4 chỗ. Giờ 1 nguồn.
+ *
+ * Caller chỉ truyền phần KHÁC NHAU: contentType + content (đã JSON.stringify)
+ * + tùy chọn sentVia/metadata. Phần chung (sender self, senderName Staff,
+ * sentAt, repliedByUserId) helper tự điền.
+ */
+export interface CreateMediaMessageInput {
+  conversationId: string;
+  zaloAccount: { zaloUid: string | null };
+  repliedByUserId: string;
+  zaloMsgId: string; // '' nếu chưa có
+  contentType: 'image' | 'video' | 'file';
+  content: string; // đã JSON.stringify
+  /** M11 sender metadata (badge "Sale CRM · {tên}"). image/video truyền; file legacy có thể bỏ. */
+  metadata?: Record<string, unknown>;
+  /** 'user' cho image/video (đường gửi mới). file legacy để mặc định (undefined). */
+  sentVia?: string;
+}
+
+export async function createMediaMessage(input: CreateMediaMessageInput) {
+  const { zaloMsgId } = input;
+  return prisma.message.create({
+    data: {
+      id: randomUUID(),
+      conversationId: input.conversationId,
+      zaloMsgId: zaloMsgId || null,
+      zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+      senderType: 'self',
+      senderUid: input.zaloAccount.zaloUid || '',
+      senderName: 'Staff',
+      sentVia: input.sentVia,
+      metadata: input.metadata,
+      content: input.content,
+      contentType: input.contentType,
+      sentAt: new Date(),
+      repliedByUserId: input.repliedByUserId,
+    },
+  });
 }

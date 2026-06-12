@@ -719,27 +719,42 @@ export function useChat() {
       // (cũ: fetchConversations() per event → 143 rows re-render → lag rõ).
       const idx = conversations.value.findIndex(c => c.id === data.conversationId);
       if (idx !== -1) {
-        const conv = conversations.value[idx];
-        if (conv.contact) {
+        const cur = conversations.value[idx];
+        // 2026-06-12 (anh báo bug đồng bộ): tạo OBJECT MỚI cho conv thay vì mutate
+        // in-place. Lý do: sau khi tách ticker 30s (commit 1c377f4) cột 2 KHÔNG còn
+        // re-render định kỳ → mutate in-place conv.messages KHÔNG ép row re-render +
+        // memoize preview (WeakMap key = conv object) trả CACHE CŨ → preview "đứng",
+        // phải click/refresh mới cập nhật. Thay = object mới: ép v-for re-render row đó
+        // + đổi WeakMap key → memoize tự invalidate. Fix cả cá nhân lẫn nhóm.
+        const updatedContact = cur.contact ? { ...cur.contact } : cur.contact;
+        if (updatedContact) {
           if (data.message.senderType === 'self') {
-            conv.contact.totalOutbound = (conv.contact.totalOutbound ?? 0) + 1;
-            conv.contact.lastOutboundAt = data.message.sentAt;
+            updatedContact.totalOutbound = (updatedContact.totalOutbound ?? 0) + 1;
+            updatedContact.lastOutboundAt = data.message.sentAt;
           } else {
-            conv.contact.totalInbound = (conv.contact.totalInbound ?? 0) + 1;
-            conv.contact.lastInboundAt = data.message.sentAt;
+            updatedContact.totalInbound = (updatedContact.totalInbound ?? 0) + 1;
+            updatedContact.lastInboundAt = data.message.sentAt;
           }
-          conv.contact.lastActivity = data.message.sentAt;
+          updatedContact.lastActivity = data.message.sentAt;
         }
-        conv.lastMessageAt = data.message.sentAt;
-        // Cập nhật messages preview để conv list hiển thị tin mới nhất ngay
-        conv.messages = [data.message, ...(conv.messages || [])].slice(0, 1);
-        if (data.message.senderType !== 'self' && conv.id !== selectedConvId.value) {
-          conv.unreadCount = (conv.unreadCount ?? 0) + 1;
-        }
-        // Move conv to top (in-place — sort theo lastMessageAt sẽ cần thêm overhead)
+        const isOpen = cur.id === selectedConvId.value;
+        const conv = {
+          ...cur,
+          contact: updatedContact,
+          lastMessageAt: data.message.sentAt,
+          // preview tin mới nhất ngay
+          messages: [data.message, ...(cur.messages || [])].slice(0, 1),
+          unreadCount: (data.message.senderType !== 'self' && !isOpen)
+            ? (cur.unreadCount ?? 0) + 1
+            : cur.unreadCount,
+        } as typeof cur;
+        // Ghi đè bằng object mới + đẩy lên top. idx>0 → move; idx===0 (conv đang ở đầu,
+        // vd conv đang mở) → vẫn replace tại chỗ để row re-render với object mới.
         if (idx > 0) {
           conversations.value.splice(idx, 1);
           conversations.value.unshift(conv);
+        } else {
+          conversations.value.splice(idx, 1, conv);
         }
       }
       // Debounce sync from server: chỉ fetch sau 3s im lặng → reconcile state
@@ -747,20 +762,33 @@ export function useChat() {
       scheduleConvSync();
     });
 
-    socket.on('chat:deleted', (data: { messageId?: string; zaloMsgId?: string }) => {
+    socket.on('chat:deleted', (data: { messageId?: string; zaloMsgId?: string; conversationId?: string }) => {
       // Cột 3: update message bubble trong thread đang mở
       const msg = messages.value.find(m => m.id === data.messageId || m.zaloMsgId === data.zaloMsgId);
       if (msg) msg.isDeleted = true;
-      // Cột 2: update preview tin cuối trong conv list — match theo id/zaloMsgId
-      for (const conv of conversations.value) {
+      // Cột 2: update preview tin cuối trong conv list — match theo id/zaloMsgId.
+      // 2026-06-12 — thay conv bằng OBJECT MỚI (không mutate in-place preview) cùng lý do
+      // như chat:message: sau khi tách ticker 30s, mutate in-place KHÔNG ép row re-render +
+      // memoize preview (WeakMap key=conv) trả cache cũ → "đã thu hồi" không hiện ở cột 2.
+      // 2026-06-12 (code-review) — SCOPE theo conversationId khi server gửi kèm: zaloMsgId
+      // chỉ unique theo (conversationId, zaloMsgId), 1 tin trong NHÓM mà 2 nick CRM cùng quản
+      // lý → 2 row CÙNG zaloMsgId → thu hồi 1 cái đánh nhầm preview hội thoại kia. break sau
+      // match (1 conv chỉ có 1 preview). Không có conversationId (fallback) → giữ match cũ.
+      for (let i = 0; i < conversations.value.length; i++) {
+        const conv = conversations.value[i];
+        if (data.conversationId && conv.id !== data.conversationId) continue;
         const preview = conv.messages?.[0];
         if (preview && (preview.id === data.messageId || preview.zaloMsgId === data.zaloMsgId)) {
-          preview.isDeleted = true;
+          conversations.value.splice(i, 1, {
+            ...conv,
+            messages: [{ ...preview, isDeleted: true }, ...(conv.messages || []).slice(1)],
+          } as typeof conv);
+          if (data.conversationId) break;
         }
       }
     });
 
-    socket.on('chat:message-edited', (data: { messageId?: string; zaloMsgId?: string; content: string; originalContent?: string | null; editedAt?: string }) => {
+    socket.on('chat:message-edited', (data: { messageId?: string; zaloMsgId?: string; conversationId?: string; content: string; originalContent?: string | null; editedAt?: string }) => {
       // Cột 3: cập nhật content + edit audit fields
       const msg = messages.value.find(m => m.id === data.messageId || m.zaloMsgId === data.zaloMsgId);
       if (msg) {
@@ -768,12 +796,23 @@ export function useChat() {
         if (data.originalContent !== undefined) msg.originalContent = data.originalContent;
         if (data.editedAt) msg.editedAt = data.editedAt;
       }
-      // Cột 2: preview tin cuối cũng đổi content + flag editedAt
-      for (const conv of conversations.value) {
+      // Cột 2: preview tin cuối cũng đổi content + flag editedAt.
+      // 2026-06-12 — thay conv bằng OBJECT MỚI (cùng lý do chat:message/chat:deleted):
+      // mutate in-place không ép row re-render + memoize trả cache cũ → preview đứng.
+      // 2026-06-12 (code-review) — SCOPE theo conversationId (xem chat:deleted) tránh sửa
+      // nhầm preview hội thoại khác cùng zaloMsgId. break sau match khi có conversationId.
+      for (let i = 0; i < conversations.value.length; i++) {
+        const conv = conversations.value[i];
+        if (data.conversationId && conv.id !== data.conversationId) continue;
         const preview = conv.messages?.[0];
         if (preview && (preview.id === data.messageId || preview.zaloMsgId === data.zaloMsgId)) {
-          preview.content = data.content;
-          if (data.editedAt) preview.editedAt = data.editedAt;
+          const newPreview = { ...preview, content: data.content };
+          if (data.editedAt) newPreview.editedAt = data.editedAt;
+          conversations.value.splice(i, 1, {
+            ...conv,
+            messages: [newPreview, ...(conv.messages || []).slice(1)],
+          } as typeof conv);
+          if (data.conversationId) break;
         }
       }
     });

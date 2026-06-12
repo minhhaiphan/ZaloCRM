@@ -1,9 +1,15 @@
 /**
  * minio-client.ts — MinIO/S3 storage client for chat attachments.
  * Uploads return a public URL suitable for zca-js sendImage/sendVideo.
+ *
+ * Phase Media Library 2026-06-11 — content-hash dedup (eng review E1):
+ *   uploadBuffer giờ key theo sha256 BYTES THẬT (media/{hash}{ext}).
+ *   statObject → nếu object đã tồn tại thì SKIP putObject, trả URL bản cũ.
+ *   → 1 ảnh gửi N lần = 1 object duy nhất. Storage layer KHÔNG biết Prisma;
+ *   việc upsert MediaAsset/MediaBlob nằm ở tầng service (MediaService).
  */
 import { Client } from 'minio';
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 import { config } from '../../config/index.js';
 
@@ -32,23 +38,39 @@ export interface UploadResult {
   url: string;
   size: number;
   mimeType: string;
+  /** sha256 (hex) của bytes thật lưu — khóa dedup ở tầng service. */
+  contentHash: string;
+  /** true nếu object đã tồn tại (đã skip putObject — không tốn thêm ô lưu trữ). */
+  deduped: boolean;
 }
 
+/**
+ * Upload buffer lên MinIO với CONTENT-HASH DEDUP.
+ * Key = `media/{sha256}{ext}`. Nếu object đã tồn tại (statObject OK) → skip
+ * putObject và trả URL bản cũ (deduped=true). Cùng bytes upload N lần = 1 object.
+ *
+ * KHÔNG đụng Prisma. Caller (MediaService) lo upsert MediaAsset/MediaBlob theo
+ * contentHash trả về.
+ */
 export async function uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult> {
   // 2026-06-11: từ chối buffer rỗng — tránh tạo object MinIO 0-byte (ảnh/sticker hỏng).
   if (!buffer || buffer.length === 0) throw new Error('uploadBuffer: empty buffer (refusing 0-byte object)');
   const ext = originalName ? extname(originalName) : mimeToExt(mimeType);
-  const key = `${new Date().toISOString().slice(0, 10)}/${randomUUID()}${ext}`;
+  const contentHash = createHash('sha256').update(buffer).digest('hex');
+  const key = `media/${contentHash}${ext}`;
+  const url = `${config.s3PublicUrl}/${BUCKET}/${key}`;
+
+  // Dedup: object đã tồn tại? → skip upload, trả bản cũ.
+  const exists = await minioClient.statObject(BUCKET, key).then(() => true).catch(() => false);
+  if (exists) {
+    return { key, url, size: buffer.length, mimeType, contentHash, deduped: true };
+  }
+
   await minioClient.putObject(BUCKET, key, buffer, buffer.length, {
     'Content-Type': mimeType,
     'Cache-Control': 'public, max-age=31536000',
   });
-  return {
-    key,
-    url: `${config.s3PublicUrl}/${BUCKET}/${key}`,
-    size: buffer.length,
-    mimeType,
-  };
+  return { key, url, size: buffer.length, mimeType, contentHash, deduped: false };
 }
 
 function mimeToExt(mime: string): string {
