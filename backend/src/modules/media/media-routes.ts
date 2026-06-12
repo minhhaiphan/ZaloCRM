@@ -146,9 +146,23 @@ async function saveOneMessageToMedia(args: {
   // Zalo lưu TÊN FILE THẬT (kèm đuôi) ở content.title, KHÔNG phải content.name. Đọc theo thứ
   // tự title → fileName → name → fileUrl-basename. Ảnh thì không có title → giữ "Lưu từ chat".
   const urlBase = (() => { try { return decodeURIComponent(String(url).split('/').pop() || ''); } catch { return ''; } })();
-  const realName: string | undefined =
+  // FIX 2026-06-12 (anh báo file .doc/.xlsx lỗi): Zalo còn để ĐUÔI CHUẨN ở
+  // content.params.fileExt ("doc"/"xlsx"...). params là STRING json lồng → parse lần 2.
+  // Đây là nguồn đuôi đáng tin nhất; dùng để VÁ đuôi khi title thiếu đuôi.
+  const fileExt: string = (() => {
+    try {
+      const p = typeof parsed.params === 'string' ? JSON.parse(parsed.params) : parsed.params;
+      const e = String(p?.fileExt || '').replace(/^\./, '').toLowerCase().trim();
+      return /^[a-z0-9]{1,5}$/.test(e) ? e : '';
+    } catch { return ''; }
+  })();
+  let realName: string | undefined =
     parsed.title || parsed.fileName || parsed.name
-    || (kind !== 'image' && urlBase && /\.\w{2,5}$/.test(urlBase) ? urlBase : undefined);
+    || (kind !== 'image' && urlBase && /\.[A-Za-z0-9]{2,5}$/.test(urlBase) ? urlBase : undefined);
+  // Nếu có tên nhưng THIẾU đuôi mà Zalo báo fileExt → ghép đuôi (vd "Hợp đồng" + ".doc").
+  if (realName && fileExt && !/\.[A-Za-z0-9]{2,5}$/.test(realName)) {
+    realName = `${realName}.${fileExt}`;
+  }
   const mediaName = realName || (kind === 'image' ? 'Lưu từ chat' : 'Tệp lưu từ chat');
 
   // Validation file (audit 2026-06-12): save-from-chat KHÔNG qua classify() như /upload.

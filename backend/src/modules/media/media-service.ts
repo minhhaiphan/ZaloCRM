@@ -199,11 +199,29 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
   if (existingBlob) {
     // S8 observability: log dedup-hit (đo tiết kiệm thật — bao nhiêu ô lưu trữ né được).
     logger.info(`[media][dedup] hit org=${orgId} hash=${up.contentHash.slice(0, 12)} reusedAsset=${existingBlob.assetId} source=${source}`);
-    // Tăng lượt dùng asset đang sở hữu blob này (catalog vẫn cập nhật khi dedup-hit).
+    // FIX 2026-06-12 (anh báo file .doc/.xlsx lưu cũ kẹt tên "Lưu từ chat"): khi dedup-hit,
+    // asset cũ có thể được lưu TỪ TRƯỚC lúc code chưa biết đọc tên thật → name placeholder +
+    // originalFilename=null. Nếu lần lưu này CÓ tên thật tốt hơn (có đuôi) → VÁ tên + đuôi cho
+    // asset cũ để hết kẹt "Lưu từ chat" và gửi đi không ra file .bin. Chỉ vá khi tên cũ là
+    // placeholder/thiếu đuôi VÀ tên mới có đuôi (tránh ghi đè tên do người dùng tự đặt).
+    const old = existingBlob.asset;
+    const PLACEHOLDER = /^(Lưu từ chat|Tệp lưu từ chat|Media)$/;
+    const oldHasExt = !!old?.name && /\.[A-Za-z0-9]{2,5}$/.test(old.name);
+    const newHasExt = !!input.name && /\.[A-Za-z0-9]{2,5}$/.test(input.name);
+    const shouldPatchName =
+      !!input.name && newHasExt &&
+      (!old?.originalFilename || (!oldHasExt && (PLACEHOLDER.test(old?.name ?? '') || old?.name === input.originalFilename)));
     const asset = await prisma.mediaAsset.update({
       where: { id: existingBlob.assetId },
-      data: { usageCount: { increment: 1 }, lastUsedAt: new Date() },
+      data: {
+        usageCount: { increment: 1 },
+        lastUsedAt: new Date(),
+        ...(shouldPatchName ? { name: input.name, originalFilename: input.originalFilename ?? input.name } : {}),
+      },
     });
+    if (shouldPatchName) {
+      logger.info(`[media][dedup] vá tên asset=${existingBlob.assetId} "${old?.name}" → "${input.name}"`);
+    }
     return { asset, blob: existingBlob, deduped: true };
   }
   // S8: log MISS (bytes mới hoàn toàn) — để tính hit-rate = hit/(hit+miss).
