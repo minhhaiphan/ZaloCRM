@@ -359,7 +359,7 @@ export async function materializeSequenceForContact(
   // 6. Idempotency: probe BullMQ for step-0 job — replaces the dead AutomationTask
   //    stub lookup. Any state (waiting/delayed/active/completed/failed) counts as
   //    "already enrolled" — avoids re-enqueue spam from outbox-drainer retries.
-  const stepZeroJobId = buildSequenceStepJobId(input.triggerId, input.contactId, 0);
+  const stepZeroJobId = buildSequenceStepJobId(input.triggerId, input.sequenceId, input.contactId, 0);
   const queue = getSequenceStepQueue();
   try {
     const existingJob = await queue.getJob(stepZeroJobId);

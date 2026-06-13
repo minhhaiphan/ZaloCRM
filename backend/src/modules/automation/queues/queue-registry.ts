@@ -94,13 +94,25 @@ export function buildBroadcastTickJobId(broadcastId: string, tickIdx: number): s
  * Build deterministic jobId — verify POC spike 2026-06-01:
  * BullMQ v5 CẤM `:` trong custom jobId ("Custom Id cannot contain :").
  * Dùng DASH `-` thay thế.
+ *
+ * 2026-06-13 (Sequence recode Đợt 1, eng-review D1=A): THÊM sequenceId vào jobId.
+ * Trước đây `${triggerId}-${contactId}-${stepIdx}` KHÔNG có sequenceId → 2 luồng khác
+ * sequence cho cùng (trigger, contact) — gắn tay dùng CHUNG 1 system trigger — sinh
+ * jobId TRÙNG ở mỗi stepIdx → BullMQ dedup nuốt luồng thứ 2. Thêm sequenceId tách đôi.
+ * Mọi nơi đếm pending theo prefix phải đổi sang `${triggerId}-${sequenceId}-`.
  */
 export function buildSequenceStepJobId(
   triggerId: string,
+  sequenceId: string,
   contactId: string,
   stepIdx: number,
 ): string {
-  return `${triggerId}-${contactId}-${stepIdx}`;
+  return `${triggerId}-${sequenceId}-${contactId}-${stepIdx}`;
+}
+
+/** Prefix để đếm/quét job pending của 1 (trigger × sequence). Khớp jobId ở trên. */
+export function sequenceStepJobPrefix(triggerId: string, sequenceId: string): string {
+  return `${triggerId}-${sequenceId}-`;
 }
 
 export function buildFriendInviteJobId(

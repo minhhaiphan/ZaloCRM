@@ -35,6 +35,7 @@ import { getBullMQRedis } from './redis-connection.js';
 import {
   QUEUE_NAMES,
   buildSequenceStepJobId,
+  sequenceStepJobPrefix,
   getSequenceStepQueue,
 } from './queue-registry.js';
 import {
@@ -144,7 +145,7 @@ async function enqueueNextStep(
   }
 
   const queue = getSequenceStepQueue();
-  const nextJobId = buildSequenceStepJobId(data.triggerId, data.contactId, nextStepIdx);
+  const nextJobId = buildSequenceStepJobId(data.triggerId, data.sequenceId, data.contactId, nextStepIdx);
   const delayMs = Math.max(0, delayMinutes * 60_000);
 
   // Idempotent enqueue — jobId dedup (Issue #5 5A POC verified).
@@ -547,8 +548,10 @@ async function tryCompleteCampaign(input: {
     // job ấy vẫn nằm ở set 'active' của BullMQ → getJobs(['active']) đếm cả CHÍNH NÓ →
     // pendingForTrigger ≥ 1 → return sớm → campaign KHÔNG bao giờ flip 'completed' ngay,
     // phải chờ campaign-timeout-sweeper dọn sau 24h. Loại currentJobId khỏi phép đếm.
+    // 2026-06-13: đếm theo prefix CÓ sequenceId → 2 luồng khác sequence cùng trigger
+    // KHÔNG đếm lẫn nhau (trước đây prefix `${triggerId}-` gộp mọi luồng → completed sai).
     const jobs = await queue.getJobs(['delayed', 'waiting', 'active']);
-    const prefix = `${input.triggerId}-`;
+    const prefix = sequenceStepJobPrefix(input.triggerId, input.sequenceId);
     const pendingForTrigger = jobs.filter(
       (j) => j.id?.startsWith(prefix) && j.id !== input.currentJobId,
     ).length;
@@ -663,7 +666,7 @@ export async function enqueueSequenceStart(input: {
   }
 
   const queue = getSequenceStepQueue();
-  const jobId = buildSequenceStepJobId(input.triggerId, input.contactId, 0);
+  const jobId = buildSequenceStepJobId(input.triggerId, input.sequenceId, input.contactId, 0);
   const delayMs = Math.max(0, (input.startDelayMinutes ?? 60) * 60_000);
 
   try {
@@ -736,21 +739,21 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
 
     if (enqueuedExists) continue;
 
-    // Sweeper recovery: enqueue step N+1 với jobId dedup
+    // Sweeper recovery: enqueue step N+1 với jobId dedup.
+    // 2026-06-13: jobId cần sequenceId → load trigger TRƯỚC khi build jobId.
     const queue = getSequenceStepQueue();
-    const nextJobId = buildSequenceStepJobId(evt.triggerId, evt.contactId, nextStepIdx);
-    const existingJob = await queue.getJob(nextJobId);
-    if (existingJob) {
-      logger.info(`[sweeper] job ${nextJobId} exists in queue, skip`);
-      continue;
-    }
-
-    // Load context để enqueue
     const trigger = await prisma.automationTrigger.findUnique({
       where: { id: evt.triggerId },
       select: { sequenceId: true, orgId: true },
     });
     if (!trigger?.sequenceId) continue;
+
+    const nextJobId = buildSequenceStepJobId(evt.triggerId, trigger.sequenceId, evt.contactId, nextStepIdx);
+    const existingJob = await queue.getJob(nextJobId);
+    if (existingJob) {
+      logger.info(`[sweeper] job ${nextJobId} exists in queue, skip`);
+      continue;
+    }
 
     const steps = await loadSequenceSteps(trigger.sequenceId); // 2026-06-04 dual-read
     if (nextStepIdx >= steps.length) continue;

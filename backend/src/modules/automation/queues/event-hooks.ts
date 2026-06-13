@@ -113,6 +113,13 @@ export async function getContactPauseRemaining(
 // ⚠️ Codex (eng-review): getJob chỉ xóa waiting/delayed, KHÔNG hủy job đang ACTIVE
 // (đang chạy). → worker phải re-check pause flag trước send (đã có ở sequence-step-worker
 // pause check) nên job active vẫn bị chặn gửi → ghost vô hại.
+// 2026-06-13 (Sequence recode Đợt 1): jobId giờ có sequenceId → hàm này KHÔNG còn
+// suy được jobId chỉ từ (trigger, contact). Khách có thể chạy NHIỀU luồng dưới 1
+// trigger (gắn tay dùng chung system trigger, anh chốt đa-luồng). Nguồn chân lý
+// "khách đang chạy luồng nào" = CareSession active (sourceSequenceId). Quét per-sequence.
+//
+// Dùng cho STOP THẬT (manual stop / customer block) — remove job hẳn. Reply-pause
+// (luật 4) KHÔNG gọi hàm này nữa (chuyển sang ghi pausedAtStepIdx, không remove).
 export async function cancelPendingStepsForContact(
   triggerId: string,
   contactId: string,
@@ -120,30 +127,43 @@ export async function cancelPendingStepsForContact(
 ): Promise<{ removed: number }> {
   const queue = getSequenceStepQueue();
 
-  // Upper bound số step để dò jobId. Caller biết totalSteps thì truyền (rẻ nhất).
-  // Không biết → query sequence steps của trigger (1 query, ≤vài chục step).
-  let upper = maxSteps;
-  if (upper == null) {
-    upper = await resolveTriggerSequenceStepCount(triggerId);
+  // Các sequence khách đang chạy dưới trigger này (CareSession active). Fallback:
+  // nếu không có phiên (data cũ), dùng trigger.sequenceId.
+  const sessions = await prisma.careSession.findMany({
+    where: { contactId, sourceTriggerId: triggerId, state: 'active', sourceSequenceId: { not: null } },
+    select: { sourceSequenceId: true },
+  });
+  let sequenceIds = [...new Set(sessions.map((s) => s.sourceSequenceId).filter((x): x is string => !!x))];
+  if (sequenceIds.length === 0) {
+    const trig = await prisma.automationTrigger.findUnique({
+      where: { id: triggerId },
+      select: { sequenceId: true },
+    });
+    if (trig?.sequenceId) sequenceIds = [trig.sequenceId];
   }
 
   let removed = 0;
-  for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
-    const jobId = buildSequenceStepJobId(triggerId, contactId, stepIdx);
-    try {
-      const job = await queue.getJob(jobId);
-      if (job) {
-        await job.remove();
-        removed++;
+  for (const sequenceId of sequenceIds) {
+    // Upper bound số step để dò jobId. Caller biết totalSteps thì truyền (rẻ nhất).
+    const upper = maxSteps ?? (await resolveSequenceStepCount(sequenceId));
+    for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
+      const jobId = buildSequenceStepJobId(triggerId, sequenceId, contactId, stepIdx);
+      try {
+        const job = await queue.getJob(jobId);
+        if (job) {
+          await job.remove();
+          removed++;
+        }
+      } catch (err) {
+        logger.warn(`[event-hooks] failed to remove job ${jobId}: ${(err as Error).message}`);
       }
-    } catch (err) {
-      logger.warn(`[event-hooks] failed to remove job ${jobId}: ${(err as Error).message}`);
     }
   }
 
   if (removed > 0) {
     logger.info(
-      `[event-hooks] cancelled ${removed} pending step(s) for contact ${contactId} trigger ${triggerId} (jobId-direct)`,
+      `[event-hooks] cancelled ${removed} pending step(s) for contact ${contactId} trigger ${triggerId} ` +
+        `across ${sequenceIds.length} sequence(s) (jobId-direct)`,
     );
   }
   return { removed };
@@ -161,8 +181,17 @@ async function resolveTriggerSequenceStepCount(triggerId: string): Promise<numbe
     });
     const seqId = trigger?.successorSequenceId ?? trigger?.sequenceId;
     if (!seqId) return 30;
+    return await resolveSequenceStepCount(seqId);
+  } catch {
+    return 30;
+  }
+}
+
+/** Đếm số step của 1 sequence cụ thể (jobId mới cần dò theo sequenceId). Default 30. */
+async function resolveSequenceStepCount(sequenceId: string): Promise<number> {
+  try {
     const seq = await prisma.automationSequence.findUnique({
-      where: { id: seqId },
+      where: { id: sequenceId },
       select: { steps: true },
     });
     const steps = seq?.steps;
