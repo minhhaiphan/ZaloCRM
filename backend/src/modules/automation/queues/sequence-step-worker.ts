@@ -340,14 +340,17 @@ async function processJob(
     throw new DelayedError();
   }
   if (token) {
+    // CHỈ defer khi phiên còn ACTIVE + có pausedAtStepIdx (khách reply, chưa hết phiên).
+    // state='active' BẮT BUỘC (re-review MED #1): phiên đã đóng (sale xử lý / status-tag
+    // match / block) mà pausedAtStepIdx chưa clear → KHÔNG defer mãi (zombie). Phiên active
+    // còn pause → defer chờ resume; phiên đã đóng → cho job chạy (hoặc guard khác chặn).
     const pausedSession = await prisma.careSession.findFirst({
-      where: { orgId, contactId, sourceSequenceId: sequenceId, pausedAtStepIdx: { not: null } },
+      where: { orgId, contactId, sourceSequenceId: sequenceId, state: 'active', pausedAtStepIdx: { not: null } },
       select: { id: true },
     });
     if (pausedSession) {
-      // Khách đã reply, chưa hết phiên → defer 1h, kiểm lại (resume sẽ lo khi phiên đóng).
       await job.moveToDelayed(Date.now() + 60 * 60_000, token);
-      logger.info(`${tag} LUẬT 4: phiên còn pausedAtStepIdx (khách đã reply) → defer 1h chờ resume contact=${contactId}`);
+      logger.info(`${tag} LUẬT 4: phiên active còn pausedAtStepIdx (khách đã reply) → defer 1h chờ resume contact=${contactId}`);
       throw new DelayedError();
     }
   }
@@ -441,7 +444,7 @@ async function processJob(
       const pausedNow = pauseTtlNow > 0
         ? true
         : !!(await prisma.careSession.findFirst({
-            where: { orgId, contactId, sourceSequenceId: sequenceId, pausedAtStepIdx: { not: null } },
+            where: { orgId, contactId, sourceSequenceId: sequenceId, state: 'active', pausedAtStepIdx: { not: null } },
             select: { id: true },
           }));
       if (pausedNow) {

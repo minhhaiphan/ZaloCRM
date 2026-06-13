@@ -517,7 +517,7 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
     try {
       const seq = await prisma.automationSequence.findUnique({
         where: { id: s.sourceSequenceId },
-        select: { steps: true },
+        select: { steps: true, runtimeRules: true },
       });
       const steps = Array.isArray(seq?.steps) ? (seq!.steps as unknown[]) : [];
       if (s.pausedAtStepIdx >= steps.length) {
@@ -539,6 +539,8 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
             orgId: s.orgId,
             stepIdx: s.pausedAtStepIdx,
             totalSteps: steps.length,
+            // re-review MED #2: chuyền runtimeRules → bước sau khi resume vẫn đúng luật 1+2.
+            runtimeRules: (seq?.runtimeRules as Record<string, unknown>) ?? undefined,
           },
           { jobId, delay: 0 }, // hết phiên → gửi tiếp ngay (giờ hoạt động do worker guard lo)
         );
