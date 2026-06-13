@@ -2,14 +2,15 @@
   <div class="mpd-overlay" @click.self="$emit('close')">
     <div class="mpd-card">
       <header class="mpd-head">
-        <b>Chọn từ Kho phương tiện</b>
-        <input v-model="search" class="mpd-search" placeholder="🔍 Tìm…" @input="debouncedReload" />
+        <b>Chọn {{ kindLabel }} từ Kho</b>
+        <span v-if="multiple && (kind || 'image') === 'image'" class="mpd-hint-album">chọn nhiều ảnh = gửi 1 album</span>
+        <input v-model="search" class="mpd-search" :placeholder="`🔍 Tìm ${kindLabel}…`" @input="debouncedReload" />
         <button class="mpd-x" @click="$emit('close')">✕</button>
       </header>
       <div class="mpd-body">
         <div v-if="loading" class="mpd-empty">Đang tải…</div>
         <div v-else-if="items.length === 0" class="mpd-empty">
-          Kho trống. Vào trang <b>Kho ảnh</b> để tải lên trước.
+          Chưa có {{ kindLabel }} công khai trong kho. Vào trang <b>Kho phương tiện</b> tải lên (đặt Công khai) trước.
         </div>
         <div v-else class="mpd-grid">
           <button
@@ -25,7 +26,7 @@
         </div>
       </div>
       <footer class="mpd-foot">
-        <span class="mpd-count">{{ multiple ? `Đã chọn ${picked.size} ảnh` : 'Chọn 1 ảnh' }}</span>
+        <span class="mpd-count">{{ multiple ? `Đã chọn ${picked.size} ${kindLabel}` : `Chọn 1 ${kindLabel}` }}</span>
         <button class="mpd-confirm" :disabled="picked.size === 0" @click="confirm">Chèn</button>
       </footer>
     </div>
@@ -33,11 +34,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { listMedia, type MediaAssetItem } from '@/api/media';
 
-const props = defineProps<{ multiple?: boolean; kind?: string }>();
+// publicOnly: CHỈ hiện media CÔNG KHAI (visibility='public'). Dùng khi gắn media vào
+// Block/automation — tránh ảnh nick Riêng tư lọt ra broadcast (privacy, anh chốt 2026-06-12).
+// Default false → các chỗ dùng khác (vd chèn vào chat) không bị lọc, hành vi cũ giữ nguyên.
+const props = defineProps<{ multiple?: boolean; kind?: string; publicOnly?: boolean }>();
 const emit = defineEmits<{ close: []; pick: [assets: MediaAssetItem[]] }>();
+
+// Nhãn theo loại kho đang lọc (anh báo 2026-06-13: file/video đừng hiện "ảnh").
+const kindLabel = computed(() => ({ image: 'ảnh', video: 'video', file: 'tệp' }[props.kind || 'image'] || 'media'));
 
 const items = ref<MediaAssetItem[]>([]);
 const loading = ref(false);
@@ -51,7 +58,12 @@ function debouncedReload() { if (timer) clearTimeout(timer); timer = setTimeout(
 async function reload() {
   loading.value = true;
   try {
-    items.value = await listMedia({ kind: props.kind || 'image', q: search.value || undefined, limit: 40 });
+    items.value = await listMedia({
+      kind: props.kind || 'image',
+      q: search.value || undefined,
+      limit: 40,
+      ...(props.publicOnly ? { visibility: 'public' } : {}),
+    });
   } catch { /* ignore */ } finally { loading.value = false; }
 }
 
@@ -81,6 +93,7 @@ onMounted(reload);
   background:var(--canvas); border-radius:12px; width:680px; max-width:92vw; max-height:80vh; display:flex; flex-direction:column; overflow:hidden; }
 .mpd-head { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--hairline); }
 .mpd-head b { color:var(--ink); }
+.mpd-hint-album { font-size:11px; color:#1786be; background:#e4f1f8; border-radius:9999px; padding:2px 9px; font-weight:600; }
 .mpd-search { margin-left:auto; border:1px solid var(--hairline); border-radius:6px; padding:5px 10px; font-size:13px; width:160px; outline:none; }
 .mpd-x { border:none; background:none; cursor:pointer; color:var(--muted); font-size:15px; }
 .mpd-body { padding:16px 18px; overflow:auto; flex:1; }

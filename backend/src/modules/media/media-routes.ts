@@ -23,7 +23,8 @@ import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
 import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor.js';
-import { uploadBuffer } from '../../shared/storage/minio-client.js';
+import { uploadBuffer, getObjectBuffer, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 import { readFile } from 'node:fs/promises';
 import { logger } from '../../shared/utils/logger.js';
 
@@ -91,7 +92,7 @@ const MIME_EXT: Record<string, string> = {
  * đuôi từ url-basename rồi từ mime. File cũ ("Lưu từ chat", mime octet-stream) → .bin
  * cuối cùng để ít nhất có đuôi (khách đổi tên mở được) thay vì file lỗi hoàn toàn.
  */
-function buildSendFileName(
+export function buildSendFileName(
   asset: { name: string; originalFilename?: string | null },
   blob: { mimeType: string; publicUrl: string },
 ): string {
@@ -210,6 +211,9 @@ async function saveOneMessageToMedia(args: {
   try {
     tmp = await downloadMediaToTemp({ url, filename: realName }, ct);
     const buf = await readFile(tmp.path);
+    // GĐ13b: quét virus file lưu-từ-chat (fail-open mặc định; AV tắt → skip). Nhiễm → chặn lưu.
+    const av = await scanOrPass(buf, { filename: realName, userId });
+    if (av.blocked) return { messageId, status: 'blocked', reason: av.reason };
     const mimeType = parsed.mime
       || (kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : 'application/octet-stream');
     const res = await registerAsset({
@@ -382,6 +386,9 @@ export async function mediaRoutes(app: FastifyInstance) {
               error: kind === 'image' ? 'Ảnh quá lớn (tối đa 15MB)' : `${kind} vượt ${max / 1024 / 1024}MB`,
             });
           }
+          // GĐ13b: quét virus (fail-open mặc định; AV tắt → skip ngay). Chặn nếu nhiễm.
+          const av = await scanOrPass(buf, { filename: part.filename, userId });
+          if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
           pending.push({ buffer: buf, mimeType: part.mimetype, kind, filename: part.filename });
         }
 
@@ -673,6 +680,53 @@ export async function mediaRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── PATCH /api/v1/media/bulk — gán folder / tag HÀNG LOẠT (GĐ12 multi-select) ─
+  // Chỉ áp cho asset active CỦA MÌNH (hoặc view_all). KHÔNG đổi visibility ở bulk (tránh
+  // vô tình chia sẻ ảnh nick Riêng tư — privacy; đổi visibility vẫn qua PATCH /:id đơn lẻ
+  // có cổng confirmShare D11). folderId=null = bỏ khỏi thư mục.
+  app.patch(
+    '/api/v1/media/bulk',
+    { preHandler: requireGrant('media', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const body = request.body as { ids: string[]; folderId?: string | null; addTags?: string[] };
+      if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+        return reply.status(400).send({ error: 'Thiếu danh sách ảnh (ids)' });
+      }
+      if (body.ids.length > 200) return reply.status(400).send({ error: 'Tối đa 200 mục/lần' });
+      const canViewAll = await userHasGrant(userId, 'media', 'view_all');
+
+      // Chỉ lấy asset active thuộc phạm vi cho phép → chống sửa của người khác / đồ đã xóa.
+      const scoped = await prisma.mediaAsset.findMany({
+        where: {
+          id: { in: body.ids }, orgId: user.orgId, archivedAt: null,
+          ...(canViewAll ? {} : { ownerUserId: userId }),
+        },
+        select: { id: true, tagIds: true },
+      });
+      if (scoped.length === 0) return reply.status(404).send({ error: 'Không có mục hợp lệ để cập nhật' });
+
+      // Gán folder: 1 update chung cho tất cả (cùng giá trị).
+      if (body.folderId !== undefined) {
+        await prisma.mediaAsset.updateMany({
+          where: { id: { in: scoped.map((a) => a.id) } },
+          data: { folderId: body.folderId },
+        });
+      }
+      // Gán thêm tag: hợp nhất tag mới vào tag cũ per-asset (không ghi đè tag đang có).
+      if (body.addTags && body.addTags.length) {
+        const clean = body.addTags.map((t) => t.trim()).filter(Boolean);
+        for (const a of scoped) {
+          const merged = Array.from(new Set([...(a.tagIds ?? []), ...clean]));
+          await prisma.mediaAsset.update({ where: { id: a.id }, data: { tagIds: merged } });
+        }
+      }
+      logger.info(`[media][audit] bulk_update user=${userId} count=${scoped.length} folder=${body.folderId !== undefined} tags=${body.addTags?.length ?? 0}`);
+      return { ok: true, updated: scoped.length };
+    },
+  );
+
   // ── DELETE /api/v1/media/:id — vào THÙNG RÁC (xóa MỀM, giữ object MinIO) ────
   // GĐ13a (2026-06-12): archivedAt = dấu thùng rác. grant 'edit' đủ (sale xóa ảnh CỦA MÌNH).
   // Xóa của người khác cần view_all (admin). Ghi trashedById để audit + scope khôi phục.
@@ -692,6 +746,34 @@ export async function mediaRoutes(app: FastifyInstance) {
       await prisma.mediaAsset.update({ where: { id }, data: { archivedAt: new Date(), trashedById: userId } });
       logger.info(`[media][audit] trash asset=${id} user=${userId}`);
       return { ok: true };
+    },
+  );
+
+  // ── GET /api/v1/media/download — tải file kho kèm ĐÚNG TÊN (2026-06-13, anh báo) ──────
+  // Kho lưu object media/{hash}.ext → mở thẳng URL = tải về tên-hash. Endpoint proxy stream
+  // file + Content-Disposition filename="tên thật" → trình duyệt tải đúng tên (như Zalo real).
+  // Query: url (public URL kho) + name (tên hiển thị). Auth qua authMiddleware (hook preHandler).
+  app.get(
+    '/api/v1/media/download',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const q = request.query as { url?: string; name?: string };
+      if (!q.url) return reply.status(400).send({ error: 'Thiếu url' });
+      const key = keyFromPublicUrl(q.url);
+      if (!key) return reply.status(400).send({ error: 'URL không thuộc kho' });
+      // BUFFER (không pipe stream) — pipe MinIO-stream vào reply đôi khi TREO (socket hang up,
+      // anh gặp 2 file). Đọc hết thành Buffer rồi send → ổn định, file kho nhỏ vài MB.
+      const buf = await getObjectBuffer(key);
+      if (!buf) return reply.status(404).send({ error: 'Không tìm thấy tệp' });
+      // Tên tải về: name truyền lên (đã có đuôi) → fallback basename của key. Lọc ký tự cấm header.
+      const rawName = (q.name && q.name.trim()) || decodeURIComponent(key.split('/').pop() || 'tep');
+      const safeName = rawName.replace(/["\r\n]/g, '').slice(0, 200);
+      // RFC5987 cho tên Unicode (tiếng Việt) — filename* để trình duyệt giữ dấu.
+      reply
+        .header('Content-Disposition', `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`)
+        .header('Content-Type', 'application/octet-stream')
+        .header('Content-Length', String(buf.length))
+        .header('Cache-Control', 'private, max-age=0');
+      return reply.send(buf);
     },
   );
 

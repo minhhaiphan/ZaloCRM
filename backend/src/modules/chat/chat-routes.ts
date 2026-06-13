@@ -27,10 +27,40 @@ import { zaloOps } from '../../shared/zalo-operations.js';
 import { sendNativeVideo } from '../../shared/video-processor.js';
 import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
 import { resolveBlockContent } from '../automation/blocks/resolve-block-content.js';
-import { renderTemplate } from '../automation/blocks/render-template.js';
+import { renderTemplate, renderTemplateDetailed, shiftStylesForRender } from '../automation/blocks/render-template.js';
+// GĐ Block-media (2026-06-13): D4 vá tên file dùng chung; D3 bump usageCount khi gửi media qua Block.
+import { buildSendFileName } from '../media/media-routes.js';
+import { bumpUsage } from '../media/media-service.js';
 import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 
 type QueryParams = Record<string, string>;
+
+// 2026-06-13: media gửi từ Block thường chỉ có url+mediaAssetId, THIẾU tên/mime/size. Truy Kho
+// qua mediaAssetId lấy đủ → Zalo + CRM hiện đúng. Trả {} nếu không có id/không tìm thấy.
+// (CRM message-bubble.vue getFileInfo CẦN đủ name+href+size(number)+mime!=rỗng+!image → mới
+//  hiện file-card; thiếu mime rỗng → rơi về text '🔗 url'. Vậy mime/size phải có thật.)
+async function resolveMediaMeta(
+  mediaAssetId: string | undefined,
+  fallback: { filename?: string; mimeType?: string; sizeBytes?: number },
+): Promise<{ name: string; mime: string; size: number }> {
+  let name = (fallback.filename ?? '').trim();
+  let mime = (fallback.mimeType ?? '').trim();
+  let size = fallback.sizeBytes ?? 0;
+  if ((!name || !mime || !size) && mediaAssetId) {
+    try {
+      const a = await prisma.mediaAsset.findUnique({
+        where: { id: mediaAssetId },
+        select: { originalFilename: true, name: true, blobs: { where: { variantType: 'original' }, take: 1, select: { mimeType: true, sizeBytes: true } } },
+      });
+      if (a) {
+        if (!name) name = (a.originalFilename || a.name || '').trim();
+        if (!mime) mime = (a.blobs[0]?.mimeType || '').trim();
+        if (!size) size = a.blobs[0]?.sizeBytes ?? 0;
+      }
+    } catch { /* giữ fallback */ }
+  }
+  return { name, mime, size };
+}
 
 function mapReplyMsgType(contentType: string): string {
   if (contentType === 'text') return 'webchat';
@@ -1736,6 +1766,11 @@ export async function chatRoutes(app: FastifyInstance) {
     const renderCaption = (cap?: string) =>
       cap && contactId ? renderTemplate(cap, contactId, zaloAccountId) : Promise.resolve(cap ?? '');
 
+    // 2026-06-13 (anh báo timeout): gửi Khối media mất >30s (nhiều tin + delay chống spam + tải
+    // media + video retry) → FE axios timeout 30s báo lỗi DÙ đã gửi xong. Anh chốt: GỬI NỀN — trả về
+    // NGAY {accepted}, vòng gửi chạy detached. Tin vẫn hiện live qua socket (emitChatMessage mỗi tin).
+    // Lỗi từng tin chỉ log (không có HTTP response để trả). Gate validation phía trên VẪN đồng bộ.
+    void (async () => {
     let sentCount = 0;
     const errors: Array<{ index: number; type: string; message: string }> = [];
     let lastMessageRow: { id: string; content: string | null; contentType: string; sentAt: Date } | null = null;
@@ -1749,13 +1784,20 @@ export async function chatRoutes(app: FastifyInstance) {
       // 1 zaloMsgId riêng → tránh đụng @@unique([conversationId, zaloMsgId])).
       // content lưu THEO shape chat UI native render: image {href,thumb,size},
       // file {href,name,size,mime}, video {href,thumb,...} (khớp chat-attachment-routes).
-      const toPersist: Array<{ sdkResult: unknown; content: string; contentType: string }> = [];
+      // album*: gom N ảnh album thành 1 cụm trong CRM (message-bubble gom theo albumKey).
+      const toPersist: Array<{ sdkResult: unknown; content: string; contentType: string; albumKey?: string; albumIndex?: number; albumTotal?: number }> = [];
       try {
         if (m.messageType === 'text') {
-          const rendered = contactId ? await renderTemplate(m.payload.text, contactId, zaloAccountId) : m.payload.text;
-          const styles = Array.isArray(m.payload.styles) ? m.payload.styles : [];
-          // Render template làm lệch offset → bỏ styles khi text có biến {…}.
-          const useStyles = !m.payload.text.includes('{') && styles.length > 0;
+          // D6 (2026-06-13): GIỮ format khi có biến — dịch offset style theo giá trị thật (an toàn).
+          const rawStyles = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+          let rendered = m.payload.text;
+          let styles = rawStyles;
+          if (contactId) {
+            const det = await renderTemplateDetailed(m.payload.text, contactId, zaloAccountId);
+            rendered = det.rendered;
+            styles = rawStyles.length ? (shiftStylesForRender(m.payload.text, rawStyles, det.values) ?? []) : rawStyles;
+          }
+          const useStyles = styles.length > 0;
           const sendPayload: Record<string, unknown> = { msg: rendered };
           if (useStyles) sendPayload.styles = styles;
           const sdkResult = await zaloOps.sendMessage(zaloAccountId, threadId, threadType, sendPayload, io);
@@ -1777,20 +1819,32 @@ export async function chatRoutes(app: FastifyInstance) {
             contentType: 'image',
           });
         } else if (m.messageType === 'album') {
-          // Gửi từng ảnh riêng → mỗi ảnh 1 bubble + 1 zaloMsgId. Delay nhỏ giữa ảnh.
-          for (let k = 0; k < m.payload.items.length; k++) {
-            if (k > 0) await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 700)));
-            const it = m.payload.items[k];
-            const caption = await renderCaption(it.caption);
+          // D2 (2026-06-13): THỐNG NHẤT với automation — gửi GỘP 1 cụm album (sendImage nhiều path)
+          // thay vì từng ảnh lẻ, để khách thấy GIỐNG nhau dù gửi tay hay tự động. Cap 12 ảnh/lần.
+          const allItems = m.payload.items.slice(0, 12);
+          if (m.payload.items.length > 12) {
+            logger.warn(`[send-block] album ${m.payload.items.length} ảnh > 12 — chỉ gửi 12 ảnh đầu (giới hạn SDK).`);
+          }
+          const paths: string[] = [];
+          for (const it of allItems) {
             const dl = await downloadMediaToTemp({ url: it.url }, 'image');
             cleanups.push(dl.cleanup);
-            const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+            paths.push(dl.path);
+          }
+          const albumCaption = await renderCaption(allItems[0]?.caption);
+          const sdkResult = await zaloOps.sendImage(zaloAccountId, threadId, threadType, paths, io, albumCaption);
+          // Khách nhận 1 cụm album (gửi gộp). CRM render mỗi ảnh = 1 Message {href,thumb} NHƯNG gắn
+          // albumKey/albumIndex/albumTotal để message-bubble GOM lại thành 1 album (MessageThread:2302).
+          // sdkResult gắn ảnh đầu (lấy zaloMsgId), ảnh sau để trống id.
+          const albumKey = randomUUID();
+          allItems.forEach((it, k) => {
             toPersist.push({
-              sdkResult,
+              sdkResult: k === 0 ? sdkResult : {},
               content: JSON.stringify({ href: it.url, thumb: it.url, size: 0 }),
               contentType: 'image',
+              albumKey, albumIndex: k, albumTotal: allItems.length,
             });
-          }
+          });
         } else if (m.messageType === 'video') {
           const caption = await renderCaption(m.payload.caption);
           const dl = await downloadMediaToTemp({ url: m.payload.url }, 'video');
@@ -1810,12 +1864,21 @@ export async function chatRoutes(app: FastifyInstance) {
           });
         } else if (m.messageType === 'file') {
           const caption = await renderCaption(m.payload.caption);
-          const dl = await downloadMediaToTemp({ url: m.payload.url, filename: m.payload.filename }, 'file');
+          // 2026-06-13: block file thường chỉ có url+mediaAssetId → truy Kho lấy đủ tên+mime+size.
+          const meta = await resolveMediaMeta(m.payload.mediaAssetId, { filename: m.payload.filename, mimeType: m.payload.mimeType, sizeBytes: m.payload.sizeBytes });
+          // D4: suy tên+đuôi đúng (buildSendFileName) — tránh khách nhận file .bin.
+          const sendName = buildSendFileName(
+            { name: meta.name, originalFilename: meta.name || null },
+            { mimeType: meta.mime, publicUrl: m.payload.url },
+          );
+          const dl = await downloadMediaToTemp({ url: m.payload.url, filename: sendName }, 'file');
           cleanups.push(dl.cleanup);
           const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
           toPersist.push({
             sdkResult,
-            content: JSON.stringify({ href: m.payload.url, name: m.payload.filename ?? 'file', size: m.payload.sizeBytes ?? 0, mime: m.payload.mimeType ?? '' }),
+            // name+mime+size đủ → CRM message-bubble getFileInfo hiện file-card (không rơi về '🔗 url').
+            // mime trống → ép octet-stream (vẫn !=rỗng + !image → getFileInfo nhận).
+            content: JSON.stringify({ href: m.payload.url, name: sendName, size: meta.size || 0, mime: meta.mime || 'application/octet-stream' }),
             contentType: 'file',
           });
         } else {
@@ -1839,8 +1902,10 @@ export async function chatRoutes(app: FastifyInstance) {
               repliedByUserId: user.id,
               sentVia: 'user',
               metadata: senderMeta,
+              // album: gom N ảnh thành 1 cụm trong CRM (message-bubble gom theo albumKey).
+              ...(p.albumKey ? { albumKey: p.albumKey, albumIndex: p.albumIndex, albumTotal: p.albumTotal } : {}),
             },
-            select: { id: true, content: true, contentType: true, sentAt: true, zaloMsgId: true, zaloMsgIdNum: true, senderType: true, senderUid: true, senderName: true, conversationId: true, repliedByUserId: true, sentVia: true, metadata: true },
+            select: { id: true, content: true, contentType: true, sentAt: true, zaloMsgId: true, zaloMsgIdNum: true, senderType: true, senderUid: true, senderName: true, conversationId: true, repliedByUserId: true, sentVia: true, metadata: true, albumKey: true, albumIndex: true, albumTotal: true },
           });
           lastMessageRow = { id: created.id, content: created.content, contentType: created.contentType, sentAt: created.sentAt };
           sentCount++;
@@ -1857,26 +1922,33 @@ export async function chatRoutes(app: FastifyInstance) {
             ownerUserId: conversation.zaloAccount.ownerUserId,
           });
         }
+        // D3 (2026-06-13): gửi media qua Khối (gửi tay) → bump usageCount để đo ảnh/file hiệu quả.
+        // Fire-and-forget, không chặn. album: bump từng item; image/video/file: 1 id.
+        {
+          const p = m.payload as Record<string, unknown>;
+          const ids: string[] = m.messageType === 'album'
+            ? ((p.items as Array<{ mediaAssetId?: string }>) ?? []).map((it) => it.mediaAssetId).filter((x): x is string => !!x)
+            : (m.messageType === 'image' || m.messageType === 'video' || m.messageType === 'file') && p.mediaAssetId
+              ? [p.mediaAssetId as string]
+              : [];
+          for (const aid of ids) bumpUsage(aid).catch(() => {});
+        }
       } catch (err: any) {
         const code = err?.code as string | undefined;
         const msg = err?.message ?? String(err);
         errors.push({ index: i, type: m.messageType, message: msg });
-        if (sentCount > 0) {
-          // Đã gửi ≥1 tin → KH nhận rồi, KHÔNG retry (tránh double-send cả Khối) → dừng.
-          logger.warn(`[send-block] tin ${i + 1}/${resolved.length} (${m.messageType}) lỗi sau khi đã gửi ${sentCount} tin: ${msg} — dừng`);
-          break;
-        }
-        // Lỗi ngay tin đầu → fail sạch, sale retry được.
-        if (code === 'RATE_LIMITED') return reply.status(429).send({ error: msg });
-        if (code === 'NOT_CONNECTED') return reply.status(400).send({ error: msg });
-        return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: msg });
+        // GỬI NỀN: không còn HTTP response để trả lỗi → chỉ LOG + dừng (tin đã stream live qua socket;
+        // FE đã nhận {accepted} từ trước). Lỗi tin đầu = không gửi được gì, sale gửi lại được.
+        logger.warn(`[send-block] tin ${i + 1}/${resolved.length} (${m.messageType}) lỗi [${code ?? '?'}]: ${msg} — dừng (đã gửi ${sentCount} tin)`);
+        break;
       } finally {
         for (const c of cleanups) await c().catch(() => {});
       }
     }
 
     if (sentCount === 0) {
-      return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: 'không gửi được tin nào', errors });
+      logger.warn(`[send-block] KHÔNG gửi được tin nào (conv=${id} block="${block.name}") errors=${JSON.stringify(errors)}`);
+      return; // thoát IIFE nền — FE đã nhận {accepted}, lỗi này chỉ log.
     }
 
     // Cập nhật aggregate (theo tin cuối) + bump usage Khối.
@@ -1915,13 +1987,11 @@ export async function chatRoutes(app: FastifyInstance) {
     }).catch((err) => logger.warn(`[send-block] bump usage failed: ${err}`));
 
     logger.info(`[send-block] sent ${sentCount}/${resolved.length} tin từ nick=${zaloAccountId} → conv=${id} block="${block.name}"`);
-    return {
-      ok: true,
-      sentCount,
-      totalMessages: resolved.length,
-      partial: sentCount < resolved.length,
-      errors,
-    };
+    })().catch((err) => logger.error(`[send-block] vòng gửi nền lỗi: ${err?.message ?? err}`));
+
+    // GỬI NỀN: trả về NGAY (không chờ vòng gửi) → FE báo "đang gửi", tin hiện live qua socket,
+    // KHÔNG bao giờ timeout. totalMessages để FE hiển thị tiến độ mong đợi.
+    return { ok: true, accepted: true, totalMessages: resolved.length };
   });
 
   // ── Upload image(s) and send qua Zalo (paste image / nút Gửi ảnh) ────────

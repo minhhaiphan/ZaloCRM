@@ -17,7 +17,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { zaloOps } from '../../../../shared/zalo-operations.js';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../../../contacts/contact-aggregate.js';
 import { resolveBlockContent, type ResolvedMessage } from '../../blocks/resolve-block-content.js';
-import { renderTemplate } from '../../blocks/render-template.js';
+import { renderTemplate, renderTemplateDetailed, shiftStylesForRender } from '../../blocks/render-template.js';
 import type { ActionContext, ActionResult } from '../types.js';
 // Phase Media GĐ3 2026-06-11 — Đường B: zca-js KHÔNG nhận URL (readFile string như
 // path), nên media trong Block phải DOWNLOAD về temp → gửi local path. Bug có sẵn:
@@ -25,10 +25,37 @@ import type { ActionContext, ActionResult } from '../types.js';
 import { downloadMediaToTemp } from '../../../chat/chat-media-helpers.js';
 import { sendNativeVideo } from '../../../../shared/video-processor.js';
 import { zaloPool } from '../../../zalo/zalo-pool.js';
+// GĐ Block-media (2026-06-13): D4 vá tên file dùng chung với chat; D3 bump usageCount khi gửi media qua Block.
+import { buildSendFileName } from '../../../media/media-routes.js';
+import { bumpUsage } from '../../../media/media-service.js';
 
 const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
 
 type ZaloStyle = { st: string; start: number; len: number };
+
+// 2026-06-13: truy tên file thật từ Kho qua mediaAssetId (block file thường filename trống).
+async function resolveMediaFilename(mediaAssetId: string | undefined, fallback: string | undefined): Promise<string> {
+  if (fallback && fallback.trim()) return fallback.trim();
+  if (!mediaAssetId) return '';
+  try {
+    const a = await prisma.mediaAsset.findUnique({ where: { id: mediaAssetId }, select: { originalFilename: true, name: true } });
+    return (a?.originalFilename || a?.name || '').trim();
+  } catch { return ''; }
+}
+
+// D3 (2026-06-13): gom mediaAssetId từ 1 ResolvedMessage media (image/video/file + album per-item)
+// để bump usageCount sau khi gửi. text/friend_request → [].
+function collectMediaAssetIds(m: ResolvedMessage): string[] {
+  const p = m.payload as Record<string, unknown>;
+  if (m.messageType === 'album') {
+    const items = (p.items as Array<{ mediaAssetId?: string }>) ?? [];
+    return items.map((it) => it.mediaAssetId).filter((x): x is string => !!x);
+  }
+  if (m.messageType === 'image' || m.messageType === 'video' || m.messageType === 'file') {
+    return p.mediaAssetId ? [p.mediaAssetId as string] : [];
+  }
+  return [];
+}
 
 // Delay ngẫu nhiên giữa các tin trong cùng 1 Khối (chống Zalo coi spam / burst-limit).
 // Giống broadcast-fire-worker randomDelay. 0.8–2.5s.
@@ -191,11 +218,14 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
 
     try {
       if (m.messageType === 'text') {
-        const rendered = await renderTemplate(m.payload.text, ctx.contactId, ctx.assignedNickId);
-        const hadTemplateVar = m.payload.text.includes('{');
-        const styles: ZaloStyle[] = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+        // D6 (2026-06-13): GIỮ format khi có biến — dịch offset style theo giá trị thật (an toàn,
+        // không đếm mù). shiftStylesForRender trả null nếu biến cắt ngang vùng style → fallback bỏ style.
+        const { rendered, values } = await renderTemplateDetailed(m.payload.text, ctx.contactId, ctx.assignedNickId);
+        const rawStyles: ZaloStyle[] = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+        const shifted = rawStyles.length ? shiftStylesForRender(m.payload.text, rawStyles, values) : rawStyles;
+        const styles: ZaloStyle[] = (shifted as ZaloStyle[] | null) ?? [];
         const msgPayload: Record<string, unknown> = { msg: rendered };
-        const useStyles = !hadTemplateVar && styles.length > 0;
+        const useStyles = styles.length > 0;
         if (useStyles) msgPayload.styles = styles;
         const raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, msgPayload);
         sdkResult = (raw as Record<string, unknown>) || {};
@@ -249,11 +279,18 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
         persistContentType = 'video';
       } else if (m.messageType === 'file') {
         const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
-        const tmp = await downloadMediaToTemp({ url: m.payload.url, filename: m.payload.filename }, 'file');
+        // 2026-06-13 (Zalo mất tên file): filename block thường TRỐNG → truy tên thật từ Kho qua
+        // mediaAssetId trước khi suy đuôi (không rơi về URL-hash).
+        const realName = await resolveMediaFilename(m.payload.mediaAssetId, m.payload.filename);
+        const sendName = buildSendFileName(
+          { name: realName, originalFilename: realName || null },
+          { mimeType: m.payload.mimeType ?? '', publicUrl: m.payload.url },
+        );
+        const tmp = await downloadMediaToTemp({ url: m.payload.url, filename: sendName }, 'file');
         tmpCleanups.push(tmp.cleanup);
         const raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [tmp.path], null, caption);
         sdkResult = (raw as Record<string, unknown>) || {};
-        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'file', url: m.payload.url, filename: m.payload.filename, caption }] });
+        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'file', url: m.payload.url, filename: sendName, caption }] });
         persistContentType = 'file';
       } else {
         continue;
@@ -299,6 +336,11 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
       logger.error(`[send-message] persist tin ${i + 1} lỗi (Zalo đã gửi):`, err);
     }
     sentCount++;
+    // D3 (2026-06-13): gửi media qua Block thành công → bump usageCount để sale đo ảnh/file nào
+    // hiệu quả (giống gửi từ kho). Fire-and-forget, KHÔNG chặn flow. text/friend_request bỏ qua.
+    for (const aid of collectMediaAssetIds(m)) {
+      bumpUsage(aid).catch((e) => logger.warn(`[send-message] bumpUsage ${aid} lỗi: ${(e as Error)?.message}`));
+    }
   }
 
   if (sentCount === 0) {

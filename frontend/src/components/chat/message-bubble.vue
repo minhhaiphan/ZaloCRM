@@ -163,7 +163,7 @@
                 icon
                 size="x-small"
                 variant="text"
-                @click="openFile(getFileInfo(message)!.href)"
+                @click="openFile(getFileInfo(message)!.href, getFileInfo(message)!.name)"
               >
                 <v-icon size="16">mdi-download</v-icon>
               </v-btn>
@@ -349,6 +349,7 @@ import ReactionDisplay from '@/components/chat/reaction-display.vue';
 import ReactionPicker from '@/components/chat/reaction-picker.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import MessageSourceBadge from '@/components/chat/MessageSourceBadge.vue';
+import { useToast } from '@/composables/use-toast';
 
 const props = defineProps<{
   message: Message;
@@ -483,17 +484,21 @@ function getVideoUrl(msg: Message): string | null {
 
 function getFileInfo(msg: Message): { name: string; size: string; href: string } | null {
   if (!msg.content?.startsWith('{')) return null;
+  const fmtSize = (b: number) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b > 0 ? `${Math.round(b / 1024)} KB` : '';
   try {
     const p = JSON.parse(msg.content);
-    if (p.href && p.name && typeof p.size === 'number' && p.mime && !p.mime.startsWith('image/') && !p.mime.startsWith('video/')) {
-      const size = p.size > 1048576 ? `${(p.size / 1048576).toFixed(1)} MB` : `${Math.round(p.size / 1024)} KB`;
-      return { name: p.name, size, href: p.href };
+    const mime = typeof p.mime === 'string' ? p.mime : '';
+    const isImgVid = mime.startsWith('image/') || mime.startsWith('video/');
+    // 2026-06-13 (anh báo tải file gửi đi không ra): NỚI điều kiện — tin contentType='file' HOẶC
+    // có {href,name} mà KHÔNG phải ảnh/video → render file-card + nút tải. KHÔNG bắt buộc mime
+    // (file cũ persist mime="" trước fix → trước đây rơi về text '🔗 url', không có nút tải).
+    if (p.href && p.name && (msg.contentType === 'file' || (!isImgVid && !p.thumb))) {
+      return { name: p.name, size: fmtSize(typeof p.size === 'number' ? p.size : 0), href: p.href };
     }
     const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
     if (params?.fileExt || params?.fType === 1) {
       const bytes = parseInt(params.fileSize || '0');
-      const size = bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
-      return { name: p.title || `file.${params.fileExt || 'unknown'}`, size, href: p.href || '' };
+      return { name: p.title || `file.${params.fileExt || 'unknown'}`, size: fmtSize(bytes), href: p.href || '' };
     }
   } catch {}
   return null;
@@ -871,8 +876,40 @@ function onPickerReact(key: string) {
   emit('toggle-reaction', key);
 }
 
-function openFile(href: string) {
-  window.open(href, '_blank');
+// 2026-06-13 (anh báo tải file mất tên): kho lưu media/{hash}.ext nên mở thẳng URL → tải về
+// tên-hash. Tải QUA cổng CRM /media/download (cùng origin, gắn Content-Disposition tên thật) →
+// trình duyệt giữ đúng tên. Dùng axios api (kèm auth) → blob → <a download="tên thật">.
+// 2026-06-13 (anh báo 1 file tải ra tên hash + Chrome hỏi popup): lỗi cổng tải lúc đó là
+// TIMEOUT tạm thời → trước đây fallback window.open(href) = tải tên-hash (sai). Giờ: RETRY 1
+// lần (timeout 60s cho file lớn), nếu vẫn lỗi thì BÁO toast (KHÔNG window.open để tránh tên-hash).
+const downloadingFiles = new Set<string>();
+async function openFile(href: string, name?: string) {
+  if (downloadingFiles.has(href)) return; // chống double-click → tránh Chrome hỏi popup "tải nhiều"
+  downloadingFiles.add(href);
+  const { api } = await import('@/api/index');
+  const fetchBlob = () => api.get('/media/download', {
+    params: { url: href, name: name || '' },
+    responseType: 'blob',
+    timeout: 60000, // file lớn (vài MB) + MinIO cold → nới timeout, tránh fallback tên-hash
+  });
+  try {
+    let res;
+    try { res = await fetchBlob(); }
+    catch { res = await fetchBlob(); } // retry 1 lần (lỗi mạng/timeout tạm thời)
+    const blobUrl = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = name || 'tep';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch (e) {
+    console.error('[openFile] tải qua cổng lỗi sau retry:', e);
+    try { useToast().warning('Tải tệp lỗi tạm thời, thử lại sau ít giây.'); } catch { /* */ }
+  } finally {
+    downloadingFiles.delete(href);
+  }
 }
 </script>
 
