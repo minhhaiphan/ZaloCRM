@@ -483,17 +483,21 @@ function getVideoUrl(msg: Message): string | null {
 
 function getFileInfo(msg: Message): { name: string; size: string; href: string } | null {
   if (!msg.content?.startsWith('{')) return null;
+  const fmtSize = (b: number) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b > 0 ? `${Math.round(b / 1024)} KB` : '';
   try {
     const p = JSON.parse(msg.content);
-    if (p.href && p.name && typeof p.size === 'number' && p.mime && !p.mime.startsWith('image/') && !p.mime.startsWith('video/')) {
-      const size = p.size > 1048576 ? `${(p.size / 1048576).toFixed(1)} MB` : `${Math.round(p.size / 1024)} KB`;
-      return { name: p.name, size, href: p.href };
+    const mime = typeof p.mime === 'string' ? p.mime : '';
+    const isImgVid = mime.startsWith('image/') || mime.startsWith('video/');
+    // 2026-06-13 (anh báo tải file gửi đi không ra): NỚI điều kiện — tin contentType='file' HOẶC
+    // có {href,name} mà KHÔNG phải ảnh/video → render file-card + nút tải. KHÔNG bắt buộc mime
+    // (file cũ persist mime="" trước fix → trước đây rơi về text '🔗 url', không có nút tải).
+    if (p.href && p.name && (msg.contentType === 'file' || (!isImgVid && !p.thumb))) {
+      return { name: p.name, size: fmtSize(typeof p.size === 'number' ? p.size : 0), href: p.href };
     }
     const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
     if (params?.fileExt || params?.fType === 1) {
       const bytes = parseInt(params.fileSize || '0');
-      const size = bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
-      return { name: p.title || `file.${params.fileExt || 'unknown'}`, size, href: p.href || '' };
+      return { name: p.title || `file.${params.fileExt || 'unknown'}`, size: fmtSize(bytes), href: p.href || '' };
     }
   } catch {}
   return null;
@@ -881,7 +885,8 @@ async function openFile(href: string, name?: string) {
       params: { url: href, name: name || '' },
       responseType: 'blob',
     });
-    const blobUrl = URL.createObjectURL(res.data as Blob);
+    const blob = res.data as Blob;
+    const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;
     a.download = name || 'tep';
@@ -889,8 +894,10 @@ async function openFile(href: string, name?: string) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
-  } catch {
-    window.open(href, '_blank'); // fallback: ít nhất mở được file (tên có thể là hash)
+  } catch (e) {
+    // Lỗi cổng tải (vd token/file) → mở thẳng URL kho (tab mới; tên có thể là hash). Log để debug.
+    console.error('[openFile] tải qua cổng lỗi, fallback URL:', e);
+    window.open(href, '_blank');
   }
 }
 </script>
