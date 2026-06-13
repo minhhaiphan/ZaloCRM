@@ -92,12 +92,23 @@ export async function ensureBucket(): Promise<void> {
 }
 
 /**
+ * 2026-06-13: kiểm key an toàn để proxy-download — chấp nhận MỌI object THUỘC BUCKET của mình
+ * (cả `media/{hash}.ext` từ Kho LẪN `YYYY-MM-DD/{uuid}.ext` từ chat thường / mirror inbound).
+ * 2026-06-13 (vá sau): TRƯỚC chỉ nhận prefix `media/` → file gửi qua chat thường (key theo ngày)
+ * bị cổng tải trả 404 dù file CÒN SỐNG trong MinIO (đo thực tế: 1.424 file dính). Nới: nhận key bất
+ * kỳ trong bucket, CHỈ chặn rỗng / path-traversal (`..`) / key tuyệt đối (`/` đầu). URL ngoài bucket
+ * (vd Zalo CDN dlfl.vn) tự loại ở keyFromPublicUrl (không khớp marker /BUCKET/ → trả '').
+ */
+function isSafeObjectKey(key: string): boolean {
+  return !!key && !key.startsWith('/') && !key.includes('..') && !key.includes('\0');
+}
+
+/**
  * 2026-06-13: lấy 1 object trong bucket dưới dạng stream để CRM proxy-download (gắn tên file thật
- * qua Content-Disposition). key PHẢI nằm dưới prefix 'media/' (chống path traversal). Trả null nếu
- * key sai prefix / không tồn tại.
+ * qua Content-Disposition). Trả null nếu key không an toàn / không tồn tại.
  */
 export async function getObjectStream(key: string): Promise<NodeJS.ReadableStream | null> {
-  if (!key || !key.startsWith('media/') || key.includes('..')) return null;
+  if (!isSafeObjectKey(key)) return null;
   try {
     await minioClient.statObject(BUCKET, key); // tồn tại?
     return await minioClient.getObject(BUCKET, key);
