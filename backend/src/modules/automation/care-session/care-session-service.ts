@@ -55,6 +55,8 @@ export interface CreateCareSessionInput {
   /** Codex #10: snapshot runtimeRules (giờ/sendGap/cooldown) lúc enroll → đổi config
    *  KHÔNG ảnh hưởng KH đang chạy. null = worker fallback đọc rules live của sequence. */
   rulesSnapshot?: unknown;
+  /** 2026-06-15: số lần gắn (epoch) — lưu để resume/cancel dùng đúng jobId epoch. */
+  enrollEpoch?: number;
   /**
    * Per-nick UID khách (góc nhìn nick sale → nick khách) = Conversation.externalThreadId.
    * Anh chốt 2026-06-08: neo phiên theo (nick, thread). Nếu caller không truyền, hàm tự
@@ -168,6 +170,7 @@ export async function createCareSession(input: CreateCareSessionInput): Promise<
     silenceDays = DEFAULT_SILENCE_DAYS,
     closeConditions = null,
     rulesSnapshot = null,
+    enrollEpoch,
   } = input;
 
   // Per-nick UID (góc nhìn nick→khách). Caller truyền sẵn (route /listen, message-handler);
@@ -225,6 +228,7 @@ export async function createCareSession(input: CreateCareSessionInput): Promise<
         state: 'active',
         closeConditions: closeConditions === null ? undefined : (closeConditions as object),
         rulesSnapshot: rulesSnapshot === null ? undefined : (rulesSnapshot as object),
+        enrollEpoch: enrollEpoch ?? undefined,
         interestWindowUntil: computeWindowUntil(silenceDays),
       },
       select: { id: true },
@@ -342,6 +346,8 @@ export async function enrollFromTrigger(input: {
   skipEnqueue?: boolean;
   // Bám đuổi THỦ CÔNG: sale tự gắn KH vào → ghi ai gắn (manual). null = tự động.
   enrolledByUserId?: string | null;
+  // 2026-06-15: số lần gắn (epoch) — gắn lại tăng → lưu vào phiên để resume/cancel đúng epoch.
+  enrollEpoch?: number;
 }): Promise<string | null> {
   // CareSession 2026-06-07 (anh chốt): điều kiện đóng là CHUNG cấp ORG, KHÔNG
   // per-trigger. Đọc org.careCloseConditions, snapshot vào phiên.
@@ -394,6 +400,7 @@ export async function enrollFromTrigger(input: {
     silenceDays,
     closeConditions,
     rulesSnapshot, // Codex #10: snapshot rules lúc enroll
+    enrollEpoch: input.enrollEpoch, // 2026-06-15: số lần gắn
   });
 
   // D2 bước 2: enqueue SAU khi phiên đã commit. Fail không làm hỏng phiên.
@@ -526,6 +533,7 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
       pausedAtStepIdx: true,
       lastCustomerActivityAt: true,
       closedAt: true,
+      enrollEpoch: true,
     },
     take: 200,
   });
@@ -554,7 +562,8 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
         await prisma.careSession.update({ where: { id: s.id }, data: { pausedAtStepIdx: null } }).catch(() => null);
         continue;
       }
-      const jobId = buildSequenceStepJobId(s.sourceTriggerId, s.sourceSequenceId, s.contactId, s.pausedAtStepIdx);
+      const epoch = s.enrollEpoch ?? 1;
+      const jobId = buildSequenceStepJobId(s.sourceTriggerId, s.sourceSequenceId, s.contactId, s.pausedAtStepIdx, epoch);
       // jobId dedup: nếu job còn trong queue (chưa bị remove) thì không double.
       const existing = await queue.getJob(jobId);
       if (!existing) {
@@ -570,6 +579,7 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
             totalSteps: steps.length,
             // re-review MED #2: chuyền runtimeRules → bước sau khi resume vẫn đúng luật 1+2.
             runtimeRules: (seq?.runtimeRules as Record<string, unknown>) ?? undefined,
+            enrollEpoch: epoch,
           },
           { jobId, delay: 0 }, // hết phiên → gửi tiếp ngay (giờ hoạt động do worker guard lo)
         );

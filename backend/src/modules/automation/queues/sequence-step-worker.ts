@@ -61,6 +61,9 @@ export interface SequenceStepJobData {
   // chuyền theo job → enqueueNextStep tính delay đúng (trước đây dùng step.delayMinutes
   // thô → sendGap dead config). Optional: job cũ thiếu field → fallback step.delayMinutes.
   runtimeRules?: Record<string, unknown>;
+  // 2026-06-15: số lần gắn (epoch) — gắn lại cùng luồng tăng epoch → jobId mới. Mọi step
+  // của 1 lần gắn dùng CÙNG epoch (lazy-chain kế thừa). Optional: job cũ thiếu → coi = 1.
+  enrollEpoch?: number;
 }
 
 export interface SequenceStepResult {
@@ -150,7 +153,7 @@ async function enqueueNextStep(
   }
 
   const queue = getSequenceStepQueue();
-  const nextJobId = buildSequenceStepJobId(data.triggerId, data.sequenceId, data.contactId, nextStepIdx);
+  const nextJobId = buildSequenceStepJobId(data.triggerId, data.sequenceId, data.contactId, nextStepIdx, data.enrollEpoch ?? 1);
 
   // FIX code-review #2: LUẬT 2 (sendGap) — delay từ schedule-calculator (rules.sendGap
   // giây→ngày), fallback step.delayMinutes nếu chưa set. LUẬT 1 (giờ) — dời mốc gửi vào
@@ -552,6 +555,7 @@ async function processJob(
         jobId: job.id,
         msgId: messageId,
         sequenceId, // LOW#3 fix: sweeper đọc trực tiếp thay vì đoán từ CareSession khi đa-luồng
+        enrollEpoch: job.data.enrollEpoch ?? 1, // 2026-06-15: sweeper/resume dùng đúng epoch
       },
     },
   });
@@ -701,6 +705,7 @@ export async function enqueueSequenceStart(input: {
   nickId: string;
   orgId: string;
   startDelayMinutes?: number;
+  enrollEpoch?: number; // 2026-06-15: số lần gắn — gắn lại tăng → jobId mới (không đụng job cũ).
 }): Promise<void> {
   const seq = await prisma.automationSequence.findUnique({
     where: { id: input.sequenceId },
@@ -719,7 +724,8 @@ export async function enqueueSequenceStart(input: {
   }
 
   const queue = getSequenceStepQueue();
-  const jobId = buildSequenceStepJobId(input.triggerId, input.sequenceId, input.contactId, 0);
+  const epoch = input.enrollEpoch ?? 1;
+  const jobId = buildSequenceStepJobId(input.triggerId, input.sequenceId, input.contactId, 0, epoch);
   // FIX #2: bước 0 cũng né ngoài giờ (luật 1). startDelayMinutes=0 (manual gửi ngay) → chỉ
   // dời nếu hiện tại ngoài khung giờ hoạt động.
   const startRules = (seq.runtimeRules ?? undefined) as import('../sequences/types.js').SequenceRuntimeRules | undefined;
@@ -739,6 +745,7 @@ export async function enqueueSequenceStart(input: {
         stepIdx: 0,
         totalSteps: steps.length,
         runtimeRules: (seq.runtimeRules as Record<string, unknown>) ?? undefined, // FIX #2 chuyền rules
+        enrollEpoch: epoch, // 2026-06-15: lazy-chain kế thừa epoch cho mọi bước
       },
       { jobId, delay: delayMs },
     );
@@ -822,7 +829,9 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
     }
     if (!sequenceId) continue; // không xác định được luồng → bỏ qua an toàn
 
-    const nextJobId = buildSequenceStepJobId(evt.triggerId, sequenceId, evt.contactId, nextStepIdx);
+    // Epoch từ metadata event (ghi lúc step_sent). Fallback 1 (job/event cũ trước epoch).
+    const evtEpoch = (evtMeta as { enrollEpoch?: number } | null)?.enrollEpoch ?? 1;
+    const nextJobId = buildSequenceStepJobId(evt.triggerId, sequenceId, evt.contactId, nextStepIdx, evtEpoch);
     const existingJob = await queue.getJob(nextJobId);
     if (existingJob) {
       logger.info(`[sweeper] job ${nextJobId} exists in queue, skip`);
@@ -856,6 +865,7 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
         stepIdx: nextStepIdx,
         totalSteps: steps.length,
         runtimeRules: (seqRules?.runtimeRules as Record<string, unknown>) ?? undefined,
+        enrollEpoch: evtEpoch,
       },
       { jobId: nextJobId, delay: (steps[nextStepIdx].delayMinutes ?? 60) * 60_000 },
     );

@@ -142,28 +142,31 @@ export async function cancelPendingStepsForContact(
     if (trig?.sequenceId) sequenceIds = [trig.sequenceId];
   }
 
+  // 2026-06-15 (epoch): jobId giờ có enrollEpoch không biết trước → KHÔNG dò từng jobId
+  // theo stepIdx được. Quét delayed/waiting/active theo prefix `${trigger}-${seq}-${contact}-`
+  // (mọi epoch + mọi step) → xóa tất. Đúng ý "stop = dừng MỌI job pending của KH trong luồng".
+  void maxSteps; // không còn dùng (giữ signature tương thích caller cũ).
   let removed = 0;
-  for (const sequenceId of sequenceIds) {
-    // Upper bound số step để dò jobId. Caller biết totalSteps thì truyền (rẻ nhất).
-    const upper = maxSteps ?? (await resolveSequenceStepCount(sequenceId));
-    for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
-      const jobId = buildSequenceStepJobId(triggerId, sequenceId, contactId, stepIdx);
-      try {
-        const job = await queue.getJob(jobId);
-        if (job) {
-          await job.remove();
-          removed++;
-        }
-      } catch (err) {
-        logger.warn(`[event-hooks] failed to remove job ${jobId}: ${(err as Error).message}`);
-      }
+  const seqSet = new Set(sequenceIds);
+  const pending = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
+  for (const job of pending) {
+    if (!job.id) continue;
+    const d = job.data as { contactId?: string; sequenceId?: string };
+    if (d?.contactId !== contactId || !d?.sequenceId || !seqSet.has(d.sequenceId)) continue;
+    // Khớp trigger nữa (prefix) để không xóa nhầm trigger khác cùng contact+sequence.
+    if (!job.id.startsWith(`${triggerId}-`)) continue;
+    try {
+      await job.remove();
+      removed++;
+    } catch (err) {
+      logger.warn(`[event-hooks] failed to remove job ${job.id}: ${(err as Error).message}`);
     }
   }
 
   if (removed > 0) {
     logger.info(
       `[event-hooks] cancelled ${removed} pending step(s) for contact ${contactId} trigger ${triggerId} ` +
-        `across ${sequenceIds.length} sequence(s) (jobId-direct)`,
+        `across ${sequenceIds.length} sequence(s) (scan-by-data)`,
     );
   }
   return { removed };
@@ -204,17 +207,16 @@ export async function getPendingStepIdxBySequence(
   const sequenceIds = [...new Set(sessions.map((s) => s.sourceSequenceId).filter((x): x is string => !!x))];
   if (sequenceIds.length === 0) return out;
 
+  // 2026-06-15 (epoch): jobId có epoch không biết trước → scan job pending theo job.data
+  // thay vì dò jobId. Lazy-chain: mỗi (trigger,sequence,contact) ≤1 job pending → lấy stepIdx.
   const queue = getSequenceStepQueue();
-  for (const sequenceId of sequenceIds) {
-    const upper = await resolveSequenceStepCount(sequenceId);
-    for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
-      const jobId = buildSequenceStepJobId(triggerId, sequenceId, contactId, stepIdx);
-      const job = await queue.getJob(jobId).catch(() => null);
-      if (job) {
-        out.set(sequenceId, stepIdx); // lazy-chain: tại 1 thời điểm ≤1 step pending/luồng
-        break;
-      }
-    }
+  const seqSet = new Set(sequenceIds);
+  const pending = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
+  for (const job of pending) {
+    if (!job.id || !job.id.startsWith(`${triggerId}-`)) continue;
+    const d = job.data as { contactId?: string; sequenceId?: string; stepIdx?: number };
+    if (d?.contactId !== contactId || !d?.sequenceId || !seqSet.has(d.sequenceId)) continue;
+    if (!out.has(d.sequenceId)) out.set(d.sequenceId, typeof d.stepIdx === 'number' ? d.stepIdx : 0);
   }
   return out;
 }

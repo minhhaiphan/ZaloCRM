@@ -577,7 +577,38 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         };
       }
 
-      // Qua cooldown → enqueue step 0 + tạo phiên chăm sóc.
+      // 2026-06-15 (anh chốt A): GẮN LẠI cùng luồng cho KH đã chạy → epoch MỚI để jobId
+      // không đụng job cũ đã completed (BullMQ dedup không nuốt). epoch = (số phiên cũ của
+      // contact+sequence) + 1. Đồng thời ĐÓNG phiên cũ active (nếu có) → tạo phiên mới sạch,
+      // tránh "reuse existing session" giữ epoch cũ.
+      const priorCount = await prisma.careSession.count({
+        where: { orgId, contactId: cid, sourceSequenceId: sequence.id },
+      });
+      const enrollEpoch = priorCount + 1;
+      if (enrollEpoch > 1) {
+        // Đóng phiên cũ active.
+        await prisma.careSession.updateMany({
+          where: { orgId, contactId: cid, sourceSequenceId: sequence.id, state: 'active' },
+          data: { state: 'closed', closedReason: 'reenrolled', closedAt: new Date(), pausedAtStepIdx: null },
+        }).catch((e) => logger.warn(`[manual-enroll] đóng phiên cũ lỗi: ${(e as Error).message}`));
+        // FIX review #2 (HIGH): DỌN job epoch cũ còn trong queue. Không dọn → job mồ côi tới
+        // hạn vẫn gửi (worker không check phiên đã đóng) → tin ma song song chain mới.
+        try {
+          const { sequenceStepContactPrefix } = await import('./queue-registry.js');
+          const newPrefix = `${sequenceStepContactPrefix(systemTrigger.id, sequence.id, cid)}e${enrollEpoch}-`;
+          const oldPrefix = sequenceStepContactPrefix(systemTrigger.id, sequence.id, cid); // mọi epoch
+          const queue = getSequenceStepQueue();
+          const pend = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
+          for (const job of pend) {
+            if (!job.id || !job.id.startsWith(oldPrefix) || job.id.startsWith(newPrefix)) continue;
+            await job.remove().catch(() => null); // chỉ xóa job epoch CŨ, giữ epoch mới
+          }
+        } catch (e) {
+          logger.warn(`[manual-enroll] dọn job epoch cũ lỗi: ${(e as Error).message}`);
+        }
+      }
+
+      // Qua cooldown → enqueue step 0 (epoch mới) + tạo phiên chăm sóc mới.
       await enqueueSequenceStart({
         triggerId: systemTrigger.id,
         contactId: cid,
@@ -585,6 +616,7 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         nickId: nick.id,
         orgId,
         startDelayMinutes: 0, // Manual = gửi ngay
+        enrollEpoch,
       });
 
       // CareSession 2026-06-07 (anh chốt): bám đuổi THỦ CÔNG cũng sinh phiên → hiện ở
@@ -604,6 +636,7 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
             sequenceId: sequence.id,
             skipEnqueue: true,
             enrolledByUserId: userId, // sale gắn tay
+            enrollEpoch,
           });
         } catch (err) {
           logger.warn(`[manual-enroll] care-session enroll failed (non-fatal) contact=${cid}: ${(err as Error).message}`);
