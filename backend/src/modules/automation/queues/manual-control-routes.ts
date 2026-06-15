@@ -625,6 +625,19 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         }
       }
 
+      // FIX live 2026-06-15 (anh test Thành Phạm): gắn tay PHẢI xoá Redis pause flag
+      // (contact:paused:{systemTrigger}:{contact}) — LUÔN, mọi epoch. KH reply trước đó →
+      // luật 4 đặt flag TTL tới 7 ngày. Trước đây chỉ clear pausedAtStepIdx ở DB, KHÔNG xoá
+      // flag Redis → job step 0 lần gắn mới vừa enqueue bị worker defer tới ~22h (paused).
+      // Sale CHỦ ĐỘNG gắn = tín hiệu "gửi ngay" → xoá flag để luồng chạy liền. Đặt NGOÀI khối
+      // epoch>1 để cả lần gắn đầu (epoch=1) sau khi KH reply cũng không bị flag cũ chặn.
+      try {
+        const { clearContactPauseFlag } = await import('./event-hooks.js');
+        await clearContactPauseFlag(systemTrigger.id, cid);
+      } catch (e) {
+        logger.warn(`[manual-enroll] clear pause flag Redis lỗi: ${(e as Error).message}`);
+      }
+
       // FIX review-epoch #6 (LỖI 6 — thứ tự): TẠO PHIÊN TRƯỚC, ENQUEUE SAU.
       // Job step 0 dưới đây có startDelayMinutes:0 → worker nhặt + chạy NGAY. Nếu enqueue
       // trước khi phiên epoch mới tồn tại, worker chạy lúc phiên active vẫn là phiên cũ
