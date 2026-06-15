@@ -4,6 +4,7 @@
    Scope dưới .lp-scope để không rò ra global. Import 1 lần ở LeadPoolTabsPage.
    ════════════════════════════════════════════════════════════════════════ */
 .lp-scope {
+  display: block; width: 100%; box-sizing: border-box;
   --brand:#1786be; --brand-600:#0f6fa0; --brand-700:#0b5880;
   --brand-soft:#e4f1f8; --brand-softer:#f2f8fc; --brand-bright:#5bb8e5;
   --ink:#141a24; --ink-2:#475066; --ink-3:#6b7488; --ink-4:#97a0b3;
@@ -68,7 +69,9 @@
 .lp-scope .kpi .kbar i{display:block;height:100%;background:var(--success);border-radius:3px;}
 
 /* Panels */
-.lp-scope .panel{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-xs);}
+.lp-scope .panel{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-xs);width:100%;}
+/* Bảng nhiều cột tràn ngang → cho scroll thay vì cắt cụt cột (fix Anh báo: cột nằm lọt giữa). */
+.lp-scope .tbl-scroll{width:100%;overflow-x:auto;}
 .lp-scope .panel-h{padding:13px 16px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .lp-scope .panel-h .ph-t{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:8px;}
 .lp-scope .panel-b{padding:14px 16px;}
@@ -85,8 +88,9 @@
 
 /* Customer cell + avatar (KHÔNG ảnh giả — chỉ hiện img khi có avatarUrl thật) */
 .lp-scope .cust{display:flex;align-items:center;gap:9px;}
-.lp-scope .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4fb0e0,#0f6fa0);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;object-fit:cover;}
-.lp-scope img.av{background:var(--surface-3);}
+.lp-scope .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4fb0e0,#0f6fa0);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;object-fit:cover;overflow:hidden;}
+/* img.av specificity cao hơn .av → PHẢI lặp lại border-radius/object-fit, không thì avatar vuông. */
+.lp-scope img.av{background:var(--surface-3);border-radius:50%;object-fit:cover;display:block;}
 .lp-scope .av.lg{width:48px;height:48px;font-size:16px;}
 .lp-scope .av.sm{width:26px;height:26px;font-size:10px;}
 .lp-scope .cust .cn{font-weight:600;color:var(--ink);}

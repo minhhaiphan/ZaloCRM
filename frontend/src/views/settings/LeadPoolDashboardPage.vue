@@ -30,6 +30,7 @@
       <!-- Điều phối sale -->
       <section class="panel lpd-span2">
         <div class="panel-h"><span class="ph-t"><v-icon size="18" icon="mdi-account-group-outline" /> Điều phối sale — Hôm nay</span></div>
+        <div class="tbl-scroll">
         <table class="tbl">
           <thead><tr><th>Sale</th><th>Nhận</th><th>Đã note</th><th>Chưa note</th><th>Trả lại</th><th>Tỉ lệ note</th></tr></thead>
           <tbody>
@@ -48,6 +49,7 @@
             <tr v-if="d.salePerformance.length === 0"><td colspan="6" class="muted" style="text-align:center;padding:20px">Hôm nay chưa sale nào nhận lead.</td></tr>
           </tbody>
         </table>
+        </div>
       </section>
 
       <!-- Lead kẹt đáy -->
@@ -129,7 +131,7 @@ onMounted(async () => { d.value = await fetchAdminDashboard(); });
 </script>
 
 <style scoped>
-.lpd { display: flex; flex-direction: column; gap: 16px; }
+.lpd { display: flex; flex-direction: column; gap: 16px; width: 100%; }
 .lpd-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .lpd-span2 { grid-column: span 2; }
 .stuck-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-2); font-size: 12.5px; }

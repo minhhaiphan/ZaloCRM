@@ -9,12 +9,12 @@
     <!-- Header -->
     <header class="qlp-top">
       <div>
-        <h1>🎯 Queue chia Lead — Xem trước thứ tự + Thống kê hôm nay</h1>
+        <h1>Queue chia Lead — Xem trước thứ tự vòng tua + Thống kê hôm nay</h1>
         <p class="qlp-sub">Admin xem pool đang chờ chia + theo dõi lead đang chăm / trả về / đã note ({{ today }})</p>
       </div>
       <div class="qlp-actions">
-        <button class="qlp-btn" :disabled="loading" @click="fetchAll">🔄 Làm mới</button>
-        <RouterLink to="/settings/crm/lead-pool" class="qlp-btn">⚙ Cấu hình Pool</RouterLink>
+        <button class="qlp-btn" :disabled="loading" @click="fetchAll"><v-icon size="16" icon="mdi-refresh" /> Làm mới</button>
+        <RouterLink to="/settings/crm/lead-pool" class="qlp-btn"><v-icon size="16" icon="mdi-cog-outline" /> Cấu hình Pool</RouterLink>
       </div>
     </header>
 
@@ -52,9 +52,9 @@
           <span class="dt">Sau {{ stats?.config?.cooldownAfterNoteDays ?? 30 }} ngày → sale khác có cơ hội</span>
         </div>
         <div class="step returned">
-          <span class="ic">↩</span>
-          <span class="lab">Trả lại sớm</span>
-          <span class="dt">Sale bấm "Trả lại pool" → vào ngay (bypass khoá)</span>
+          <span class="ic">⏱</span>
+          <span class="lab">Tự trả về pool</span>
+          <span class="dt">Sale không ghi note quá hạn → lead tự về pool, xuống cuối vòng tua</span>
         </div>
       </div>
     </section>
@@ -63,11 +63,11 @@
     <section class="qlp-kpi-row">
       <div class="kpi kpi-pool">
         <div class="kpi-head">
-          <span class="kpi-label">🎁 Pool chờ chia</span>
-          <span class="kpi-help" title="Số lead candidate đang chờ chia. Sale bấm 'Nhận Lead' → BE random 1 trong top 10 trả về sale.">?</span>
+          <span class="kpi-label">Pool chờ chia</span>
+          <span class="kpi-help" title="Số lead đang chờ chia. Sale bấm 'Nhận khách' → chia theo VÒNG TUA FIFO: lead chưa chia / chia lâu nhất lên đầu.">?</span>
         </div>
         <div class="kpi-value">{{ stats?.poolSize ?? '—' }}</div>
-        <div class="kpi-sub">lead sẵn sàng chia (sort priority)</div>
+        <div class="kpi-sub">lead sẵn sàng chia (vòng tua FIFO)</div>
       </div>
 
       <div class="kpi kpi-active">
@@ -246,7 +246,7 @@
             <li>Tránh spam chia lại cùng 1 lead</li>
             <li>Sau cooldown → mở pool cho sale khác</li>
           </ul>
-          <p style="margin-top:6px;"><b>Ngoại lệ:</b> sale bấm <i>"Trả lại pool"</i> → bypass cooldown, vào pool ngay.</p>
+          <p style="margin-top:6px;"><b>Lưu ý:</b> lead quá hạn note → tự về pool, xuống cuối vòng tua FIFO.</p>
         </div>
 
         <div class="side-card">

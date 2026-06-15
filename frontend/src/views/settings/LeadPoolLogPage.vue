@@ -36,13 +36,14 @@
     <div v-if="loading" class="t-sub" style="padding:30px;text-align:center">Đang tải nhật ký…</div>
     <div v-else-if="groups.length === 0" class="t-sub" style="padding:30px;text-align:center">Chưa có lần chia nào.</div>
 
-    <div v-for="g in groups" :key="g.dateKey" class="panel" style="margin-bottom:12px;overflow:hidden">
-      <div class="dayhd" style="margin:0;border:none;border-radius:0;border-bottom:1px solid var(--line-2)" @click="toggle(g.dateKey)">
+    <div v-for="g in groups" :key="g.dateKey" class="panel" style="margin-bottom:12px">
+      <div class="dayhd" style="margin:0;border:none;border-radius:var(--r-lg) var(--r-lg) 0 0;border-bottom:1px solid var(--line-2)" @click="toggle(g.dateKey)">
         <span class="dh-chev"><v-icon size="18" :icon="collapsed.has(g.dateKey) ? 'mdi-chevron-right' : 'mdi-chevron-down'" /></span>
         <span class="dh-t">{{ g.dateLabel }}</span>
         <span class="dh-c">{{ g.count }} lần chia</span>
       </div>
-      <table v-show="!collapsed.has(g.dateKey)" class="tbl">
+      <div v-show="!collapsed.has(g.dateKey)" class="tbl-scroll">
+      <table class="tbl">
         <thead>
           <tr><th>Giờ</th><th>Khách hàng</th><th>SĐT</th><th>Sale nhận</th><th>Nguồn</th><th>Lần</th><th>Trạng thái</th><th>Ghi chú sale</th></tr>
         </thead>
@@ -76,6 +77,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </template>
@@ -141,6 +143,6 @@ onMounted(reload);
 </script>
 
 <style scoped>
-.lpl { display: flex; flex-direction: column; }
+.lpl { display: flex; flex-direction: column; width: 100%; gap: 14px; }
 .mt8 { margin-top: 8px; }
 </style>
