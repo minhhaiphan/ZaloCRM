@@ -44,7 +44,7 @@
         <div v-for="a in trashItems" :key="a.id" class="card trash-card">
           <div class="thumb">
             <img v-if="a.thumbnailUrl" :src="a.thumbnailUrl" loading="lazy" alt="" />
-            <span v-else class="ph">{{ a.kind === 'video' ? '🎬' : a.kind === 'file' ? '📄' : '🖼' }}</span>
+            <span v-else class="ph"><component :is="kindIcon(a.kind)" :size="26" :stroke-width="1.6" /></span>
             <span class="purge-badge" :class="{ soon: a.daysUntilPurge <= 3 }">còn {{ a.daysUntilPurge }} ngày</span>
           </div>
           <div class="meta">
@@ -61,36 +61,36 @@
     <!-- Filter row — LEVER 1: Quyền (Loại = tabs ở trên) + nút Lọc sâu -->
     <div v-if="!trashMode" class="m-filter">
       <span class="crumb">Tất cả<template v-if="activeFolder"> ▸ <b>{{ activeFolderName }}</b></template></span>
-      <span v-for="tag in activeTags" :key="tag" class="chip coral" @click="toggleTag(tag)">● {{ tag }} ✕</span>
+      <span v-for="tag in activeTags" :key="tag" class="chip coral" @click="toggleTag(tag)">#{{ tag }} <XIcon :size="11" :stroke-width="2.2" /></span>
       <button class="lvl2-btn" :class="{ on: showLever2 }" @click="showLever2 = !showLever2">⚙ Lọc sâu</button>
       <div class="vis-toggle">
         <span :class="{ on: visFilter === '' }" @click="setVis('')">Tất cả</span>
-        <span :class="{ on: visFilter === 'public' }" @click="setVis('public')">🌐 Công khai</span>
-        <span :class="{ on: visFilter === 'private' }" @click="setVis('private')">🔒 Riêng tư</span>
+        <span :class="{ on: visFilter === 'public' }" @click="setVis('public')"><GlobeIcon :size="12" :stroke-width="2" /> Công khai</span>
+        <span :class="{ on: visFilter === 'private' }" @click="setVis('private')"><LockIcon :size="12" :stroke-width="2" /> Riêng tư</span>
       </div>
     </div>
 
     <!-- LEVER 2: Sắp xếp / Thời gian / Size / Tag (ẩn/hiện) -->
     <div v-if="showLever2 && !trashMode" class="m-lever2">
       <select v-model="sortBy" class="lv2-sel" @change="reload">
-        <option value="recent">⏱ Gần đây dùng</option>
-        <option value="newest">🆕 Mới tải lên</option>
-        <option value="most_used">🔥 Hay dùng nhất</option>
-        <option value="name">🔤 Tên A→Z</option>
+        <option value="recent">Gần đây dùng</option>
+        <option value="newest">Mới tải lên</option>
+        <option value="most_used">Hay dùng nhất</option>
+        <option value="name">Tên A→Z</option>
       </select>
       <select v-model="sinceBy" class="lv2-sel" @change="reload">
-        <option value="">📅 Mọi lúc</option>
+        <option value="">Mọi lúc</option>
         <option value="7d">7 ngày</option>
         <option value="30d">30 ngày</option>
         <option value="90d">90 ngày</option>
       </select>
       <select v-model="sizeBy" class="lv2-sel" @change="reload">
-        <option value="">⚖ Mọi cỡ</option>
+        <option value="">Mọi cỡ</option>
         <option value="small">&lt; 1MB</option>
         <option value="medium">1–10MB</option>
         <option value="large">&gt; 10MB</option>
       </select>
-      <input v-model="tagInput" class="lv2-tag" placeholder="🏷 lọc theo tag" @keyup.enter="applyTagFilter" @input="debouncedReload" />
+      <input v-model="tagInput" class="lv2-tag" placeholder="Lọc theo tag…" @keyup.enter="applyTagFilter" @input="debouncedReload" />
     </div>
 
     <div v-if="!trashMode" class="m-work">
@@ -99,9 +99,9 @@
         <div class="tree-ttl">Thư mục
           <button class="addf" title="Tạo thư mục" @click="onCreateFolder">＋</button>
         </div>
-        <div class="f" :class="{ on: !activeFolder }" @click="setFolder(null)">📁 Tất cả</div>
+        <div class="f" :class="{ on: !activeFolder }" @click="setFolder(null)"><FolderIcon :size="13" :stroke-width="1.9" /> Tất cả</div>
         <div v-for="f in folders" :key="f.id" class="f" :class="{ on: activeFolder === f.id }" @click="setFolder(f.id)">
-          📁 {{ f.name }} <span v-if="f.visibility === 'private'" class="lk">🔒</span>
+          <FolderIcon :size="13" :stroke-width="1.9" /> {{ f.name }} <LockIcon v-if="f.visibility === 'private'" class="lk" :size="11" :stroke-width="2" />
         </div>
       </aside>
 
@@ -120,29 +120,16 @@
           <button class="bulk-clear" @click="clearPicked">Bỏ chọn</button>
         </div>
 
-        <!-- Dải "Hay dùng nhất" (GĐ4 đo hiệu quả) -->
-        <div v-if="!loading && stats && stats.topUsed.length" class="m-stats">
-          <div class="ms-head">
-            <span>📊 Hay dùng nhất</span>
-            <span class="ms-sum">{{ stats.totalAssets }} ảnh · đã gửi {{ stats.totalUsage }} lần</span>
-          </div>
-          <div class="ms-row">
-            <div v-for="t in stats.topUsed.slice(0, 6)" :key="t.id" class="ms-item" :title="t.name">
-              <img v-if="t.thumbnailUrl" :src="t.thumbnailUrl" alt="" />
-              <span v-else class="ms-ph">🖼</span>
-              <span class="ms-badge">{{ t.usageCount }}</span>
-            </div>
-          </div>
-        </div>
+        <!-- Dải "Hay dùng nhất" đã GỠ 2026-06-15 (Anh chốt) — sẽ build module báo cáo riêng. -->
 
         <div v-if="loading" class="m-empty"><div class="spin"></div> Đang tải…</div>
 
         <div v-else-if="items.length === 0" class="m-empty">
-          <div class="empty-ic">🖼</div>
+          <div class="empty-ic"><ImageIcon :size="44" :stroke-width="1.4" /></div>
           <div class="empty-ttl">Kho ảnh của bạn đang trống</div>
           <div class="empty-sub">Tải ảnh hay dùng (bảng giá, mặt bằng, brochure) để gửi khách 1 chạm.</div>
           <button class="btn-dark" @click="triggerUpload">+ Tải ảnh đầu tiên</button>
-          <div class="empty-hint">💡 Hoặc chuột phải ảnh trong chat → <b>Lưu vào Media</b></div>
+          <div class="empty-hint"><LightbulbIcon :size="13" :stroke-width="1.9" /> Hoặc chuột phải ảnh trong chat → <b>Lưu vào Media</b></div>
         </div>
 
         <!-- TỆP: list detail theo dòng (sale phân biệt được tệp nào — anh chốt 2026-06-12) -->
@@ -152,7 +139,10 @@
             <div class="finfo">
               <div class="fname" :title="a.name">{{ a.name }}</div>
               <div class="fmeta">
-                {{ fmtSize(a.sizeBytes) }} · {{ a.visibility === 'public' ? '🌐 Công khai' : '🔒 Riêng tư' }} · đã dùng {{ a.usageCount }}
+                {{ fmtSize(a.sizeBytes) }} · {{ a.visibility === 'public' ? 'Công khai' : 'Riêng tư' }} · đã dùng {{ a.usageCount }}
+              </div>
+              <div class="fmeta src-row" :title="sourceLabel(a)">
+                <component :is="sourceIcon(a)" :size="11" :stroke-width="2" /> {{ sourceLabel(a) }}
               </div>
             </div>
           </div>
@@ -163,16 +153,22 @@
           <div v-for="a in items" :key="a.id" class="card" :class="{ sel: selected?.id === a.id, picked: picked.has(a.id) }" @click="onCardClick(a)">
             <div class="thumb">
               <img v-if="a.thumbnailUrl" :src="a.thumbnailUrl" loading="lazy" alt="" />
-              <span v-else class="ph">{{ a.kind === 'video' ? '🎬' : a.kind === 'file' ? '📄' : '🖼' }}</span>
+              <span v-else class="ph"><component :is="kindIcon(a.kind)" :size="26" :stroke-width="1.6" /></span>
               <span v-if="a.kind === 'video'" class="play-ic">▶</span>
               <span v-if="a.kind === 'video' && a.durationSec" class="dur">{{ fmtDuration(a.durationSec) }}</span>
-              <span v-if="a.visibility === 'private'" class="badge">🔒</span>
+              <span v-if="a.visibility === 'private'" class="badge"><LockIcon :size="11" :stroke-width="2.2" /></span>
               <span v-if="multiMode" class="pick-tick" :class="{ on: picked.has(a.id) }">{{ picked.has(a.id) ? '✓' : '' }}</span>
             </div>
             <div class="meta">
               <div class="fn" :title="a.name">{{ a.name }}</div>
+              <!-- NGUỒN: ảnh từ nick nào / sale nào (2026-06-15). Lucide icon, không emoji. -->
+              <div class="src" :title="sourceLabel(a)">
+                <component :is="sourceIcon(a)" :size="11" :stroke-width="2" />
+                <span>{{ sourceLabel(a) }}</span>
+              </div>
               <div class="stat" :class="a.visibility === 'public' ? 'pub' : 'lk'">
-                {{ a.visibility === 'public' ? '🌐 Công khai' : '🔒 Riêng tư' }} · {{ a.usageCount }} lần
+                <component :is="a.visibility === 'public' ? GlobeIcon : LockIcon" :size="11" :stroke-width="2" />
+                {{ a.visibility === 'public' ? 'Công khai' : 'Riêng tư' }} · {{ a.usageCount }} lần
               </div>
             </div>
           </div>
@@ -195,16 +191,37 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import {
-  listMedia, uploadMedia, listMediaFolders, createMediaFolder, mediaStats,
+  listMedia, uploadMedia, listMediaFolders, createMediaFolder,
   listTrash, restoreMedia, permanentDeleteMedia, emptyTrash,
   archiveMedia, bulkUpdateMedia,
   type MediaAssetItem, type MediaFolder, type TrashItem,
 } from '@/api/media';
 import { useToast } from '@/composables/use-toast';
 import MediaDetailPanel from '@/components/media/MediaDetailPanel.vue';
-import { Trash2 as Trash2Icon, RotateCcw as RotateCcwIcon, X as XIcon, CheckSquare as CheckSquareIcon } from 'lucide-vue-next';
+import {
+  Trash2 as Trash2Icon, RotateCcw as RotateCcwIcon, X as XIcon, CheckSquare as CheckSquareIcon,
+  Globe as GlobeIcon, Lock as LockIcon, Smartphone as NickIcon, Upload as UploadIcon,
+  Image as ImageIcon, FileText as FileIcon, Video as VideoIcon, Folder as FolderIcon,
+  Lightbulb as LightbulbIcon,
+} from 'lucide-vue-next';
+
+// Icon placeholder theo loại media (thay emoji 🎬📄🖼 — Lucide, thống nhất 2026-06-15).
+function kindIcon(kind: string) {
+  return kind === 'video' ? VideoIcon : kind === 'file' ? FileIcon : ImageIcon;
+}
 
 const toast = useToast();
+
+// Nhãn + icon NGUỒN ảnh (2026-06-15): "nick nào · sale nào" hoặc "Tải lên thủ công · sale".
+function sourceLabel(a: MediaAssetItem): string {
+  const sale = a.ownerName ? ` · ${a.ownerName}` : '';
+  if (a.source === 'saved_from_chat' && a.sourceNickName) return `${a.sourceNickName}${sale}`;
+  if (a.source === 'saved_from_chat') return `Lưu từ chat${sale}`;
+  return `Tải lên thủ công${sale}`;
+}
+function sourceIcon(a: MediaAssetItem) {
+  return a.source === 'saved_from_chat' && a.sourceNickName ? NickIcon : UploadIcon;
+}
 
 const tabs = [
   { kind: 'image', label: 'Ảnh' },
@@ -451,12 +468,9 @@ async function onEmptyTrash() {
   }
 }
 
-const stats = ref<{ totalAssets: number; totalUsage: number; topUsed: Array<{ id: string; name: string; kind: string; usageCount: number; thumbnailUrl: string | null }> } | null>(null);
-async function loadStats() {
-  try { stats.value = await mediaStats(); } catch { /* phụ */ }
-}
+// Dải "Hay dùng nhất" (mediaStats) đã GỠ 2026-06-15 — build module báo cáo riêng sau.
 
-onMounted(() => { reload(); loadFolders(); loadStats(); });
+onMounted(() => { reload(); loadFolders(); });
 </script>
 
 <style scoped>
@@ -517,29 +531,27 @@ onMounted(() => { reload(); loadFolders(); loadStats(); });
 .card.sel { border-color:var(--ink); box-shadow:0 0 0 2px var(--ink); }
 .thumb { height:108px; background:var(--strong); position:relative; display:flex; align-items:center; justify-content:center; }
 .thumb img { width:100%; height:100%; object-fit:cover; }
-.thumb .ph { font-size:28px; color:var(--muted); }
-.thumb .badge { position:absolute; top:6px; right:6px; background:rgba(24,29,38,.82); color:#fff; border-radius:var(--pill); padding:2px 7px; font-size:10.5px; }
+.thumb .ph { color:var(--muted); display:flex; align-items:center; justify-content:center; }
+.thumb .badge { position:absolute; top:6px; right:6px; background:rgba(24,29,38,.82); color:#fff; border-radius:var(--pill); padding:3px 6px; display:inline-flex; align-items:center; }
 .meta { padding:8px 10px; }
 .fn { font-size:12.5px; color:var(--ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .stat { font-size:11px; margin-top:3px; }
 .stat.pub { color:var(--success); }
 .stat.lk { color:var(--coral); }
 .m-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--muted); padding:60px 20px; text-align:center; }
-.empty-ic { font-size:48px; opacity:.6; }
+.empty-ic { opacity:.5; color:var(--muted); display:flex; align-items:center; justify-content:center; }
 .empty-ttl { font-size:17px; color:var(--ink); font-weight:500; }
 .empty-sub { font-size:13px; max-width:340px; }
-.empty-hint { margin-top:10px; background:#f5e9d4; border:1px solid #e6d3ad; color:#6b5520; padding:6px 16px; border-radius:var(--pill); font-size:12px; }
+.empty-hint { margin-top:10px; background:#f5e9d4; border:1px solid #e6d3ad; color:#6b5520; padding:6px 16px; border-radius:var(--pill); font-size:12px; display:inline-flex; align-items:center; gap:6px; }
 .spin { width:18px; height:18px; border:2px solid var(--strong); border-top-color:var(--ink); border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-/* Dải Hay dùng nhất (GĐ4) */
-.m-stats { background:var(--soft); border:1px solid var(--hairline); border-radius:var(--r-md); padding:10px 14px; margin-bottom:16px; }
-.ms-head { display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--ink); font-weight:500; margin-bottom:8px; }
-.ms-sum { color:var(--muted); font-weight:400; font-size:11.5px; }
-.ms-row { display:flex; gap:10px; }
-.ms-item { position:relative; width:54px; height:54px; border-radius:var(--r-sm); overflow:hidden; border:1px solid var(--hairline); flex-shrink:0; }
-.ms-item img { width:100%; height:100%; object-fit:cover; }
-.ms-item .ms-ph { display:flex; align-items:center; justify-content:center; height:100%; font-size:20px; background:var(--strong); }
-.ms-badge { position:absolute; bottom:2px; right:2px; background:var(--ink); color:#fff; border-radius:9999px; padding:1px 6px; font-size:10px; font-weight:500; }
+/* Dải "Hay dùng nhất" đã GỠ 2026-06-15 — build module báo cáo riêng sau. */
+
+/* NGUỒN ảnh: nick nào / sale nào (2026-06-15) — Lucide icon, không emoji. */
+.src { display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.src span { overflow:hidden; text-overflow:ellipsis; }
+.src-row { display:flex; align-items:center; gap:4px; margin-top:2px; }
+.stat { display:flex; align-items:center; gap:4px; }
 
 /* ── GĐ13a: Thùng rác ── */
 .btn-trash { display:inline-flex; align-items:center; gap:6px; background:#fff; color:var(--muted); border:1px solid var(--hairline); border-radius:var(--r-md); padding:7px 13px; font-size:13px; font-weight:500; cursor:pointer; }

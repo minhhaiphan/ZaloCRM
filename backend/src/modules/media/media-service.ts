@@ -38,6 +38,22 @@ const COMPRESSIBLE = new Set(['image/jpeg', 'image/png', 'image/webp']);
 export type MediaKind = 'image' | 'video' | 'file';
 export type MediaSource = 'upload' | 'saved_from_chat';
 
+/**
+ * Chuẩn hóa tag/dự án (anh chốt 2026-06-15): gộp tag+dự án làm 1, KHÔNG phân biệt hoa/thường.
+ * 'EGV' / 'egv' / ' Egv ' → 'egv'. Dùng CHUNG ở MỌI chỗ ghi tagIds (registerAsset, PATCH /:id,
+ * PATCH /bulk, addTags lúc gửi) để lọc/đếm gộp đúng 1 nhóm. trim → lowercase → bỏ rỗng → dedup.
+ */
+export function normalizeTags(tags: string[] | null | undefined): string[] {
+  if (!Array.isArray(tags)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tags) {
+    const v = String(t ?? '').trim().toLowerCase();
+    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+  }
+  return out;
+}
+
 export interface RegisterAssetInput {
   orgId: string;
   buffer: Buffer;
@@ -52,8 +68,10 @@ export interface RegisterAssetInput {
   /** 'private' (mặc định, fail-closed) | 'public'. */
   visibility?: 'private' | 'public';
   source?: MediaSource;
-  /** Nếu lưu từ chat của nick Riêng tư → nick nguồn (enforce redact privacy). */
+  /** Nick Zalo nguồn (HIỂN THỊ "ảnh từ nick nào") — mọi ảnh lưu từ chat, cả nick thường. */
   sourceZaloAccountId?: string | null;
+  /** Cờ ENFORCE privacy — true CHỈ khi nick nguồn là Riêng tư (privacyMode='main'). */
+  sourceIsPrivateNick?: boolean;
   tagIds?: string[];
   folderId?: string | null;
 }
@@ -171,9 +189,11 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     visibility = 'private',
     source = 'upload',
     sourceZaloAccountId = null,
-    tagIds = [],
+    sourceIsPrivateNick = false,
     folderId = null,
   } = input;
+  // Chuẩn hóa tag NGAY tại tầng service — mọi nguồn ghi tag (upload/save-from-chat) đi qua đây.
+  const tagIds = normalizeTags(input.tagIds ?? []);
 
   // 1. Nén (chỉ ảnh) — variant 'original' đã-nén là bytes thật lưu.
   const processed = kind === 'image'
@@ -222,6 +242,12 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     // lưu LẠI đúng file đó → TỰ KHÔI PHỤC về kho (clear archivedAt + trashedById). Tránh
     // dedup đụng bản ẩn khiến sale "lưu rồi mà kho không hiện".
     const shouldRestore = !!old?.archivedAt;
+    // PRIVACY (2026-06-15, code-review #1): dedup-hit phải NÂNG cờ sourceIsPrivateNick lên true
+    // nếu lần lưu này từ nick Riêng tư mà asset cũ (do nick thường lưu trước cùng bytes) đang
+    // false → nếu KHÔNG nâng, ảnh có nội dung nick Riêng tư bị public không cần xác nhận D11.
+    // CHỈ nâng false→true (re-arm gate), KHÔNG hạ true→false. Gắn nick nguồn nếu asset cũ chưa có.
+    const shouldArmPrivate = !!sourceIsPrivateNick && !old?.sourceIsPrivateNick;
+    const shouldSetSourceNick = !!sourceZaloAccountId && !old?.sourceZaloAccountId;
     const asset = await prisma.mediaAsset.update({
       where: { id: existingBlob.assetId },
       data: {
@@ -232,8 +258,13 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
           ? { kind: 'video', ...(videoMeta.thumbnailUrl ? { thumbnailUrl: videoMeta.thumbnailUrl } : {}) }
           : {}),
         ...(shouldRestore ? { archivedAt: null, trashedById: null } : {}),
+        ...(shouldArmPrivate ? { sourceIsPrivateNick: true } : {}),
+        ...(shouldSetSourceNick ? { sourceZaloAccountId } : {}),
       },
     });
+    if (shouldArmPrivate) {
+      logger.info(`[media][dedup] re-arm privacy gate asset=${existingBlob.assetId} (lưu lại từ nick Riêng tư)`);
+    }
     if (shouldRestore) {
       logger.info(`[media][dedup] auto-restore asset=${existingBlob.assetId} (lưu lại đồ đang trong thùng rác → về kho)`);
     }
@@ -270,6 +301,7 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
           visibility,
           source,
           sourceZaloAccountId,
+          sourceIsPrivateNick,
           folderId,
           tagIds,
           originalFilename,

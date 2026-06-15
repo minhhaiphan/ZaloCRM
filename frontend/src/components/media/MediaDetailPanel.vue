@@ -7,7 +7,30 @@
     <div class="p-body">
       <div class="preview">
         <img v-if="asset.thumbnailUrl" :src="wmUrl || asset.thumbnailUrl" alt="" />
-        <span v-else class="ph">{{ asset.kind === 'video' ? '🎬' : asset.kind === 'file' ? '📄' : '🖼' }}</span>
+        <span v-else class="ph"><component :is="kindIcon" :size="44" :stroke-width="1.5" /></span>
+      </div>
+
+      <!-- NGUỒN & THÔNG TIN (2026-06-15): ảnh từ nick nào / sale / ngày / size / kích thước.
+           Grid 2 cột nhãn-giá-trị cho gọn chiều cao (HD 1366 — design-review Pass 6). -->
+      <div class="srcbox">
+        <div class="srcbox-ttl">Nguồn &amp; thông tin</div>
+        <dl class="srcdl">
+          <dt>Nguồn</dt>
+          <dd>
+            <component :is="sourceIcon" :size="13" :stroke-width="1.9" class="dd-ic" />
+            {{ sourceText }}
+          </dd>
+          <dt>Người lưu</dt>
+          <dd>{{ asset.ownerName || '—' }}</dd>
+          <dt>Ngày lưu</dt>
+          <dd>{{ fmtDate(asset.createdAt) }}</dd>
+          <dt>Dung lượng</dt>
+          <dd>{{ sizeText }}</dd>
+          <dt>Kích thước</dt>
+          <dd>{{ dimText }}</dd>
+          <dt>Loại</dt>
+          <dd>{{ kindText }} · đã dùng {{ asset.usageCount }} lần</dd>
+        </dl>
       </div>
 
       <div class="fld">
@@ -66,15 +89,13 @@
         </div>
       </div>
 
-      <div class="fld stat">
-        <label>Thống kê</label>
-        <div>Đã dùng <b>{{ asset.usageCount }}</b> lần · {{ sizeText }}</div>
-      </div>
     </div>
     <footer class="p-foot">
-      <button class="btn-insert" @click="openInsert">↗ Chèn vào chat</button>
-      <button class="btn-fav" :class="{ on: isFav }" @click="doFavorite">{{ isFav ? '★' : '☆' }}</button>
-      <button class="btn-danger" @click="doArchive">🗑</button>
+      <button class="btn-insert" @click="openInsert"><SendIcon :size="14" :stroke-width="2" /> Chèn vào chat</button>
+      <button class="btn-fav" :class="{ on: isFav }" :title="isFav ? 'Bỏ yêu thích' : 'Thêm yêu thích'" @click="doFavorite">
+        <StarIcon :size="15" :stroke-width="1.9" :fill="isFav ? 'currentColor' : 'none'" />
+      </button>
+      <button class="btn-danger" title="Xóa khỏi kho" @click="doArchive"><Trash2Icon :size="14" :stroke-width="1.9" /></button>
     </footer>
 
     <!-- Picker hội thoại để "Chèn vào chat" (G1) -->
@@ -102,6 +123,7 @@ import { updateMedia, archiveMedia, watermarkMedia, removeWatermark, toggleFavor
 import { useToast } from '@/composables/use-toast';
 import MediaSendPicker from '@/components/media/MediaSendPicker.vue';
 import ConfirmShareDialog from '@/components/media/ConfirmShareDialog.vue';
+import { Image as ImageIcon, FileText as FileIcon, Video as VideoIcon, Smartphone as NickIcon, Upload as UploadIcon, Send as SendIcon, Star as StarIcon, Trash2 as Trash2Icon } from 'lucide-vue-next';
 
 const props = defineProps<{ asset: MediaAssetItem; folders: MediaFolder[] }>();
 const emit = defineEmits<{ close: []; updated: [patch: Partial<MediaAssetItem>]; archived: [id: string] }>();
@@ -124,6 +146,29 @@ const wmLoading = ref(false);
 
 // Ảnh lưu từ nick Riêng tư (backend trả sourceFromPrivateNick) → cần xác nhận khi public.
 const fromPrivateNick = computed(() => props.asset.sourceFromPrivateNick ?? false);
+
+// ── Khối "Nguồn & thông tin" (2026-06-15) ───────────────────────────────────
+const kindIcon = computed(() => props.asset.kind === 'video' ? VideoIcon : props.asset.kind === 'file' ? FileIcon : ImageIcon);
+const isFromChatNick = computed(() => props.asset.source === 'saved_from_chat' && !!props.asset.sourceNickName);
+const sourceIcon = computed(() => isFromChatNick.value ? NickIcon : UploadIcon);
+const sourceText = computed(() => {
+  if (isFromChatNick.value) return `${props.asset.sourceNickName}`;
+  if (props.asset.source === 'saved_from_chat') return 'Lưu từ chat';
+  return 'Tải lên thủ công';
+});
+const kindText = computed(() => props.asset.kind === 'video' ? 'Video' : props.asset.kind === 'file' ? 'Tệp' : 'Ảnh');
+// Kích thước px: ảnh mới có width/height; ảnh cũ chưa đo → '—'.
+const dimText = computed(() => {
+  const w = props.asset.width; const h = props.asset.height;
+  return w && h ? `${w} × ${h} px` : '—';
+});
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  // Giờ VN (Asia/Ho_Chi_Minh) — chuẩn dự án.
+  return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+}
 
 // Reset khi đổi asset chọn.
 watch(() => props.asset.id, () => {
@@ -268,10 +313,19 @@ async function doArchive() {
 }
 .p-head { padding:14px 18px; border-bottom:1px solid var(--hairline); display:flex; align-items:center; justify-content:space-between; background:var(--canvas); color:var(--ink); }
 .p-head .x { border:none; background:none; cursor:pointer; color:var(--muted); font-size:15px; }
-.p-body { padding:18px; overflow:auto; flex:1; }
-.preview { height:200px; background:var(--strong); border-radius:var(--r-md); display:flex; align-items:center; justify-content:center; margin-bottom:16px; overflow:hidden; }
+.p-body { padding:18px; overflow:auto; flex:1; min-height:0; }
+/* HD 1366 (workspace ~648px): preview gọn 160px để khối Nguồn + tag + nút không bị đẩy khuất. */
+.preview { height:160px; background:var(--strong); border-radius:var(--r-md); display:flex; align-items:center; justify-content:center; margin-bottom:14px; overflow:hidden; }
 .preview img { width:100%; height:100%; object-fit:contain; }
-.preview .ph { font-size:48px; color:var(--muted); }
+.preview .ph { color:var(--muted); display:flex; align-items:center; justify-content:center; }
+
+/* Khối "Nguồn & thông tin" — grid 2 cột nhãn-giá-trị (gọn chiều cao, HD 1366). */
+.srcbox { background:var(--canvas); border:1px solid var(--hairline); border-radius:var(--r-md); padding:11px 13px; margin-bottom:16px; }
+.srcbox-ttl { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; margin-bottom:8px; }
+.srcdl { display:grid; grid-template-columns:88px 1fr; gap:5px 10px; margin:0; }
+.srcdl dt { font-size:12px; color:var(--muted); }
+.srcdl dd { font-size:12.5px; color:var(--ink); margin:0; display:flex; align-items:center; gap:5px; min-width:0; }
+.srcdl dd .dd-ic { flex-shrink:0; color:var(--muted); }
 .fld { margin-bottom:16px; }
 .fld label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:6px; font-weight:500; }
 .ipt { width:100%; border:1px solid var(--hairline); border-radius:var(--r-sm); padding:7px 10px; font-size:14px; color:var(--ink); outline:none; }
@@ -296,8 +350,8 @@ async function doArchive() {
 .tg-input { border:1px dashed var(--hairline); border-radius:var(--pill); padding:3px 10px; font-size:11.5px; width:70px; outline:none; }
 .stat div { font-size:13.5px; color:var(--ink); }
 .p-foot { padding:14px 18px; border-top:1px solid var(--hairline); background:var(--canvas); display:flex; gap:8px; align-items:center; }
-.btn-insert { flex:1; border:none; background:var(--ink); color:#fff; border-radius:var(--r-md); padding:9px; font-size:13px; font-weight:500; cursor:pointer; }
-.btn-fav { border:1px solid var(--hairline); background:var(--canvas); color:var(--body); border-radius:var(--r-md); padding:9px 13px; font-size:15px; cursor:pointer; }
+.btn-insert { flex:1; border:none; background:var(--ink); color:#fff; border-radius:var(--r-md); padding:9px; font-size:13px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:34px; }
+.btn-fav { border:1px solid var(--hairline); background:var(--canvas); color:var(--body); border-radius:var(--r-md); padding:9px 12px; cursor:pointer; display:inline-flex; align-items:center; min-height:34px; }
 .btn-fav.on { background:#fef3c7; border-color:#f4d35e; color:#92710a; }
-.btn-danger { border:1px solid #f0c4b3; background:#fbe9e2; color:var(--coral); border-radius:var(--r-md); padding:9px 13px; font-size:14px; cursor:pointer; }
+.btn-danger { border:1px solid #f0c4b3; background:#fbe9e2; color:var(--coral); border-radius:var(--r-md); padding:9px 12px; cursor:pointer; display:inline-flex; align-items:center; min-height:34px; }
 </style>

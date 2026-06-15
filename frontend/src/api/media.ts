@@ -24,6 +24,12 @@ export interface MediaAssetItem {
   // Privacy (D11): ảnh lưu từ nick Riêng tư → cần xác nhận khi chia sẻ công khai.
   sourceFromPrivateNick?: boolean;
   favorited?: boolean;
+  // 2026-06-15: nguồn để hiển thị "ảnh từ nick nào / sale nào / kích thước".
+  source?: 'upload' | 'saved_from_chat';
+  ownerName?: string | null;       // tên sale (chủ sở hữu)
+  sourceNickName?: string | null;  // tên nick Zalo nguồn (null = upload tay / nick đã xóa)
+  width?: number | null;           // kích thước px (ảnh mới); null = ảnh cũ chưa đo → hiện '—'
+  height?: number | null;
 }
 
 export interface ListMediaParams {
@@ -78,13 +84,14 @@ export async function saveFromChatBatch(
   return data;
 }
 
-/** Chèn 1 asset từ kho vào 1 hội thoại (gửi đi). */
+/** Chèn 1 asset từ kho vào 1 hội thoại (gửi đi). addTags: gắn tag/dự án LÚC GỬI (2026-06-15). */
 export async function sendMediaToConversation(
   assetId: string,
   conversationId: string,
   caption?: string,
+  addTags?: string[],
 ): Promise<{ message: unknown }> {
-  const { data } = await api.post(`/media/${assetId}/send`, { conversationId, caption });
+  const { data } = await api.post(`/media/${assetId}/send`, { conversationId, caption, addTags });
   return data;
 }
 
@@ -205,12 +212,21 @@ export async function mediaStats(): Promise<{
   return data;
 }
 
-/** Gợi ý ảnh theo ngữ cảnh hội thoại (match tag khách). */
+/** Gợi ý ảnh theo ngữ cảnh hội thoại (match tag khách). contactTags = TOÀN BỘ tag khách
+ *  (cho chip gợi ý lúc gửi — eng-review #C); matchedTags chỉ là tag GIAO với ảnh-kho. */
 export async function suggestMedia(
   conversationId: string,
-): Promise<{ items: MediaAssetItem[]; matchedTags: string[] }> {
+): Promise<{ items: MediaAssetItem[]; matchedTags: string[]; contactTags: string[] }> {
   const { data } = await api.get('/media/suggest', { params: { conversationId } });
   return data;
+}
+
+/** Danh sách tag đang dùng (autocomplete + chip "tag hay dùng" lúc gửi). Scope owner ở BE. */
+export async function listMediaTags(
+  limit = 50,
+): Promise<Array<{ tag: string; count: number }>> {
+  const { data } = await api.get('/media/tags', { params: { limit } });
+  return data.tags as Array<{ tag: string; count: number }>;
 }
 
 /** Tạo thư mục. */

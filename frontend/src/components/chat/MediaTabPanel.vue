@@ -134,7 +134,7 @@
             :key="a.id"
             class="mtp-frow-item"
             :disabled="sending === a.id"
-            @click="send(a)"
+            @click="openReview(a)"
           >
             <span class="mtp-ficon" :style="{ background: fileIcon(a.name).bg, color: fileIcon(a.name).fg }">{{ fileIcon(a.name).label }}</span>
             <span class="mtp-finfo">
@@ -172,18 +172,29 @@
         </div>
       </div>
     </template>
+
+    <!-- Bảng review 1 mục (popup): click ảnh/video/file → xem + gắn/tháo tag + Gửi (2026-06-15) -->
+    <MediaReviewDialog
+      v-if="reviewAsset"
+      :asset="reviewAsset"
+      :conversation-id="reviewConvId"
+      @close="closeReview"
+      @sent="onReviewSent"
+      @tags-changed="onReviewTagsChanged"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import {
-  listMedia, listMediaFolders, sendMediaToConversation, sendAlbumToConversation,
+  listMedia, listMediaFolders, sendAlbumToConversation,
   type MediaAssetItem, type ListMediaParams, type MediaFolder,
 } from '@/api/media';
 import type { Contact } from '@/composables/use-contacts';
 import { useToast } from '@/composables/use-toast';
 import AutomationBlocksPanel from './AutomationBlocksPanel.vue';
+import MediaReviewDialog from '@/components/media/MediaReviewDialog.vue';
 import {
   Image as ImageIcon,
   Video as VideoIcon,
@@ -218,6 +229,32 @@ const items = ref<MediaAssetItem[]>([]);
 const loading = ref(false);
 const search = ref('');
 const sending = ref<string | null>(null);
+
+// ── Bảng review (Anh chốt 2026-06-15): click 1 ảnh/video/file → mở popup review ──
+// (preview + thông số + gắn/tháo tag lưu-ngay + nút Gửi). Thay cách "gửi thẳng khi click".
+const reviewAsset = ref<MediaAssetItem | null>(null);
+// SNAPSHOT conversationId lúc MỞ review (code-review #1): nếu sale click khách khác ở cột 1
+// khi dialog đang mở, props.conversationId đổi → tránh gửi nhầm khách MỚI. Dialog gửi theo
+// đúng khách lúc bấm mở. Nếu khách đổi giữa chừng → đóng dialog (watch bên dưới).
+const reviewConvId = ref<string>('');
+function openReview(a: MediaAssetItem) { reviewAsset.value = a; reviewConvId.value = props.conversationId; }
+function closeReview() { reviewAsset.value = null; }
+function onReviewSent() {
+  // Bump usageCount/lastUsedAt local cho khớp (code-review #4) — khỏi chờ reload.
+  if (reviewAsset.value) {
+    const it = items.value.find((x) => x.id === reviewAsset.value!.id);
+    if (it) it.usageCount = (it.usageCount ?? 0) + 1;
+  }
+  reviewAsset.value = null;
+}
+// Đổi khách khi dialog đang mở → đóng dialog (an toàn, tránh gửi nhầm + thông số lệch khách).
+watch(() => props.conversationId, () => { if (reviewAsset.value) closeReview(); });
+// Tag sửa trong review → đồng bộ ngược vào list để chip lọc + lần mở sau khớp.
+function onReviewTagsChanged(id: string, newTags: string[]) {
+  const it = items.value.find((x) => x.id === id);
+  if (it) it.tagIds = newTags;
+  if (reviewAsset.value?.id === id) reviewAsset.value = { ...reviewAsset.value, tagIds: newTags };
+}
 
 // Đếm để hiện badge trên sub-tab (chỉ cập nhật cho kind đang xem; null = chưa biết).
 const counts = ref<Record<string, number | null>>({ image: null, video: null, file: null });
@@ -343,7 +380,7 @@ async function reload() {
 
 function onCellClick(a: MediaAssetItem) {
   if (multiMode.value && a.kind === 'image') { togglePick(a); return; }
-  send(a);
+  openReview(a); // mở bảng review (xem + tag + gửi) thay vì gửi thẳng
 }
 function togglePick(a: MediaAssetItem) {
   const next = new Set(picked.value);
@@ -360,18 +397,7 @@ function pickIndex(id: string): string {
   return idx >= 0 ? String(idx + 1) : '';
 }
 
-async function send(a: MediaAssetItem) {
-  if (sending.value) return;
-  sending.value = a.id;
-  try {
-    await sendMediaToConversation(a.id, props.conversationId);
-    toast.success(`Đã gửi "${a.name}"`);
-  } catch (e: any) {
-    toast.warning(e?.response?.data?.error || 'Gửi thất bại');
-  } finally {
-    sending.value = null;
-  }
-}
+// (Gửi đơn 1 mục giờ qua MediaReviewDialog — xem openReview. Album vẫn gửi qua sendAlbum.)
 
 async function sendAlbum() {
   if (sendingAlbum.value || picked.value.size === 0) return;

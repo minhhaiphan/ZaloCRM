@@ -396,6 +396,8 @@ model ZaloAccount {
   systemNotificationsAsInternal    SystemNotification[]    @relation("SystemNotificationInternalContact")
   // 2026-06-06 (Anh chốt) — trần SDK ghi đè riêng per-nick (NULL = theo org default).
   sdkLimits                        SdkLimit[]
+  // 2026-06-15 — ảnh kho lưu từ chat của nick này (để hiện "ảnh từ nick nào").
+  mediaAssetsAsSource              MediaAsset[]            @relation("MediaAssetSourceNick")
 
   @@map("zalo_accounts")
 }
@@ -3553,8 +3555,14 @@ model MediaAsset {
   // source: phân biệt nguồn nạp để audit privacy. 'upload' = sale/admin tải lên;
   // 'saved_from_chat' = lưu từ bong bóng chat (có thể chứa PII khách).
   source              String    @default("upload")
-  // Nếu lưu từ chat của nick Riêng tư (privacyMode='main'): nick nguồn để enforce redact.
+  // Nick Zalo NGUỒN của ảnh lưu từ chat — để HIỂN THỊ "ảnh từ nick nào" (mọi nick, cả
+  // nick thường lẫn Riêng tư). 2026-06-15: trước đây CHỈ ghi khi nick Riêng tư; nay ghi
+  // cho MỌI ảnh lưu từ chat. Ảnh upload tay = null (nguồn = "Tải lên thủ công" + sale).
   sourceZaloAccountId String?   @map("source_zalo_account_id")
+  // 2026-06-15: TÁCH cờ ENFORCE privacy khỏi nick-nguồn-hiển-thị. true CHỈ khi ảnh lưu từ
+  // nick Riêng tư (privacyMode='main') → gate confirmShare khi public + cảnh báo D11. Trước
+  // đây code suy cờ từ `!!sourceZaloAccountId`; nick thường giờ cũng có id nên PHẢI đọc cờ này.
+  sourceIsPrivateNick Boolean   @default(false) @map("source_is_private_nick")
   folderId            String?   @map("folder_id") // MediaAlbum dùng làm "thư mục" (parentId=null)
   tagIds              String[]  @default([]) @map("tag_ids") // tag dự án (EGV/HS...) — Gin index
   originalFilename    String?   @map("original_filename")
@@ -3576,6 +3584,9 @@ model MediaAsset {
   owner      User?            @relation("MediaAssetOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   createdBy  User?            @relation("MediaAssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   folder     MediaAlbum?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  // 2026-06-15: relation tới nick nguồn để Prisma `include` join displayName 1 query (chống
+  // N+1 khi list 60-200 ảnh hiện "nick nào"). SetNull: nick xóa → vẫn giữ ảnh, mất tên nick.
+  sourceZaloAccount ZaloAccount? @relation("MediaAssetSourceNick", fields: [sourceZaloAccountId], references: [id], onDelete: SetNull)
   blobs      MediaBlob[]
   albumItems MediaAlbumItem[]
   usageEvents MediaUsageEvent[]
@@ -3585,6 +3596,7 @@ model MediaAsset {
   @@index([orgId, ownerUserId])
   @@index([orgId, archivedAt])
   @@index([folderId])
+  @@index([sourceZaloAccountId])
   @@index([tagIds], type: Gin)
   @@map("media_assets")
 }

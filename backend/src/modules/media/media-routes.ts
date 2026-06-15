@@ -11,6 +11,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Server } from 'socket.io';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
@@ -18,7 +19,7 @@ import { userHasGrant } from '../rbac/permission-group-service.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
-import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, disableWatermark, logMediaUsage, type MediaKind } from './media-service.js';
+import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, disableWatermark, logMediaUsage, normalizeTags, type MediaKind } from './media-service.js';
 import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
 import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
@@ -223,7 +224,10 @@ async function saveOneMessageToMedia(args: {
       ownerUserId: userId, createdById: userId,
       visibility: vis.visibility,
       source: 'saved_from_chat',
-      sourceZaloAccountId: isPrivateNick ? nick.id : null,
+      // 2026-06-15: ghi nick nguồn cho MỌI ảnh lưu từ chat (cả nick thường) để hiện "ảnh từ
+      // nick nào". Cờ ENFORCE privacy tách riêng — chỉ true khi nick Riêng tư (privacyMode='main').
+      sourceZaloAccountId: nick.id,
+      sourceIsPrivateNick: isPrivateNick,
     });
     logger.info(`[media][audit] save_from_chat asset=${res.asset.id} user=${userId} visibility=${vis.visibility} fromPrivateNick=${isPrivateNick} deduped=${res.deduped}`);
     await logMediaUsage({
@@ -273,7 +277,8 @@ export async function mediaRoutes(app: FastifyInstance) {
       if (q.kind) where.kind = q.kind;
       if (q.visibility) where.visibility = q.visibility;
       if (q.folderId) where.folderId = q.folderId;
-      if (q.tag) where.tagIds = { has: q.tag };
+      // Tag lưu lowercase (normalizeTags) → lọc cũng lowercase để khớp dù sale gõ hoa (code-review #2).
+      if (q.tag) where.tagIds = { has: q.tag.trim().toLowerCase() };
       if (q.q) where.name = { contains: q.q, mode: 'insensitive' };
       // Thời gian: tải lên trong N ngày (createdAt).
       if (q.since) {
@@ -299,11 +304,17 @@ export async function mediaRoutes(app: FastifyInstance) {
       }[q.sort ?? 'recent'] ?? [{ lastUsedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
 
       const limit = Math.min(parseInt(q.limit ?? '60', 10) || 60, 200);
+      // include owner + sourceZaloAccount để hiện "ảnh từ nick nào / sale nào" trong 1 query
+      // (chống N+1 — eng-review #6). select chỉ field cần, không kéo nguyên row nick/user.
       const assets = await prisma.mediaAsset.findMany({
         where,
         orderBy,
         take: limit,
-        include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
+        include: {
+          blobs: { where: { variantType: { in: ['original', 'watermarked'] } } },
+          owner: { select: { fullName: true } },
+          sourceZaloAccount: { select: { displayName: true } },
+        },
       });
 
       // Bộ ảnh yêu thích của user (để FE hiện trạng thái ⭐ ngay trong list/panel).
@@ -342,8 +353,16 @@ export async function mediaRoutes(app: FastifyInstance) {
           watermarkOpacity: a.watermarkOpacity,
           watermarkUrl: wm?.publicUrl ?? null,
           // D11: ảnh lưu từ nick Riêng tư → FE hỏi xác nhận trước khi chia sẻ công khai.
-          sourceFromPrivateNick: !!a.sourceZaloAccountId,
+          // 2026-06-15: đọc CỜ riêng (không suy từ sourceZaloAccountId nữa — nick thường giờ
+          // cũng có id nguồn để hiển thị, nhưng KHÔNG phải Riêng tư).
+          sourceFromPrivateNick: a.sourceIsPrivateNick,
           favorited: favSet.has(a.id),
+          // Nguồn để HIỂN THỊ "ảnh từ nick nào / sale nào / kích thước" (createdAt đã có ở trên).
+          source: a.source,
+          ownerName: a.owner?.fullName ?? null,
+          sourceNickName: a.sourceZaloAccount?.displayName ?? null,
+          width: blob?.width ?? null,
+          height: blob?.height ?? null,
         };
       });
       return { items };
@@ -475,7 +494,7 @@ export async function mediaRoutes(app: FastifyInstance) {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;
       const { id } = request.params as { id: string };
-      const body = request.body as { conversationId: string; caption?: string };
+      const body = request.body as { conversationId: string; caption?: string; addTags?: string[] };
       if (!body?.conversationId) return reply.status(400).send({ error: 'conversationId required' });
 
       // Asset phải thuộc org + (của mình HOẶC public HOẶC có view_all).
@@ -603,10 +622,18 @@ export async function mediaRoutes(app: FastifyInstance) {
           data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
         });
         await bumpUsage(asset.id);
+        // Gắn tag/dự án LÚC GỬI (anh chốt 2026-06-15): sale bấm chip gợi ý → tag dính vào ảnh,
+        // bữa sau tìm lại dễ. Ghi tag TỰ DO (ai gửi cũng thêm được, kể cả ảnh công khai của
+        // sale khác — Anh chốt ưu tiên tag phong phú cho ảnh dùng chung, KHÁC scope owner của
+        // PATCH /:id và /bulk; CHỈ áp cho addTags lúc gửi, KHÔNG nới quyền sửa tên/visibility).
+        if (Array.isArray(body.addTags) && body.addTags.length) {
+          const merged = normalizeTags([...(asset.tagIds ?? []), ...body.addTags]);
+          await prisma.mediaAsset.update({ where: { id: asset.id }, data: { tagIds: merged } });
+        }
         await logMediaUsage({
           orgId: user.orgId, mediaAssetId: asset.id, eventType: 'sent_chat',
           userId, conversationId: conversation.id,
-          meta: { watermarked: blob.variantType === 'watermarked' },
+          meta: { watermarked: blob.variantType === 'watermarked', taggedOnSend: (body.addTags?.length ?? 0) > 0 },
         });
 
         await emitChatMessage({
@@ -650,7 +677,9 @@ export async function mediaRoutes(app: FastifyInstance) {
       // PRIVACY (D11 — anh chốt 2026-06-12: HỎI XÁC NHẬN thay vì chặn cứng):
       // Ảnh lưu từ nick Riêng tư → chuyển Công khai PHẢI kèm confirmShare=true (FE đã hiện
       // dialog "có thể chứa thông tin khách — chắc chắn chia sẻ?"). Thiếu → trả NEED_CONFIRM.
-      const sharingPrivateNickAsset = body.visibility === 'public' && asset.sourceZaloAccountId;
+      // 2026-06-15: đọc CỜ sourceIsPrivateNick (KHÔNG suy từ sourceZaloAccountId — nick thường
+      // giờ cũng có id nguồn nhưng không phải Riêng tư, không được bắt xác nhận oan).
+      const sharingPrivateNickAsset = body.visibility === 'public' && asset.sourceIsPrivateNick;
       if (sharingPrivateNickAsset && !body.confirmShare) {
         return reply.status(409).send({
           error: 'Ảnh lưu từ nick Riêng tư — cần xác nhận trước khi chia sẻ Công khai.',
@@ -663,17 +692,17 @@ export async function mediaRoutes(app: FastifyInstance) {
         data: {
           ...(body.name !== undefined ? { name: body.name } : {}),
           ...(body.visibility !== undefined ? { visibility: body.visibility } : {}),
-          ...(body.tagIds !== undefined ? { tagIds: body.tagIds } : {}),
+          ...(body.tagIds !== undefined ? { tagIds: normalizeTags(body.tagIds) } : {}),
           ...(body.folderId !== undefined ? { folderId: body.folderId } : {}),
         },
       });
 
       // AUDIT privacy (S8): chuyển sang Công khai → ghi log (đặc biệt ảnh từ nick Riêng tư).
       if (body.visibility === 'public') {
-        logger.info(`[media][audit] make_public asset=${id} user=${userId} fromPrivateNick=${!!asset.sourceZaloAccountId}`);
+        logger.info(`[media][audit] make_public asset=${id} user=${userId} fromPrivateNick=${asset.sourceIsPrivateNick}`);
         await logMediaUsage({
           orgId: user.orgId, mediaAssetId: id, eventType: 'made_public', userId,
-          meta: { fromPrivateNick: !!asset.sourceZaloAccountId, confirmed: !!body.confirmShare },
+          meta: { fromPrivateNick: asset.sourceIsPrivateNick, confirmed: !!body.confirmShare },
         });
       }
       return { asset: { id: updated.id, name: updated.name, visibility: updated.visibility, tagIds: updated.tagIds } };
@@ -715,10 +744,11 @@ export async function mediaRoutes(app: FastifyInstance) {
         });
       }
       // Gán thêm tag: hợp nhất tag mới vào tag cũ per-asset (không ghi đè tag đang có).
+      // normalizeTags: lowercase + dedup (gộp tag/dự án, không phân biệt hoa/thường — 2026-06-15).
       if (body.addTags && body.addTags.length) {
-        const clean = body.addTags.map((t) => t.trim()).filter(Boolean);
+        const clean = normalizeTags(body.addTags);
         for (const a of scoped) {
-          const merged = Array.from(new Set([...(a.tagIds ?? []), ...clean]));
+          const merged = normalizeTags([...(a.tagIds ?? []), ...clean]);
           await prisma.mediaAsset.update({ where: { id: a.id }, data: { tagIds: merged } });
         }
       }
@@ -993,13 +1023,13 @@ export async function mediaRoutes(app: FastifyInstance) {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;
       const q = request.query as { conversationId?: string };
-      if (!q.conversationId) return { items: [], matchedTags: [] };
+      if (!q.conversationId) return { items: [], matchedTags: [], contactTags: [] };
 
       const conv = await prisma.conversation.findFirst({
         where: { id: q.conversationId, orgId: user.orgId },
         include: { contact: { select: { tags: true, autoTags: true } } },
       });
-      if (!conv?.contact) return { items: [], matchedTags: [] };
+      if (!conv?.contact) return { items: [], matchedTags: [], contactTags: [] };
 
       // Gom tag khách (manual + auto, lowercase). Bỏ prefix 'auto:'.
       const raw = [
@@ -1007,7 +1037,9 @@ export async function mediaRoutes(app: FastifyInstance) {
         ...(Array.isArray(conv.contact.autoTags) ? conv.contact.autoTags : []),
       ].map((t) => String(t).replace(/^auto:/, '').trim().toLowerCase()).filter(Boolean);
       const custTags = [...new Set(raw)];
-      if (custTags.length === 0) return { items: [], matchedTags: [] };
+      // contactTags = TOÀN BỘ tag khách (cho chip gợi ý lúc gửi — eng-review #C). matchedTags
+      // chỉ là tag GIAO với ảnh-kho (dùng cho gợi ý ẢNH), KHÔNG đủ làm chip gợi ý tag.
+      if (custTags.length === 0) return { items: [], matchedTags: [], contactTags: [] };
 
       // Ảnh kho có tagIds giao với tag khách + (public HOẶC của mình) + chưa archive.
       const assets = await prisma.mediaAsset.findMany({
@@ -1034,7 +1066,36 @@ export async function mediaRoutes(app: FastifyInstance) {
         thumbnailUrl: a.thumbnailUrl ?? a.blobs[0]?.publicUrl ?? null,
         tagIds: a.tagIds,
       }));
-      return { items, matchedTags: [...new Set(matched.flatMap((m) => m.hits))] };
+      return { items, matchedTags: [...new Set(matched.flatMap((m) => m.hits))], contactTags: custTags };
+    },
+  );
+
+  // ── GET /api/v1/media/tags — danh sách tag đang dùng (autocomplete) ─────────
+  // 2026-06-15: gom tag distinct từ MediaAsset.tagIds (scope owner + public), kèm số lượng,
+  // xếp theo phổ biến. Dùng cho autocomplete ô tag (panel chi tiết) + chip "tag hay dùng"
+  // lúc gửi khi khách chưa có tag (empty-state). unnest mảng tagIds bằng raw SQL.
+  app.get(
+    '/api/v1/media/tags',
+    { preHandler: requireGrant('media', 'access') },
+    async (request: FastifyRequest) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const q = request.query as { limit?: string };
+      const limit = Math.min(parseInt(q.limit ?? '50', 10) || 50, 200);
+      const canViewAll = await userHasGrant(userId, 'media', 'view_all');
+      // Scope: view_all → cả org; thường → tag của ảnh mình HOẶC ảnh công khai (không lộ
+      // tag riêng tư của sale khác). archived bỏ qua. Tag đã lowercase sẵn khi ghi.
+      const rows = await prisma.$queryRaw<Array<{ tag: string; count: bigint }>>`
+        SELECT lower(tag) AS tag, COUNT(*)::bigint AS count
+        FROM "media_assets", unnest("tag_ids") AS tag
+        WHERE "org_id" = ${user.orgId}
+          AND "archived_at" IS NULL
+          ${canViewAll ? Prisma.empty : Prisma.sql`AND ("owner_user_id" = ${userId} OR "visibility" = 'public')`}
+        GROUP BY lower(tag)
+        ORDER BY count DESC, tag ASC
+        LIMIT ${limit}
+      `;
+      return { tags: rows.map((r) => ({ tag: r.tag, count: Number(r.count) })) };
     },
   );
 
