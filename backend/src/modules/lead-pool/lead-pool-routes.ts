@@ -59,10 +59,10 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/v1/lead-pool/:id/note', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { noteContent?: string };
+    const body = (request.body ?? {}) as { noteContent?: string; statusId?: string | null };
     if (!body.noteContent) return reply.status(400).send({ error: 'noteContent là bắt buộc' });
     try {
-      return await submitNote({ userId: user.id, leadRequestId: id, noteContent: body.noteContent });
+      return await submitNote({ userId: user.id, leadRequestId: id, noteContent: body.noteContent, statusId: body.statusId ?? null });
     } catch (err) {
       return handle(err, reply);
     }
@@ -100,6 +100,45 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
       const patch = (request.body ?? {}) as Record<string, unknown>;
       try {
         return await updateConfig(user.orgId, patch as any);
+      } catch (err) {
+        return handle(err, reply);
+      }
+    },
+  );
+
+  // GET /api/v1/lead-pool/admin-dashboard — số liệu 4 màn pro (admin). Phase FIFO 2026-06-15.
+  app.get(
+    '/api/v1/lead-pool/admin-dashboard',
+    { preHandler: requireGrant('settings', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const q = request.query as { period?: string };
+      const period = (['today', '7d', '30d'] as const).includes(q.period as any) ? (q.period as 'today' | '7d' | '30d') : '7d';
+      try {
+        const { getAdminDashboard } = await import('./lead-pool-service.js');
+        return await getAdminDashboard({ orgId: user.orgId, period });
+      } catch (err) {
+        return handle(err, reply);
+      }
+    },
+  );
+
+  // GET /api/v1/lead-pool/distribution-log — Nhật ký chia (admin). Phase FIFO 2026-06-15.
+  // Query: ?date=YYYY-MM-DD ?userId=... ?limit=300
+  app.get(
+    '/api/v1/lead-pool/distribution-log',
+    { preHandler: requireGrant('settings', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const q = request.query as { date?: string; userId?: string; limit?: string };
+      try {
+        const { getDistributionLog } = await import('./lead-pool-service.js');
+        return await getDistributionLog({
+          orgId: user.orgId,
+          date: q.date,
+          userId: q.userId,
+          limit: q.limit ? parseInt(q.limit, 10) : undefined,
+        });
       } catch (err) {
         return handle(err, reply);
       }

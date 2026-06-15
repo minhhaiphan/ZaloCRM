@@ -135,6 +135,14 @@
         <div v-if="primarySuggestion" class="lrm-suggestion">
           <span class="lrm-suggestion-icon">💡</span>
           <span class="lrm-suggestion-text">{{ primarySuggestion }}</span>
+          <button
+            v-if="(props.lead?.suggestedOpenings?.length ?? 0) > 1"
+            class="lrm-suggestion-copy"
+            title="Đổi câu chào khác"
+            @click="randomSuggestion"
+          >
+            <span>🔀</span><span>Đổi câu</span>
+          </button>
           <button class="lrm-suggestion-copy" :class="{ 'is-copied': copiedFlag }" @click="copySuggestion">
             <span>{{ copiedFlag ? '✓' : '📋' }}</span>
             <span>{{ copiedFlag ? 'Đã copy' : 'Copy' }}</span>
@@ -347,70 +355,44 @@
           <span class="lrm-note-counter" :class="{ ok: noteText.length >= noteMinLength }">
             {{ noteText.length }} / {{ noteMinLength }}
           </span>
-          <button class="lrm-btn-ghost" :disabled="returning" @click="openReturnDialog">↩ Trả lại pool</button>
-          <button class="lrm-btn-primary" :disabled="submitting || noteText.length < noteMinLength" @click="onSubmitNote">
-            <span v-if="submitting">Đang lưu...</span>
-            <span v-else>💾 Lưu note + Bắt đầu chăm</span>
+          <!-- Phase FIFO 2026-06-15: bỏ nút "Trả lại pool" (Anh chốt thừa). Nút "Lưu Note"
+               full hàng → mở màn khóa chọn trạng thái (KHÔNG lưu thẳng). -->
+          <button class="lrm-btn-primary lrm-btn-save-full" :disabled="noteText.length < noteMinLength" @click="onSaveNoteThenStatus">
+            <span>💾 Lưu Note</span>
           </button>
         </div>
       </footer>
     </div>
 
-    <!-- Return Reason Dialog — 2026-05-29 (anh chốt A): bắt buộc nhập lý do min 10 ký tự -->
+    <!-- Phase Lead Pool FIFO 2026-06-15 — bỏ Return Dialog (Anh chốt bỏ nút Trả lại pool). -->
+
+    <!-- Phase Lead Pool FIFO 2026-06-15 — Màn chọn trạng thái sau Lưu Note (style ảnh Anh:
+         card to ngang, nền nhạt theo màu trạng thái, số # bên phải, grid 2 cột 4 hàng).
+         Bắt buộc chọn 1 — chọn xong tự chuyển sang Lead tiếp theo. -->
     <Teleport to="body">
-      <div v-if="returnDialogOpen" class="rrd-backdrop" @click.self="closeReturnDialog">
-        <div class="rrd-card" role="dialog" aria-modal="true">
-          <header class="rrd-head">
-            <span class="rrd-icon">↩</span>
-            <div>
-              <h3>Trả lại lead về pool</h3>
-              <p>Vui lòng cho biết lý do để admin tổng hợp + cải thiện chất lượng pool.</p>
-            </div>
-            <button class="rrd-close" @click="closeReturnDialog" aria-label="Đóng">✕</button>
-          </header>
-
-          <div class="rrd-body">
-            <label class="rrd-field-label">Lý do <span class="req">*</span></label>
-            <textarea
-              ref="returnTextareaRef"
-              v-model="returnReason"
-              class="rrd-textarea"
-              :placeholder="`Tối thiểu ${RETURN_REASON_MIN} ký tự. Vd: KH không phải BĐS, sai SĐT, đã có sale khác chăm rồi...`"
-              rows="3"
-              @keydown.escape="closeReturnDialog"
-              @keydown.meta.enter="onConfirmReturn"
-              @keydown.ctrl.enter="onConfirmReturn"
-            ></textarea>
-            <div class="rrd-counter" :class="{ ok: returnReason.trim().length >= RETURN_REASON_MIN }">
-              {{ returnReason.trim().length }} / {{ RETURN_REASON_MIN }}
-              <span v-if="returnReason.trim().length < RETURN_REASON_MIN" class="hint">(còn {{ RETURN_REASON_MIN - returnReason.trim().length }} ký tự)</span>
-            </div>
-
-            <div class="rrd-presets">
-              <span class="rrd-presets-label">⚡ Chọn nhanh:</span>
-              <button
-                v-for="p in RETURN_PRESETS"
-                :key="p"
-                type="button"
-                class="rrd-preset-chip"
-                @click="useReturnPreset(p)"
-              >{{ p }}</button>
-            </div>
-
-            <div v-if="returnError" class="rrd-error">⚠ {{ returnError }}</div>
+      <div v-if="statusStepOpen" class="sss-backdrop">
+        <div class="sss-card" role="dialog" aria-modal="true">
+          <div class="sss-head">Chọn trạng thái cho nick này</div>
+          <div v-if="statusLoading" class="sss-loading">Đang tải trạng thái…</div>
+          <div v-else-if="statusList.length === 0" class="sss-empty">
+            Chưa cài trạng thái nào. Vào Cài đặt → CRM → Trạng thái để thêm.
           </div>
-
-          <footer class="rrd-foot">
-            <button class="rrd-btn-ghost" :disabled="returning" @click="closeReturnDialog">Hủy</button>
+          <div v-else class="sss-grid">
             <button
-              class="rrd-btn-danger"
-              :disabled="returning || returnReason.trim().length < RETURN_REASON_MIN"
-              @click="onConfirmReturn"
+              v-for="(st, i) in statusList"
+              :key="st.id"
+              class="sss-card-btn"
+              :style="cardStyle(st.color)"
+              :disabled="savingStatus"
+              @click="onPickStatus(st.id)"
             >
-              <span v-if="returning">Đang trả lại...</span>
-              <span v-else>↩ Xác nhận trả lại pool</span>
+              <span class="sss-name" :style="{ color: st.color || '#475066' }">{{ st.name }}</span>
+              <span class="sss-num">#{{ i + 1 }}</span>
             </button>
-          </footer>
+          </div>
+          <div class="sss-foot">Chọn trạng thái để chuyển qua Lead tiếp theo</div>
+          <div v-if="savingStatus" class="sss-saving">Đang lưu…</div>
+          <div v-if="actionError" class="sss-error">⚠ {{ actionError }}</div>
         </div>
       </div>
     </Teleport>
@@ -422,7 +404,6 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useLeadPool, type LeadPayload } from '@/composables/use-lead-pool';
-import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{ lead: LeadPayload | null }>();
 const emit = defineEmits<{
@@ -432,12 +413,9 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
-const authStore = useAuthStore();
-const { submitNote, returnLead, eligibility } = useLeadPool();
+const { submitNote, eligibility, fetchStatuses } = useLeadPool();
 
 const noteText = ref('');
-const submitting = ref(false);
-const returning = ref(false);
 const actionError = ref('');
 const actionInfo = ref('');
 const enrichSuccess = ref<{ nickUsed: string; zaloName: string | null } | null>(null);
@@ -590,7 +568,6 @@ function vietnameseFirstName(fullName: string | null | undefined): string {
   return last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
 }
 
-const saleFirstName = computed(() => vietnameseFirstName(authStore.user?.fullName ?? null));
 const contactFirstName = computed(() => {
   const c = props.lead?.contact;
   return vietnameseFirstName(c?.crmName ?? c?.fullName ?? null);
@@ -603,20 +580,26 @@ const contactFirstName = computed(() => {
  *   unknown → "anh/chị Thành"
  * Sale prefix: "em Thành"
  */
+// Phase Lead Pool FIFO 2026-06-15 — câu chào lấy từ list suggestedOpenings (BE đã render
+// 8 biến). Nút Random đổi câu khác trong list. Index xoay vòng.
+const suggestionIndex = ref(0);
 const primarySuggestion = computed(() => {
+  const list = props.lead?.suggestedOpenings ?? [];
+  if (list.length > 0) return list[suggestionIndex.value % list.length] ?? '';
+  // Fallback nếu BE không trả list (sale chưa có nick) — câu cơ bản.
   const contactName = contactFirstName.value;
-  const sale = saleFirstName.value;
   const gender = zaloProfile.value?.gender;
-  const saleIntro = sale ? `em ${sale}` : 'em';
-  let greeting: string;
-  if (!contactName) greeting = 'Chào anh/chị';
-  else if (gender === 0) greeting = `Chào Anh ${contactName}`;
-  else if (gender === 1) greeting = `Chào Chị ${contactName}`;
-  else greeting = `Chào anh/chị ${contactName}`;
-  if (!contactName && !sale) return props.lead?.suggestedOpenings?.[0] ?? '';
-  const pronoun = gender === 0 ? 'anh' : gender === 1 ? 'chị' : 'anh/chị';
-  return `${greeting}, ${saleIntro} là sale chăm sóc tiếp tài khoản của ${pronoun}. Em đọc lại lịch sử thấy mình đã quan tâm dự án trước đây, không biết hiện tại ${pronoun} còn nhu cầu không ạ?`;
+  const xnq = gender === 0 ? 'Anh' : gender === 1 ? 'Chị' : 'anh/chị';
+  return contactName ? `Chào ${xnq} ${contactName}, em là sale chăm sóc tài khoản của mình ạ.` : '';
 });
+function randomSuggestion() {
+  const list = props.lead?.suggestedOpenings ?? [];
+  if (list.length <= 1) return;
+  // Đổi sang câu KHÁC câu hiện tại (random trong list).
+  let next = suggestionIndex.value;
+  while (next === suggestionIndex.value) next = Math.floor(Math.random() * list.length);
+  suggestionIndex.value = next;
+}
 
 const genderLabel = computed(() => {
   const g = zaloProfile.value?.gender;
@@ -799,66 +782,47 @@ async function onPickNick(zaloAccountId: string) {
 
 function onClose() { emit('close'); }
 
-async function onSubmitNote() {
+// Phase Lead Pool FIFO 2026-06-15 — flow 2 bước: Lưu Note → màn KHÓA chọn trạng thái.
+// Bước 1: bấm "Lưu Note" → mở màn khóa + load 8 trạng thái động từ /crm/statuses.
+const statusStepOpen = ref(false);
+const statusList = ref<Array<{ id: string; name: string; color: string | null; order: number; isTerminal: boolean }>>([]);
+const statusLoading = ref(false);
+const savingStatus = ref(false);
+
+async function onSaveNoteThenStatus() {
   if (!props.lead) return;
   if (noteText.value.length < noteMinLength.value) return;
-  submitting.value = true;
+  statusStepOpen.value = true;
+  statusLoading.value = true;
+  statusList.value = await fetchStatuses();
+  // Sắp theo order (đúng thứ tự admin cài ở /crm/statuses).
+  statusList.value.sort((a, b) => a.order - b.order);
+  statusLoading.value = false;
+}
+
+// Bước 2: bấm 1 trong các trạng thái = LƯU LUÔN (note + status) rồi đóng. Màn khóa,
+// không X, không bấm nền thoát — bắt buộc chọn 1 (Anh chốt 2026-06-15).
+// Nền nhạt từ màu trạng thái (giống ảnh Anh: card màu pastel theo status).
+function cardStyle(color: string | null) {
+  const c = color || '#9CA3AF';
+  return { background: c + '22', border: `1px solid ${c}33` };
+}
+
+async function onPickStatus(statusId: string) {
+  if (!props.lead || savingStatus.value) return;
+  savingStatus.value = true;
   actionError.value = '';
-  const ok = await submitNote(props.lead.leadRequestId, noteText.value);
-  submitting.value = false;
-  if (ok) emit('note-submitted');
-  else actionError.value = 'Lưu note thất bại';
-}
-
-// 2026-05-29 anh chốt A: thay confirm() bằng modal đẹp + bắt buộc lý do min 10 ký tự.
-const RETURN_REASON_MIN = 10;
-const RETURN_PRESETS = [
-  'KH không phải BĐS, sai mục đích',
-  'Sai SĐT, không liên lạc được',
-  'Đã có sale khác đang chăm',
-  'KH yêu cầu không liên lạc',
-  'Lead trùng với KH cũ trong CRM',
-];
-const returnDialogOpen = ref(false);
-const returnReason = ref('');
-const returnError = ref('');
-const returnTextareaRef = ref<HTMLTextAreaElement | null>(null);
-
-function openReturnDialog() {
-  if (!props.lead) return;
-  returnReason.value = '';
-  returnError.value = '';
-  returnDialogOpen.value = true;
-  // Focus textarea sau khi DOM ready
-  requestAnimationFrame(() => returnTextareaRef.value?.focus());
-}
-function closeReturnDialog() {
-  if (returning.value) return;
-  returnDialogOpen.value = false;
-}
-function useReturnPreset(text: string) {
-  returnReason.value = text;
-  returnError.value = '';
-  requestAnimationFrame(() => returnTextareaRef.value?.focus());
-}
-async function onConfirmReturn() {
-  if (!props.lead) return;
-  const trimmed = returnReason.value.trim();
-  if (trimmed.length < RETURN_REASON_MIN) {
-    returnError.value = `Cần thêm ${RETURN_REASON_MIN - trimmed.length} ký tự nữa.`;
-    return;
-  }
-  returnError.value = '';
-  returning.value = true;
-  const ok = await returnLead(props.lead.leadRequestId, trimmed);
-  returning.value = false;
+  const ok = await submitNote(props.lead.leadRequestId, noteText.value, statusId);
+  savingStatus.value = false;
   if (ok) {
-    returnDialogOpen.value = false;
-    emit('returned');
+    statusStepOpen.value = false;
+    emit('note-submitted');
   } else {
-    returnError.value = 'Trả lead thất bại. Vui lòng thử lại.';
+    actionError.value = 'Lưu note + trạng thái thất bại';
   }
 }
+
+// Phase Lead Pool FIFO 2026-06-15 — gỡ toàn bộ Return Dialog (Anh chốt bỏ nút Trả lại pool).
 
 function onDocumentClick(e: MouseEvent) {
   if (!activePopup.value) return;
@@ -1166,4 +1130,37 @@ onBeforeUnmount(() => { document.removeEventListener('click', onDocumentClick); 
 }
 .rrd-btn-danger:hover:not(:disabled) { background: #B91C1C; }
 .rrd-btn-danger:disabled { opacity: 0.5; cursor: not-allowed; background: #94A3B8; border-color: #94A3B8; }
+
+/* Phase Lead Pool FIFO 2026-06-15 — nút Lưu Note full hàng */
+.lrm-btn-save-full { flex: 1; justify-content: center; }
+
+/* Màn chọn trạng thái — style theo ảnh Anh: card to ngang, nền pastel theo màu status,
+   số # bên phải, grid 2 cột × 4 hàng (4 trên 4 dưới). Font Plus Jakarta Sans. */
+.sss-backdrop {
+  position: fixed; inset: 0; z-index: 10050;
+  background: rgba(8, 22, 30, 0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.sss-card {
+  width: 460px; max-width: 100%; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 16px 48px rgba(20,26,36,.28); background: #fff; padding: 22px;
+}
+.sss-head { font-size: 17px; font-weight: 800; color: #141a24; margin-bottom: 16px; }
+.sss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sss-card-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 16px; border-radius: 11px; cursor: pointer;
+  font-family: inherit; transition: all .12s; text-align: left;
+}
+.sss-card-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(20,26,36,.10); }
+.sss-card-btn:disabled { opacity: .55; cursor: not-allowed; }
+.sss-name { font-size: 14.5px; font-weight: 700; }
+.sss-num { font-size: 12px; font-weight: 600; color: #97a0b3; }
+.sss-foot {
+  margin-top: 16px; text-align: center; font-size: 12.5px; font-weight: 600;
+  color: #6b7488; background: #f7f9fc; border: 1px solid #eef1f6; border-radius: 10px; padding: 11px;
+}
+.sss-loading, .sss-empty, .sss-saving { font-size: 13px; color: #6b7488; padding: 16px; text-align: center; }
+.sss-error { font-size: 12.5px; color: #c0291f; margin-top: 12px; text-align: center; }
 </style>

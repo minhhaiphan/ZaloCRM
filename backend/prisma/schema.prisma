@@ -152,6 +152,7 @@ model Organization {
   leadPoolConfig          LeadPoolConfig?
   // Phase Lead Pool admin reset 2026-05-28
   leadPoolBonusQuotas     LeadPoolBonusQuota[]
+  leadPoolDistributions   LeadPoolDistribution[]
   // Phase Multi-Source Lead Ads 2026-05-27
   facebookPageAccounts    FacebookPageAccount[]
   // 2026-06-06 (Anh chốt) — trần SDK mặc định hệ thống (9 category, áp cho mọi nick).
@@ -282,6 +283,7 @@ model User {
   // Phase Lead Pool admin reset 2026-05-28
   leadBonusReceived         LeadPoolBonusQuota[]         @relation("LeadPoolBonusRecipient")
   leadBonusGranted          LeadPoolBonusQuota[]         @relation("LeadPoolBonusGranter")
+  leadDistributionsReceived LeadPoolDistribution[]       @relation("LeadDistributionRecipient")
   // Phase Privacy OTP 2026-05-27
   privacyOtpTokens          PrivacyOtpToken[]            @relation("PrivacyOtpUser")
   // M53 (2026-05-30): AI suggestions sale applied
@@ -590,6 +592,13 @@ model Contact {
   // automationTasks   AutomationTask[]  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
   // Phase Lead Pool 2026-05-24
   leadRequests      LeadRequest[]
+  // Phase Lead Pool FIFO 2026-06-15 — vòng tua công bằng (thay điểm số + random).
+  // lastPooledAt = NULL nghĩa CHƯA từng chia qua pool → ưu tiên đầu vòng tuyệt đối.
+  // pooledCount = số lần đã chia (đếm vòng). ORDER BY (pooledCount ASC, lastPooledAt
+  // ASC NULLS FIRST, created_at, id) cho FIFO: lead mới đầu vòng, đã chia/trả xuống cuối.
+  lastPooledAt        DateTime?               @map("last_pooled_at")
+  pooledCount         Int                     @default(0) @map("pooled_count")
+  leadDistributions   LeadPoolDistribution[]
 
   // Per-Contact counters (cache from Friend rows; updated by friend-aggregate hooks)
   acceptedNicksCount Int @default(0) @map("accepted_nicks_count")
@@ -670,6 +679,9 @@ model Contact {
   @@index([orgId, acceptedNicksCount])
   @@index([orgId, parentContactId])
   @@index([orgId, statusId])
+  // Phase Lead Pool FIFO 2026-06-15 — index phục vụ ORDER BY vòng tua. Prisma không
+  // khai báo được NULLS FIRST trong @@index → migration SQL tự thêm tay (xem migration).
+  @@index([orgId, pooledCount, lastPooledAt])
   // Phase 6 aggregate indexes
   @@index([orgId, leadScore(sort: Desc)])
   @@index([orgId, stuckSinceAggregate])
@@ -3159,6 +3171,33 @@ model LeadPoolBonusQuota {
   @@index([orgId, userId, dateKey])
   @@index([orgId, dateKey])
   @@map("lead_pool_bonus_quotas")
+}
+
+// Phase Lead Pool FIFO 2026-06-15 — sổ phát lead. Mỗi lần chia 1 dòng.
+// Dùng cho view "Nhật ký chia" + đếm số lần. KHÔNG thay LeadRequest (lo note/return).
+// Nguồn sự thật cho "đã chia mấy lần" = Contact.pooledCount / cột round, KHÔNG đếm
+// COUNT(*) bảng này (chỉ ghi từ lúc deploy, lead cũ thiếu).
+model LeadPoolDistribution {
+  id               String   @id @default(uuid())
+  orgId            String   @map("org_id")
+  // SetNull (KHÔNG cascade) — giữ audit kể cả khi Contact bị xoá/merge; phoneNormalized snapshot.
+  contactId        String?  @map("contact_id")
+  phoneNormalized  String?  @map("phone_normalized")
+  assignedToUserId String   @map("assigned_to_user_id")
+  source           String // 'forgotten' | 'customer_list' | 'external_sync'
+  // Lần thứ mấy lead này được chia (snapshot pooledCount SAU increment). round=1 là lần đầu.
+  round            Int
+  leadRequestId    String?  @map("lead_request_id")
+  distributedAt    DateTime @default(now()) @map("distributed_at")
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact    Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignedTo User         @relation("LeadDistributionRecipient", fields: [assignedToUserId], references: [id])
+
+  @@index([orgId, distributedAt(sort: Desc)])
+  @@index([orgId, assignedToUserId, distributedAt(sort: Desc)])
+  @@index([contactId, distributedAt(sort: Desc)])
+  @@map("lead_pool_distributions")
 }
 
 // =============================================================================

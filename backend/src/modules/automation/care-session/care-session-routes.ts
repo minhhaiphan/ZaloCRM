@@ -73,6 +73,8 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
             sourceType: true,
             sourceTriggerId: true,
             sourceSequenceId: true,
+            enrollEpoch: true, // 2026-06-15: đếm "đã gửi X/N" theo ĐÚNG lần gắn này (per-epoch)
+            pausedAtStepIdx: true, // bước đang dừng khi KH reply (hiển thị tiến độ thật khi hold)
             state: true,
             closedReason: true,
             interestWindowUntil: true,
@@ -112,16 +114,21 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
           where: { id: { in: nickIds }, orgId: user.orgId },
           select: { id: true, displayName: true },
         }),
-        // Đếm bước đã gửi per (trigger, contact).
-        prisma.automationEventLog.groupBy({
-          by: ['triggerId', 'contactId'],
+        // FIX 2026-06-15 (anh báo Phiên chăm sóc "đã gửi 10/10" SAI): đếm bước đã gửi PER
+        // (trigger, contact, ENROLL_EPOCH) — KHÔNG gom mọi lần gắn. Trước đây groupBy
+        // (trigger,contact) cộng TỔNG bước của 8 lần gắn → vượt totalSteps → cap 10/10 sai.
+        // Lấy event step_sent (có metadata.enrollEpoch + detail "step N/") rồi đếm trong JS
+        // theo đúng epoch của từng phiên. take giới hạn để không kéo cả lịch sử.
+        prisma.automationEventLog.findMany({
           where: {
             orgId: user.orgId,
             eventType: 'sequence_step_sent',
             triggerId: { in: [...new Set(rows.map((r) => r.sourceTriggerId).filter(Boolean) as string[])] },
             contactId: { in: contactIds },
           },
-          _count: { id: true },
+          orderBy: { createdAt: 'desc' },
+          take: 3000,
+          select: { triggerId: true, contactId: true, detail: true, metadata: true },
         }),
         // Tên + tổng bước của sequence (anh chốt 2026-06-07: show sequence là CHÍNH).
         seqIds.length
@@ -132,7 +139,20 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
           : Promise.resolve([]),
       ]);
       const nickMap = new Map(nicks.map((n) => [n.id, n.displayName]));
-      const sentMap = new Map(sentLogs.map((l) => [`${l.triggerId}|${l.contactId}`, l._count.id]));
+      // sentMap key = `${triggerId}|${contactId}|${epoch}` → SỐ BƯỚC đã gửi của ĐÚNG lần gắn đó.
+      // Mỗi event step_sent: detail "step N/M" (N 0-based → đã gửi N+1), metadata.enrollEpoch.
+      // Giữ N+1 LỚN NHẤT per key (bước cao nhất đã gửi của lần gắn này).
+      const sentMap = new Map<string, number>();
+      for (const ev of sentLogs) {
+        if (!ev.triggerId || !ev.contactId) continue;
+        const epoch = (ev.metadata as { enrollEpoch?: number } | null)?.enrollEpoch ?? 1;
+        const m = ev.detail?.match(/step (\d+)\/(\d+)/);
+        if (!m) continue;
+        const sent = parseInt(m[1], 10) + 1; // step N 0-based → đã gửi N+1 bước
+        const key = `${ev.triggerId}|${ev.contactId}|${epoch}`;
+        const cur = sentMap.get(key) ?? 0;
+        if (sent > cur) sentMap.set(key, sent);
+      }
       const totalStepsMap = new Map(
         seqSteps.map((s) => [s.id, Array.isArray(s.steps) ? (s.steps as unknown[]).length : 0]),
       );
@@ -146,7 +166,11 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
         const jobs = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
         for (const job of jobs) {
           if (!job.id) continue;
-          const at = new Date((job.timestamp ?? Date.now()) + (job.opts?.delay ?? 0));
+          // FIX 2026-06-15: job bị moveToDelayed (hold khi KH reply) → giờ chạy THẬT =
+          // (processedOn ?? timestamp) + delay-HIỆN-TẠI, KHÔNG phải timestamp + opts.delay gốc.
+          // Nếu không, "Lần gửi tiếp" hiện giờ cũ (chưa cộng hold).
+          const curDelay = (job as { delay?: number }).delay ?? job.opts?.delay ?? 0;
+          const at = new Date((job.processedOn ?? job.timestamp ?? Date.now()) + curDelay);
           // jobId = triggerId-contactId-stepIdx → key = triggerId|contactId, giữ lần sớm nhất.
           const lastDash = job.id.lastIndexOf('-');
           if (lastDash < 0) continue;
@@ -207,8 +231,13 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
           openedAt: r.openedAt,
           closedAt: r.closedAt,
           // Tiến độ luồng cho card "đang chăm" (anh chốt 2026-06-07).
+          // FIX 2026-06-15: đếm theo ĐÚNG lần gắn (epoch) — không gom mọi lần gắn.
+          // Khi đang hold (pausedAtStepIdx có): bước đang dừng = đã gửi tới đó (chính xác hơn
+          // event log nếu event chưa kịp ghi). pausedAtStepIdx 0-based = số bước đã gửi.
           nickName: nickMap.get(r.nickId) ?? null,
-          sentSteps: r.sourceTriggerId ? (sentMap.get(`${r.sourceTriggerId}|${r.contactId}`) ?? 0) : 0,
+          sentSteps: r.pausedAtStepIdx != null
+            ? r.pausedAtStepIdx
+            : (r.sourceTriggerId ? (sentMap.get(`${r.sourceTriggerId}|${r.contactId}|${r.enrollEpoch ?? 1}`) ?? 0) : 0),
           totalSteps: r.sourceSequenceId ? (totalStepsMap.get(r.sourceSequenceId) ?? 0) : 0,
           nextRunAt: r.sourceTriggerId
             ? (nextRunMap.get(`${r.sourceTriggerId}|${r.contactId}`) ?? null)
@@ -428,22 +457,27 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'missing_params', message: 'Thiếu contactId hoặc nickId' });
       }
       const externalThreadId = await resolveListenThreadId(user.orgId, contactId, nickId, request.query?.threadId);
-      const session = await prisma.careSession.findFirst({
-        where: {
-          orgId: user.orgId,
-          contactId,
-          nickId,
-          state: 'active',
-          sourceType: 'sequence_manual',
-          sourceTriggerId: null,
-          ...(externalThreadId
-            ? { OR: [{ externalThreadId }, { externalThreadId: null }] }
-            : {}),
-        },
+      // ĐỒNG BỘ 2026-06-15: "đang theo dõi" tính CẢ phiên auto (trigger), không chỉ gắn tay.
+      // Trả thêm isManualWatch để FE biết: phiên gắn tay → cho bấm "Bỏ theo dõi"; phiên auto
+      // (luồng đang chạy) → KHÔNG cho tắt (luồng tự kết thúc), chỉ hiện trạng thái.
+      const threadCond = externalThreadId
+        ? { OR: [{ externalThreadId }, { externalThreadId: null }] }
+        : {};
+      const baseWhere = { orgId: user.orgId, contactId, nickId, state: 'active' as const, ...threadCond };
+      // Ưu tiên phiên GẮN TAY (để nút "Bỏ theo dõi" đóng đúng phiên); không có thì lấy phiên auto.
+      const manualSession = await prisma.careSession.findFirst({
+        where: { ...baseWhere, sourceType: 'sequence_manual', sourceTriggerId: null },
         select: { id: true, openedAt: true, lastReplyAt: true },
       });
+      const session = manualSession ?? await prisma.careSession.findFirst({
+        where: baseWhere,
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, openedAt: true, lastReplyAt: true },
+      });
+      const isManualWatch = manualSession != null;
       return reply.send({
         listening: session != null,
+        isManualWatch, // true = phiên gắn tay (cho phép Bỏ theo dõi); false = phiên auto (luồng)
         sessionId: session?.id ?? null,
         openedAt: session?.openedAt ?? null,
         lastReplyAt: session?.lastReplyAt ?? null,
@@ -452,9 +486,12 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ── GET danh sách cặp (contactId, nickId) ĐANG THEO DÕI — cho cột 2 hiện chuông ──
-  // 2026-06-15 (anh chốt): khách đang trong "theo dõi" (care-session gắn TAY) → FE hiện
-  // icon chuông sau tên ở cột 2. FE fetch 1 lần → Set "contactId|nickId" → map vào row.
-  // "Theo dõi" = phiên gắn tay (sourceType='sequence_manual', sourceTriggerId=null) state active.
+  // 2026-06-15 (anh chốt): khách đang trong "theo dõi" → FE hiện icon chuông sau tên ở cột 2.
+  // FE fetch 1 lần → Set "contactId|nickId" → map vào row.
+  // ĐỒNG BỘ 2026-06-15 (anh chốt): "đang theo dõi" = CÓ phiên chăm sóc ĐANG MỞ (state active),
+  // KỂ CẢ sequence TỰ GẮN (sourceType='trigger') chứ KHÔNG chỉ gắn tay ('sequence_manual').
+  // Trước đây lọc cứng sequence_manual → KH bám đuổi tự động KHÔNG hiện chuông (lệch). Giờ mọi
+  // phiên active đều tính. (Nút TẮT chuông vẫn chỉ đóng phiên gắn tay — xem DELETE /listen.)
   // BẢO MẬT: chỉ trả nick TRONG QUYỀN của user (getZaloScope) — không lộ nick ngoài quyền.
   app.get(
     '/api/v1/automation/care-sessions/listening-pairs',
@@ -464,9 +501,7 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
       const sessions = await prisma.careSession.findMany({
         where: {
           orgId: user.orgId,
-          state: 'active',
-          sourceType: 'sequence_manual',
-          sourceTriggerId: null,
+          state: 'active', // mọi phiên đang mở (gắn tay sequence_manual HOẶC auto trigger)
           // chỉ nick user có quyền (admin/owner = tất cả → accessibleIds bao trùm).
           ...(scope.isOrgAdmin ? {} : { nickId: { in: scope.accessibleIds } }),
         },

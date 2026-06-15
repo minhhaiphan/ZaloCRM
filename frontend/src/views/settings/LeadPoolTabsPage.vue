@@ -14,26 +14,45 @@
       <v-tab value="queue">
         <v-icon start size="18" icon="mdi-format-list-numbered" /> Queue chia lead
       </v-tab>
+      <v-tab value="dashboard">
+        <v-icon start size="18" icon="mdi-view-dashboard-outline" /> Tổng quan
+      </v-tab>
+      <v-tab value="log">
+        <v-icon start size="18" icon="mdi-calendar-text-outline" /> Nhật ký chia
+      </v-tab>
     </v-tabs>
 
-    <!-- Giữ cả 2 mounted bằng v-show để không mất state khi chuyển tab. -->
+    <!-- Giữ mounted bằng v-show để không mất state khi chuyển tab. -->
     <div v-show="tab === 'config'">
       <LeadPoolConfigPage />
     </div>
     <div v-show="tab === 'queue'">
       <LeadPoolPreviewPage />
     </div>
+    <div v-show="tab === 'dashboard'">
+      <LeadPoolDashboardPage v-if="mountedTabs.has('dashboard')" />
+    </div>
+    <div v-show="tab === 'log'">
+      <LeadPoolLogPage v-if="mountedTabs.has('log')" />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import LeadPoolConfigPage from './LeadPoolConfigPage.vue';
 import LeadPoolPreviewPage from './LeadPoolPreviewPage.vue';
+import LeadPoolDashboardPage from './LeadPoolDashboardPage.vue';
+import LeadPoolLogPage from './LeadPoolLogPage.vue';
 
-// Tab mặc định = Cấu hình. ?tab=queue để deep-link sang Queue.
-const initial = new URLSearchParams(window.location.search).get('tab');
-const tab = ref<'config' | 'queue'>(initial === 'queue' ? 'queue' : 'config');
+type TabKey = 'config' | 'queue' | 'dashboard' | 'log';
+const VALID: TabKey[] = ['config', 'queue', 'dashboard', 'log'];
+const initial = new URLSearchParams(window.location.search).get('tab') as TabKey | null;
+const tab = ref<TabKey>(initial && VALID.includes(initial) ? initial : 'config');
+
+// Lazy-mount các tab nặng (dashboard/log) — chỉ load API khi user mở.
+const mountedTabs = ref(new Set<TabKey>([tab.value]));
+watch(tab, (t) => mountedTabs.value.add(t), { immediate: true });
 </script>
 
 <style scoped>

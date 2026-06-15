@@ -270,9 +270,10 @@ export async function checkEligibility(orgId: string, userId: string): Promise<E
           },
         });
         // Chỉ rollback Contact.assignedUserId nếu CURRENT owner = requester (HIGH-3 pattern)
+        // Phase Lead Pool FIFO — set lastPooledAt=now() để lead trả nằm CUỐI nhóm cùng vòng.
         await prisma.contact.updateMany({
           where: { id: lastRequest.contactId, assignedUserId: fullLead.requestedByUserId },
-          data: { assignedUserId: fullLead.previousAssigneeId },
+          data: { assignedUserId: fullLead.previousAssigneeId, lastPooledAt: new Date() },
         }).catch(() => { /* silent — contact có thể đã re-assigned */ });
         // Phase v2.D 2026-05-29 — Timeline log "Auto-return lead vì sale không note quá hạn"
         logActivity({
@@ -359,15 +360,12 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
   // giữ lead vĩnh viễn. Anh chốt: "lãng quên = KH không reply >= threshold ngày".
   // Fallback: KH chưa từng inbound (lastInboundAt IS NULL) → dùng created_at làm anchor
   // (đúng cho KH import từ Excel/Facebook lead chưa từng chat).
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; priority_score: number }>>(
+  // Phase Lead Pool FIFO 2026-06-15 — BỎ priority_score. Collector chỉ LỌC + sắp đầu vòng tua
+  // (pooled_count, last_pooled_at NULLS FIRST, created_at) để giới hạn ứng viên gửi sang
+  // queryPoolRobin (nơi gộp 2 nguồn + dedup phone + sắp vòng tua cuối cùng).
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
     `
-    SELECT c.id,
-      (
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(c.last_inbound_at, c.created_at))) / 86400 * 2
-        + CASE WHEN c.phone_normalized IS NOT NULL THEN 5 ELSE 0 END
-        + CASE WHEN c.has_zalo = true THEN 10 ELSE 0 END
-        - c.zalo_lookup_attempts * 3
-      )::INTEGER AS priority_score
+    SELECT c.id
     FROM contacts c
     WHERE c.org_id = $1
       AND COALESCE(c.last_inbound_at, c.created_at) < $2::timestamp
@@ -403,7 +401,7 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
           AND lr3.release_reason IN ('manual_return', 'auto_return')
           AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > NOW() - ($7 || ' days')::INTERVAL
       )
-    ORDER BY priority_score DESC
+    ORDER BY c.pooled_count ASC, c.last_pooled_at ASC NULLS FIRST, c.created_at ASC
     LIMIT $5
     `,
     orgId,
@@ -415,7 +413,7 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
     String(config.selfReclaimLockDays),
   );
 
-  return rows.map((r) => ({ contactId: r.id, source: 'forgotten' as const, priorityScore: r.priority_score }));
+  return rows.map((r) => ({ contactId: r.id, source: 'forgotten' as const, priorityScore: 0 }));
 }
 
 /**
@@ -518,12 +516,77 @@ async function queryCustomerListCandidates(orgId: string, userId: string, limit 
 }
 
 /**
- * Pick 1 candidate trong top 10 priority (random nhẹ để 2 sale không nhận giống nhau).
+ * Phase Lead Pool FIFO 2026-06-15 — sắp ứng viên theo VÒNG TUA, thay pickTopRandom.
+ *
+ * Input: danh sách candidate đã qua mọi filter (forgotten + customer_list, đã tạo stub
+ * Contact cho entry chưa link). Hàm này CHỈ lo SẮP XẾP + DEDUP, không filter lại.
+ *
+ * Thứ tự: pooled_count ASC, last_pooled_at ASC NULLS FIRST, created_at ASC, id ASC.
+ *   → lead chưa chia (pooled_count=0, last_pooled_at=NULL) lên đầu TUYỆT ĐỐI;
+ *     tie-break created_at+id chống thứ tự bất định giữa các lead cùng pooled_count
+ *     (Review H2: thiếu tie-break → lead import hôm nay chen trước lead 3 tháng trước).
+ *
+ * Dedup SĐT (Review M4): DISTINCT ON COALESCE(phone_normalized, 'cid:'||id) — cùng phone
+ * giữ 1 (con vòng tua nhỏ nhất); lead không phone dedup theo id (mỗi contact 1 lần).
+ *
+ * Trả về theo đúng thứ tự vòng tua để caller iterate + SELECT FOR UPDATE SKIP LOCKED.
  */
-function pickTopRandom(candidates: PriorityCandidate[]): PriorityCandidate | null {
-  if (candidates.length === 0) return null;
-  const top = candidates.slice(0, 10);
-  return top[Math.floor(Math.random() * top.length)];
+async function queryPoolRobin(
+  tx: Tx,
+  contactIds: string[],
+  limit = 50,
+): Promise<string[]> {
+  if (contactIds.length === 0) return [];
+  const rows = (await tx.$queryRawUnsafe(
+    `
+    WITH cand AS (
+      SELECT c.id AS contact_id, c.phone_normalized, c.pooled_count, c.last_pooled_at, c.created_at
+      FROM contacts c
+      WHERE c.id = ANY($1::text[])
+    ),
+    deduped AS (
+      SELECT DISTINCT ON (COALESCE(phone_normalized, 'cid:' || contact_id))
+        contact_id, pooled_count, last_pooled_at, created_at
+      FROM cand
+      ORDER BY COALESCE(phone_normalized, 'cid:' || contact_id),
+               pooled_count ASC, last_pooled_at ASC NULLS FIRST, created_at ASC, contact_id ASC
+    )
+    SELECT contact_id FROM deduped
+    ORDER BY pooled_count ASC, last_pooled_at ASC NULLS FIRST, created_at ASC, contact_id ASC
+    LIMIT $2
+    `,
+    contactIds, limit,
+  )) as Array<{ contact_id: string }>;
+  return rows.map((r) => r.contact_id);
+}
+
+/**
+ * Bản READ-ONLY của queryPoolRobin cho previewPool (admin xem hàng đợi). Dùng prisma
+ * thường (không tx/lock) vì chỉ đọc. Cùng thứ tự vòng tua + dedup phone để admin thấy
+ * ĐÚNG thứ tự lead sẽ được chia.
+ */
+async function previewRobinOrder(contactIds: string[], limit = 200): Promise<string[]> {
+  if (contactIds.length === 0) return [];
+  const rows = await prisma.$queryRawUnsafe<Array<{ contact_id: string }>>(
+    `
+    WITH cand AS (
+      SELECT c.id AS contact_id, c.phone_normalized, c.pooled_count, c.last_pooled_at, c.created_at
+      FROM contacts c WHERE c.id = ANY($1::text[])
+    ),
+    deduped AS (
+      SELECT DISTINCT ON (COALESCE(phone_normalized, 'cid:' || contact_id))
+        contact_id, pooled_count, last_pooled_at, created_at
+      FROM cand
+      ORDER BY COALESCE(phone_normalized, 'cid:' || contact_id),
+               pooled_count ASC, last_pooled_at ASC NULLS FIRST, created_at ASC, contact_id ASC
+    )
+    SELECT contact_id FROM deduped
+    ORDER BY pooled_count ASC, last_pooled_at ASC NULLS FIRST, created_at ASC, contact_id ASC
+    LIMIT $2
+    `,
+    contactIds, limit,
+  );
+  return rows.map((r) => r.contact_id);
 }
 
 /**
@@ -661,60 +724,41 @@ async function buildLeadPayload(
       totalMessages: contact.totalInbound + contact.totalOutbound,
       hadHotMoment: false,
     },
-    suggestedOpenings: buildSuggestedOpenings(
-      contact, saleFullName, lookupGender, greetingTemplates,
-      autoLookup?.zaloProfile?.zaloName ?? friendsByCurrentSale[0]?.zaloDisplayName ?? null,
+    suggestedOpenings: await buildSuggestedOpenings(
+      contactId,
+      // Nick đang chăm: ưu tiên nick autoLookup vừa tìm, fallback nick có Friend của sale.
+      autoLookup?.nickId ?? friendsByCurrentSale[0]?.zaloAccountId ?? null,
+      greetingTemplates,
     ),
   };
 }
 
-// Default templates dùng khi config.greetingTemplates rỗng. Anh tự thêm câu mới qua
-// PATCH /lead-pool/config { greetingTemplates: [...] }.
-// Placeholder: {anh_chi} {ac} {ten_kh} {ten_em}.
+// Phase Lead Pool FIFO 2026-06-15 — Anh chốt: Lead Pool dùng CHUNG 8 biến với MessageTemplates
+// (render-template.ts). Biến: {gender}{name}{name_full}{crm_full}{crm_first}{crm_last}{sale}{sale_full}.
+// crm_* = Friend.aliasInNick per-nick (2-way sync Zalo). Render qua renderTemplate(raw, contactId, nickId).
+// Default templates dùng khi config.greetingTemplates rỗng. Anh tự thêm qua PATCH /lead-pool/config.
 export const DEFAULT_GREETING_TEMPLATES: string[] = [
-  'Chào {anh_chi} {ten_kh}, em {ten_em} bên CSKH dự án đây ạ. Em vừa nhận tiếp tài khoản của {ac}, em xem lại thấy {ac} từng quan tâm bên em. Hiện {ac} còn đang tìm hiểu không ạ?',
-  'Chào {anh_chi} {ten_kh}, em {ten_em} đây ạ. Lâu rồi bên em chưa cập nhật thông tin mới cho {ac} — bên em vừa có update mới, em gửi {ac} tham khảo nhé?',
-  'Chào {anh_chi} {ten_kh}, em {ten_em} bên dự án đây ạ. Dạo này {ac} ổn không? Em có ít ưu đãi mới bên em vừa ra, lúc nào {ac} tiện em chia sẻ ngắn ạ.',
+  'Chào {gender} {crm_first}, em {sale} bên CSKH dự án đây ạ. Em vừa nhận tiếp tài khoản của {gender}, em xem lại thấy {gender} từng quan tâm bên em. Hiện {gender} còn đang tìm hiểu không ạ?',
+  'Chào {gender} {crm_first}, em {sale} đây ạ. Lâu rồi bên em chưa cập nhật thông tin mới cho {gender} — bên em vừa có update mới, em gửi {gender} tham khảo nhé?',
+  'Chào {gender} {crm_first}, em {sale} bên dự án đây ạ. Dạo này {gender} ổn không? Em có ít ưu đãi mới bên em vừa ra, lúc nào {gender} tiện em chia sẻ ngắn ạ.',
 ];
 
-// Render 1 template với placeholder values. Bỏ tên KH placeholder nếu thiếu tên.
-function renderGreetingTemplate(
-  tpl: string,
-  vars: { anh_chi: string; ac: string; ten_kh: string; ten_em: string },
-): string {
-  let out = tpl;
-  out = out.replace(/\{anh_chi\}/g, vars.anh_chi);
-  out = out.replace(/\{ac\}/g, vars.ac);
-  out = out.replace(/\{ten_kh\}/g, vars.ten_kh);
-  out = out.replace(/\{ten_em\}/g, vars.ten_em);
-  // Cleanup: nếu ten_kh rỗng → "Anh " → "Anh" (xoá space thừa trước dấu phẩy)
-  out = out.replace(/\s+,/g, ',').replace(/\s{2,}/g, ' ').trim();
-  return out;
-}
-
-function buildSuggestedOpenings(
-  contact: { crmName: string | null; fullName: string | null },
-  saleFullName: string | null,
-  gender: number | null = null,
+// Render câu chào qua engine 8-biến chung (render-template.ts). Cần contactId + nickId
+// (nick sale đang chăm) để resolve crm_* per-nick. Nếu thiếu nick → fallback giữ nguyên text.
+async function buildSuggestedOpenings(
+  contactId: string,
+  assignedNickId: string | null,
   templates: string[] = [],
-  zaloName: string | null = null,
-): string[] {
-  // 2026-05-29 anh báo: KH chỉ có Zalo name (Huongntt) không có crmName/fullName →
-  // câu chào fallback "anh/chị" thiếu tên. Fix: priority crmName > fullName > zaloName.
-  const contactName = vietnameseFirstName(contact.crmName ?? contact.fullName ?? zaloName);
-  const sale = vietnameseFirstName(saleFullName);
-  // Personalize gender: 0=Nam → "Anh", 1=Nữ → "Chị", null → "Anh/Chị" + "anh/chị".
-  let anh_chi: string;
-  let ac: string;
-  if (gender === 0) { anh_chi = 'Anh'; ac = 'anh'; }
-  else if (gender === 1) { anh_chi = 'Chị'; ac = 'chị'; }
-  else { anh_chi = 'Anh/Chị'; ac = 'anh/chị'; }
-
-  // Empty templates → fallback default
+): Promise<string[]> {
   const list = templates.length > 0 ? templates : DEFAULT_GREETING_TEMPLATES;
-  return list.map((tpl) => renderGreetingTemplate(tpl, {
-    anh_chi, ac, ten_kh: contactName, ten_em: sale,
-  }));
+  if (!assignedNickId) {
+    // Không có nick → không resolve được per-nick. Trả template thô (sale tự điền tay).
+    return list;
+  }
+  const { renderTemplate } = await import('../automation/blocks/render-template.js');
+  return Promise.all(
+    list.map((tpl) => renderTemplate(tpl, contactId, assignedNickId).catch(() => tpl)),
+  );
 }
 
 /**
@@ -948,36 +992,35 @@ export async function requestLead(args: { orgId: string; userId: string }) {
         : Promise.resolve([] as PriorityCandidate[]),
     ]);
 
-    const all = [...forgottenList, ...customerListList].sort((a, b) => b.priorityScore - a.priorityScore);
+    const all = [...forgottenList, ...customerListList];
     if (all.length === 0) {
       throw new LeadPoolError(404, 'no_leads', 'Hiện không có lead phù hợp trong pool. Quay lại sau ít phút.');
     }
 
-    // 4. Iterate top-N với SELECT FOR UPDATE SKIP LOCKED — pick first row em lock được
-    // Đảm bảo 2 sale clicking đồng thời không nhận cùng contact.
-    const topN = all.slice(0, 10);
-    let lockedContact: { id: string; assignedUserId: string | null; pickedScore: number; pickedSource: LeadSource } | null = null;
-
-    // Shuffle top N để random trong các sale concurrent
-    for (let i = topN.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [topN[i], topN[j]] = [topN[j], topN[i]];
+    // Map contactId → source (lead có ở cả 2 nguồn thì ưu tiên 'forgotten' — đến trước).
+    const sourceByContact = new Map<string, LeadSource>();
+    for (const c of all) {
+      if (!sourceByContact.has(c.contactId)) sourceByContact.set(c.contactId, c.source);
     }
 
-    for (const candidate of topN) {
+    // Phase Lead Pool FIFO 2026-06-15 — SẮP theo vòng tua + dedup phone (queryPoolRobin),
+    // KHÔNG còn điểm số + random. Lấy buffer 50 (Review H1: chống SKIP LOCKED bỏ sót khi
+    // con đầu hàng đang bị sale khác lock).
+    const orderedIds = await queryPoolRobin(tx, [...sourceByContact.keys()], 50);
+
+    // 4. Iterate ĐÚNG THỨ TỰ vòng tua với SELECT FOR UPDATE SKIP LOCKED — pick first row
+    // lock được. 2 sale click đồng thời: SKIP LOCKED đẩy người sau sang con kế.
+    let lockedContact: { id: string; assignedUserId: string | null; pickedSource: LeadSource } | null = null;
+
+    for (const contactId of orderedIds) {
       const rows = await tx.$queryRawUnsafe<Array<{ id: string; assigned_user_id: string | null }>>(
         `SELECT id, assigned_user_id FROM contacts WHERE id = $1 FOR UPDATE SKIP LOCKED`,
-        candidate.contactId,
+        contactId,
       );
       if (rows.length === 0) continue; // contact đang bị sale khác lock → thử contact tiếp
       // Đảm bảo contact không có active lead_request khác (race với cron / cùng user mở 2 tab)
       const activeReq = await tx.leadRequest.findFirst({
-        where: {
-          contactId: candidate.contactId,
-          noteSubmittedAt: null,
-          releaseReason: null,
-          autoReturnedAt: null,
-        },
+        where: { contactId, noteSubmittedAt: null, releaseReason: null, autoReturnedAt: null },
         select: { id: true },
       });
       if (activeReq) continue;
@@ -985,21 +1028,26 @@ export async function requestLead(args: { orgId: string; userId: string }) {
       lockedContact = {
         id: rows[0].id,
         assignedUserId: rows[0].assigned_user_id,
-        pickedScore: candidate.priorityScore,
-        pickedSource: candidate.source,
+        pickedSource: sourceByContact.get(contactId) ?? 'forgotten',
       };
       break;
     }
 
     if (!lockedContact) {
-      throw new LeadPoolError(409, 'all_locked', 'Tất cả lead top đang được sale khác xem. Thử lại sau vài giây.');
+      throw new LeadPoolError(409, 'all_locked', 'Lead đầu hàng đang được sale khác xem. Thử lại sau vài giây.');
     }
 
-    // 5. Reassign contact + create LeadRequest. Partial unique index trên (contact_id WHERE active)
-    // chống mọi race còn lại (Postgres reject INSERT thứ 2).
-    await tx.contact.update({
+    // 5. Reassign + tăng vòng tua (đẩy lead xuống cuối + đếm số lần) + tạo LeadRequest.
+    // increment atomic nhờ row đã FOR UPDATE giữ tới hết TX (Review H4). Partial unique
+    // index (contact_id WHERE active) chống mọi race INSERT còn lại.
+    const updatedContact = await tx.contact.update({
       where: { id: lockedContact.id },
-      data: { assignedUserId: args.userId },
+      data: {
+        assignedUserId: args.userId,
+        lastPooledAt: new Date(),
+        pooledCount: { increment: 1 },
+      },
+      select: { pooledCount: true, phoneNormalized: true },
     });
 
     const lr = await tx.leadRequest.create({
@@ -1009,9 +1057,24 @@ export async function requestLead(args: { orgId: string; userId: string }) {
         requestedByUserId: args.userId,
         contactId: lockedContact.id,
         source: lockedContact.pickedSource,
-        priorityScore: lockedContact.pickedScore,
+        // priorityScore KHÔNG còn dùng để chọn (FIFO) — lưu số lần chia cho tương thích cột cũ.
+        priorityScore: updatedContact.pooledCount,
         expiresAt,
         previousAssigneeId: lockedContact.assignedUserId,
+      },
+    });
+
+    // Ghi sổ phát lead (view Nhật ký chia + đếm số lần đọc từ đây).
+    await tx.leadPoolDistribution.create({
+      data: {
+        id: randomUUID(),
+        orgId: args.orgId,
+        contactId: lockedContact.id,
+        phoneNormalized: updatedContact.phoneNormalized,
+        assignedToUserId: args.userId,
+        source: lockedContact.pickedSource,
+        round: updatedContact.pooledCount, // SAU increment → lần thứ mấy
+        leadRequestId: lr.id,
       },
     });
 
@@ -1019,7 +1082,8 @@ export async function requestLead(args: { orgId: string; userId: string }) {
       leadRequestId: lr.id,
       contactId: lockedContact.id,
       source: lockedContact.pickedSource,
-      priorityScore: lockedContact.pickedScore,
+      priorityScore: updatedContact.pooledCount,
+      round: updatedContact.pooledCount,
     };
   }, { timeout: 15000 });
 
@@ -1070,11 +1134,11 @@ export async function requestLead(args: { orgId: string; userId: string }) {
     entityType: 'contact',
     entityId: result.contactId,
     details: {
-      summary: `${saleUser?.fullName ?? 'Sale'} đã nhận lead từ Pool · Nguồn: ${sourceLabel} · Điểm ưu tiên: ${result.priorityScore} · Hạn note: ${expireHint}`,
+      summary: `${saleUser?.fullName ?? 'Sale'} đã nhận lead từ Pool · Nguồn: ${sourceLabel} · Lần chia thứ ${result.round} · Hạn note: ${expireHint}`,
       leadRequestId: result.leadRequestId,
       source: result.source,
       sourceLabel,
-      priorityScore: result.priorityScore,
+      round: result.round,
       expiresAt: expiresAt.toISOString(),
     },
   });
@@ -1082,7 +1146,7 @@ export async function requestLead(args: { orgId: string; userId: string }) {
   return {
     leadRequestId: result.leadRequestId,
     source: result.source,
-    priorityScore: result.priorityScore,
+    round: result.round,
     expiresAt,
     ...payload,
   };
@@ -1192,11 +1256,8 @@ async function queryCustomerListCandidatesTx(
       });
     }
     if (!contactId) continue;
-    result.push({
-      contactId,
-      source: 'customer_list',
-      priorityScore: Math.round(Number(row.days_in_list) + 10),
-    });
+    // Phase Lead Pool FIFO — priorityScore KHÔNG dùng nữa (queryPoolRobin sắp vòng tua).
+    result.push({ contactId, source: 'customer_list', priorityScore: 0 });
   }
   return result;
 }
@@ -1217,8 +1278,11 @@ function eligibilityMessage(e: EligibilityResult): string {
 
 /**
  * Submit note cho LeadRequest → unlock xin tiếp.
+ * Phase Lead Pool FIFO 2026-06-15 — kèm statusId (tùy chọn): sau Lưu Note sale chọn
+ * trạng thái KH (load từ /crm/statuses model Status). Lưu vào Contact.statusId để admin
+ * LỌC tệp pool đã giao theo chất lượng trạng thái (Anh chốt cấp khách, không per-nick).
  */
-export async function submitNote(args: { userId: string; leadRequestId: string; noteContent: string }) {
+export async function submitNote(args: { userId: string; leadRequestId: string; noteContent: string; statusId?: string | null }) {
   const lr = await prisma.leadRequest.findUnique({
     where: { id: args.leadRequestId },
     include: {
@@ -1240,6 +1304,17 @@ export async function submitNote(args: { userId: string; leadRequestId: string; 
   const trimmed = args.noteContent.trim();
   if (trimmed.length < config.noteMinLength) {
     throw new LeadPoolError(400, 'note_too_short', `Note phải dài ít nhất ${config.noteMinLength} ký tự (hiện ${trimmed.length}).`);
+  }
+
+  // Validate statusId thuộc đúng org (chống gán status org khác). Cho phép null = không đổi.
+  let validStatusId: string | null = null;
+  if (args.statusId) {
+    const st = await prisma.status.findFirst({
+      where: { id: args.statusId, orgId: lr.contact.orgId },
+      select: { id: true },
+    });
+    if (!st) throw new LeadPoolError(400, 'invalid_status', 'Trạng thái không hợp lệ');
+    validStatusId = st.id;
   }
 
   const now = new Date();
@@ -1265,11 +1340,15 @@ export async function submitNote(args: { userId: string; leadRequestId: string; 
     });
     await tx.contact.update({
       where: { id: lr.contactId },
-      data: { lastActivity: now },
+      data: {
+        lastActivity: now,
+        // Lưu trạng thái sale chọn (nếu có) — để admin lọc tệp pool theo chất lượng.
+        ...(validStatusId ? { statusId: validStatusId } : {}),
+      },
     });
   });
 
-  return { ok: true };
+  return { ok: true, statusId: validStatusId };
 }
 
 /**
@@ -1297,9 +1376,10 @@ export async function returnLead(args: { userId: string; leadRequestId: string; 
 
   await tenantTransaction(async (tx) => {
     // Conditional update — chỉ rollback nếu sale vẫn là current owner
+    // Phase Lead Pool FIFO — set lastPooledAt=now() để lead trả nằm CUỐI nhóm cùng vòng.
     await tx.contact.updateMany({
       where: { id: lr.contactId, assignedUserId: args.userId },
-      data: { assignedUserId: lr.previousAssigneeId },
+      data: { assignedUserId: lr.previousAssigneeId, lastPooledAt: new Date() },
     });
     await tx.leadRequest.update({
       where: { id: lr.id },
@@ -1360,6 +1440,97 @@ export async function getMyHistory(args: { userId: string; limit?: number }) {
 }
 
 /**
+ * Phase Lead Pool FIFO 2026-06-15 — Nhật ký chia (admin). Mỗi dòng = 1 lần phát lead.
+ * Nhóm theo ngày VN. Join sale + KH + trạng thái KH (Contact.statusRef) + ghi chú gần nhất
+ * (LeadRequest.noteContent). round = lead này đã chia lần thứ mấy.
+ */
+const VN_DAY_LABELS = (dateKey: string): string => {
+  const todayKey = todayDateKeyVN();
+  const d = new Date(todayKey + 'T00:00:00+07:00');
+  const yKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(d.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`;
+  if (dateKey === todayKey) return 'Hôm nay';
+  const yesterday = new Date(new Date(todayKey + 'T00:00:00+07:00').getTime() - 86400000);
+  const yesterdayKey = `${yesterday.getUTCFullYear()}-${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}-${String(yesterday.getUTCDate()).padStart(2, '0')}`;
+  if (dateKey === yesterdayKey) return 'Hôm qua';
+  void yKey;
+  // dd/mm/yyyy
+  const [yy, mm, dd] = dateKey.split('-');
+  return `${dd}/${mm}/${yy}`;
+};
+
+export async function getDistributionLog(args: {
+  orgId: string; date?: string; userId?: string; limit?: number;
+}) {
+  const limit = Math.min(args.limit ?? 300, 1000);
+  const where: any = { orgId: args.orgId };
+  if (args.userId) where.assignedToUserId = args.userId;
+  if (args.date && /^\d{4}-\d{2}-\d{2}$/.test(args.date)) {
+    // Range VN-day → UTC (00:00 VN = 17:00 UTC hôm trước). Sargable trên distributed_at.
+    const start = new Date(args.date + 'T00:00:00+07:00');
+    const end = new Date(start.getTime() + 86400000);
+    where.distributedAt = { gte: start, lt: end };
+  }
+
+  const rows = await prisma.leadPoolDistribution.findMany({
+    where,
+    orderBy: { distributedAt: 'desc' },
+    take: limit,
+    include: {
+      assignedTo: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+      contact: {
+        select: {
+          id: true, fullName: true, crmName: true, phone: true, avatarUrl: true,
+          statusRef: { select: { id: true, name: true, color: true } },
+        },
+      },
+    },
+  });
+
+  // Lấy ghi chú gần nhất theo leadRequestId (note sale viết lúc Lưu Note).
+  const lrIds = rows.map((r) => r.leadRequestId).filter((x): x is string => !!x);
+  const lrNotes = lrIds.length
+    ? await prisma.leadRequest.findMany({
+        where: { id: { in: lrIds } },
+        select: { id: true, noteContent: true },
+      })
+    : [];
+  const noteByLr = new Map(lrNotes.map((n) => [n.id, n.noteContent]));
+
+  // Nhóm theo ngày VN.
+  const groupsMap = new Map<string, any[]>();
+  for (const r of rows) {
+    const vn = new Date(r.distributedAt.getTime() + 7 * 60 * 60 * 1000);
+    const dateKey = `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-${String(vn.getUTCDate()).padStart(2, '0')}`;
+    if (!groupsMap.has(dateKey)) groupsMap.set(dateKey, []);
+    groupsMap.get(dateKey)!.push({
+      id: r.id,
+      distributedAt: r.distributedAt,
+      round: r.round,
+      source: r.source,
+      sourceLabel: formatSourceLabel(r.source),
+      phone: r.contact?.phone ?? r.phoneNormalized ?? null,
+      contactName: r.contact?.crmName ?? r.contact?.fullName ?? null,
+      contactAvatar: r.contact?.avatarUrl ?? null,
+      saleName: r.assignedTo?.fullName ?? null,
+      saleAvatar: r.assignedTo?.avatarUrl ?? null,
+      status: r.contact?.statusRef
+        ? { name: r.contact.statusRef.name, color: r.contact.statusRef.color }
+        : null,
+      note: r.leadRequestId ? (noteByLr.get(r.leadRequestId) ?? null) : null,
+    });
+  }
+
+  const groups = [...groupsMap.entries()].map(([dateKey, items]) => ({
+    dateKey,
+    dateLabel: VN_DAY_LABELS(dateKey),
+    count: items.length,
+    items,
+  }));
+
+  return { groups, totalToday: groupsMap.get(todayDateKeyVN())?.length ?? 0 };
+}
+
+/**
  * Cron auto-return: LeadRequest quá expiresAt mà chưa note + chưa release.
  * Chạy 2am daily.
  */
@@ -1383,9 +1554,10 @@ export async function autoReturnExpiredLeads() {
   // ngày chờ → không ghi đè.
   for (const lr of expired) {
     await tenantTransaction(async (tx) => {
+      // Phase Lead Pool FIFO — set lastPooledAt=now() để lead auto-return nằm CUỐI nhóm cùng vòng.
       await tx.contact.updateMany({
         where: { id: lr.contactId, assignedUserId: lr.requestedByUserId },
-        data: { assignedUserId: lr.previousAssigneeId },
+        data: { assignedUserId: lr.previousAssigneeId, lastPooledAt: new Date() },
       });
       await tx.leadRequest.update({
         where: { id: lr.id },
@@ -1521,6 +1693,29 @@ export async function findZaloForLead(args: { userId: string; orgId: string; lea
       avatarUrl: extra.avatar ?? undefined,
     },
   });
+
+  // Phase Lead Pool FIFO 2026-06-15 — TẠO Friend row per-nick [nick sale × KH] ngay khi tìm
+  // thấy Zalo qua nút "Tìm bằng nick" (Anh chốt: sale khỏi mở hội thoại trống mới có liên kết).
+  // Trùng logic autoLookupZaloForLead ca 1; ca 2 (tìm thủ công) trước đây THIẾU bước này.
+  if (foundUid) {
+    await prisma.friend.upsert({
+      where: { zaloAccountId_zaloUidInNick: { zaloAccountId: myNick.id, zaloUidInNick: foundUid } },
+      create: {
+        orgId: args.orgId, zaloAccountId: myNick.id, contactId: lr.contact.id,
+        zaloUidInNick: foundUid, zaloDisplayName: extra.zaloName,
+        zaloAvatarUrl: extra.avatar, friendshipStatus: 'none',
+        zaloGlobalId: duplicateContact ? undefined : (extra.globalId ?? undefined),
+      },
+      update: {
+        contactId: lr.contact.id,
+        zaloDisplayName: extra.zaloName || undefined,
+        zaloAvatarUrl: extra.avatar || undefined,
+        zaloGlobalId: duplicateContact ? undefined : (extra.globalId || undefined),
+      },
+    }).catch((err) => {
+      logger.warn(`[lead-pool find-zalo] upsert Friend fail nick=${myNick.id} uid=${foundUid}: ${err?.message || err}`);
+    });
+  }
 
   // Phase v2.D 2026-05-29 — Log Zalo lookup vào timeline KH (manual via Tìm Zalo button)
   const lookupSummary = foundUid
@@ -1845,7 +2040,15 @@ export async function previewPool(args: {
       : Promise.resolve([] as PriorityCandidate[]),
   ]);
 
-  const merged = [...forgottenList, ...customerListList].sort((a, b) => b.priorityScore - a.priorityScore).slice(0, limit);
+  // Phase Lead Pool FIFO 2026-06-15 — sắp preview theo VÒNG TUA (giống requestLead) + dedup phone.
+  const sourceByContact = new Map<string, LeadSource>();
+  for (const c of [...forgottenList, ...customerListList]) {
+    if (!sourceByContact.has(c.contactId)) sourceByContact.set(c.contactId, c.source);
+  }
+  const orderedIds = await previewRobinOrder([...sourceByContact.keys()], limit);
+  const merged: PriorityCandidate[] = orderedIds.map((id) => ({
+    contactId: id, source: sourceByContact.get(id) ?? 'forgotten', priorityScore: 0,
+  }));
   const items = await enrichItems(merged, 'available');
 
   return {
@@ -1969,6 +2172,7 @@ async function enrichItems(
         id: true, fullName: true, crmName: true, phone: true, phoneNormalized: true,
         hasZalo: true, status: true, lastActivity: true, lastInboundAt: true,
         province: true, district: true, ward: true, avatarUrl: true,
+        pooledCount: true, // Phase FIFO — số lần đã chia.
         assignedUser: { select: { id: true, fullName: true } },
         statusRef: { select: { name: true, color: true } },
       },
@@ -2064,6 +2268,7 @@ async function enrichItems(
     return {
       contactId: c.id,
       priorityScore: cand.priorityScore,
+      pooledCount: c.pooledCount ?? 0, // Phase FIFO — số lần đã chia (cột "Đã chia").
       source: cand.source,
       customerListName: listName ?? null,
       name: c.crmName || c.fullName || c.phone || 'KH chưa đặt tên',
@@ -2720,6 +2925,228 @@ export async function getLeadPayload(args: { userId: string; orgId: string; lead
     priorityScore: lr.priorityScore,
     expiresAt: lr.expiresAt,
     ...payload,
+  };
+}
+
+/**
+ * Phase Lead Pool FIFO 2026-06-15 — Tổng hợp số liệu cho 4 màn PRO admin:
+ * Dashboard buồng lái, Điều phối sale, Nguồn lead, Chất lượng lead.
+ * 1 endpoint gọn thay 4 (giảm round-trip). Chỉ đọc, không mutate.
+ */
+export async function getAdminDashboard(args: { orgId: string; period?: 'today' | '7d' | '30d' }) {
+  const { orgId } = args;
+  const period = args.period ?? '7d';
+  const startToday = startOfTodayVN();
+  const start7d = new Date(Date.now() - 7 * 86400000);
+  const start14d = new Date(Date.now() - 14 * 86400000);
+  // Phase Dashboard v2 2026-06-15 — mốc kỳ cho xếp hạng sale + chất lượng (Anh chốt 7d default).
+  const periodStart = period === 'today' ? startToday
+    : period === '30d' ? new Date(Date.now() - 30 * 86400000)
+    : start7d;
+
+  // ── Vòng tua: tổng pool đủ điều kiện vào pool (đơn giản: contact chưa bị loại) ──
+  // Tổng pool ≈ count contact có pooled_count đã đếm. "Chưa ai bóc vòng này" = pooled_count
+  // nhỏ nhất (lead mới + lead đã xong 1 vòng đầy). Dùng MIN(pooled_count) làm mốc vòng.
+  const [poolAgg, avgRow] = await Promise.all([
+    prisma.contact.aggregate({ where: { orgId, mergedInto: null }, _count: { _all: true } }),
+    prisma.$queryRawUnsafe<Array<{ avg: number | null; max: number | null }>>(
+      `SELECT AVG(pooled_count)::float AS avg, MAX(pooled_count)::int AS max FROM contacts WHERE org_id = $1 AND merged_into IS NULL`,
+      orgId,
+    ),
+  ]);
+  const poolTotal = poolAgg._count._all;
+  const avgPooled = avgRow[0]?.avg ?? 0;
+  const minRound = await prisma.$queryRawUnsafe<Array<{ min: number | null }>>(
+    `SELECT MIN(pooled_count)::int AS min FROM contacts WHERE org_id = $1 AND merged_into IS NULL`, orgId,
+  );
+  const currentRound = (minRound[0]?.min ?? 0) + 1;
+  // "Đã đi" trong vòng hiện tại = số contact đã có pooled_count > minRound.
+  const distributedThisRound = await prisma.contact.count({
+    where: { orgId, mergedInto: null, pooledCount: { gt: minRound[0]?.min ?? 0 } },
+  });
+
+  // ── KPI hôm nay ──
+  const [requestedToday, notedToday, returnedAuto, returnedManual, pendingActive] = await Promise.all([
+    prisma.leadPoolDistribution.count({ where: { orgId, distributedAt: { gte: startToday } } }),
+    prisma.leadRequest.count({ where: { contact: { orgId }, noteSubmittedAt: { gte: startToday } } }),
+    prisma.leadRequest.count({ where: { contact: { orgId }, releaseReason: 'auto_return', autoReturnedAt: { gte: startToday } } }),
+    prisma.leadRequest.count({ where: { contact: { orgId }, releaseReason: 'manual_return', noteSubmittedAt: { gte: startToday } } }),
+    prisma.leadRequest.count({ where: { contact: { orgId }, noteSubmittedAt: null, releaseReason: null, autoReturnedAt: null } }),
+  ]);
+
+  // ── Lead kẹt đáy: pooled_count > avg*3 (Review M3 / C2) ──
+  const stuckThreshold = Math.max(3, Math.ceil(avgPooled * 3));
+  const stuckLeads = await prisma.contact.findMany({
+    where: { orgId, mergedInto: null, pooledCount: { gte: stuckThreshold } },
+    orderBy: { pooledCount: 'desc' },
+    take: 20,
+    select: { id: true, fullName: true, crmName: true, phone: true, pooledCount: true, avatarUrl: true },
+  });
+
+  // ── Phase Dashboard v2 — XẾP HẠNG SALE theo kỳ (Anh chốt 3 tiêu chí: tỉ lệ note,
+  //    đẩy status tốt, tốc độ note). Điểm = notePct×0.35 + qualityPct×0.40 + speed×0.25.
+  //    "Status tốt" = Status.order ≥ order của status tên chứa "tiềm"/"nóng"/"chốt"/"đàm phán"
+  //    (org tự định nghĩa). Fallback: status khác "mới"/"mất" coi là tiến triển.
+  const statuses = await prisma.status.findMany({
+    where: { orgId }, select: { id: true, name: true, order: true, color: true, isTerminal: true },
+    orderBy: { order: 'asc' },
+  });
+  // Ngưỡng "status tốt": order nhỏ nhất trong các status tên gợi ý đã tiến triển.
+  const GOOD_RE = /(tiềm|nóng|chốt|đàm phán|quan tâm|hot|won|deal)/i;
+  const goodStatusIds = new Set(statuses.filter((s) => GOOD_RE.test(s.name)).map((s) => s.id));
+
+  const distInPeriod = await prisma.leadPoolDistribution.groupBy({
+    by: ['assignedToUserId'],
+    where: { orgId, distributedAt: { gte: periodStart } },
+    _count: { _all: true },
+  });
+  const saleIds = distInPeriod.map((d) => d.assignedToUserId);
+  // Lấy chi tiết request trong kỳ để tính tốc độ + status đẩy lên (mỗi sale).
+  const reqInPeriod = saleIds.length ? await prisma.leadRequest.findMany({
+    where: { requestedByUserId: { in: saleIds }, requestedAt: { gte: periodStart } },
+    select: {
+      requestedByUserId: true, requestedAt: true, noteSubmittedAt: true, releaseReason: true,
+      contactId: true, contact: { select: { statusId: true } },
+    },
+  }) : [];
+  const saleUsers = saleIds.length ? await prisma.user.findMany({
+    where: { id: { in: saleIds } }, select: { id: true, fullName: true, email: true, avatarUrl: true },
+  }) : [];
+  const userMap = new Map(saleUsers.map((u) => [u.id, u]));
+
+  // Gom theo sale.
+  type Acc = { received: number; noted: number; returned: number; good: number; noteMs: number[]; };
+  const accBySale = new Map<string, Acc>();
+  for (const d of distInPeriod) accBySale.set(d.assignedToUserId, { received: d._count._all, noted: 0, returned: 0, good: 0, noteMs: [] });
+  for (const r of reqInPeriod) {
+    const a = accBySale.get(r.requestedByUserId); if (!a) continue;
+    if (r.releaseReason === 'manual_return' || r.releaseReason === 'auto_return') a.returned++;
+    if (r.noteSubmittedAt) {
+      a.noted++;
+      a.noteMs.push(r.noteSubmittedAt.getTime() - r.requestedAt.getTime());
+      if (r.contact?.statusId && goodStatusIds.has(r.contact.statusId)) a.good++;
+    }
+  }
+  const salePerformance = [...accBySale.entries()].map(([uid, a]) => {
+    const notePct = a.received > 0 ? Math.round((a.noted / a.received) * 100) : 0;
+    const qualityPct = a.noted > 0 ? Math.round((a.good / a.noted) * 100) : 0;
+    const avgNoteMinutes = a.noteMs.length ? Math.round((a.noteMs.reduce((x, y) => x + y, 0) / a.noteMs.length) / 60000) : null;
+    // speedScore: <30' = 100, tuyến tính giảm tới >8h(480') = 0.
+    const speedScore = avgNoteMinutes === null ? 0
+      : avgNoteMinutes <= 30 ? 100
+      : avgNoteMinutes >= 480 ? 0
+      : Math.round(100 - ((avgNoteMinutes - 30) / 450) * 100);
+    const score = Math.round(notePct * 0.35 + qualityPct * 0.40 + speedScore * 0.25);
+    const grade = score >= 80 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : 'D';
+    return {
+      userId: uid,
+      fullName: userMap.get(uid)?.fullName ?? null,
+      avatarUrl: userMap.get(uid)?.avatarUrl ?? null,
+      received: a.received, noted: a.noted, pending: Math.max(0, a.received - a.noted),
+      returned: a.returned, good: a.good,
+      notePct, qualityPct, avgNoteMinutes, speedScore, score, grade,
+      lowSample: a.received < 5, // ít mẫu → điểm dễ lệch.
+    };
+  }).sort((x, y) => y.score - x.score);
+
+  // ── statusBreakdown: KH được giao trong kỳ đang ở status nào (theo Status org) ──
+  const statusCounts = saleIds.length ? await prisma.$queryRawUnsafe<Array<{ status_id: string | null; cnt: number }>>(
+    `SELECT c.status_id, COUNT(DISTINCT c.id)::int AS cnt
+     FROM lead_pool_distributions lpd JOIN contacts c ON c.id = lpd.contact_id
+     WHERE lpd.org_id = $1 AND lpd.distributed_at >= $2
+     GROUP BY c.status_id`,
+    orgId, periodStart,
+  ) : [];
+  const statusCntMap = new Map(statusCounts.map((s) => [s.status_id, s.cnt]));
+  const totalStatusCount = statusCounts.reduce((x, s) => x + s.cnt, 0);
+  const statusBreakdown = statuses.map((s) => ({
+    id: s.id, name: s.name, color: s.color, order: s.order,
+    count: statusCntMap.get(s.id) ?? 0,
+    pct: totalStatusCount > 0 ? Math.round(((statusCntMap.get(s.id) ?? 0) / totalStatusCount) * 100) : 0,
+  })).filter((s) => s.count > 0).sort((a, b) => b.count - a.count);
+
+  // ── Nguồn lead: phân bổ theo source (7 ngày) + tệp customer_list shareable ──
+  const sourceBreakdown = await prisma.leadPoolDistribution.groupBy({
+    by: ['source'],
+    where: { orgId, distributedAt: { gte: start7d } },
+    _count: { _all: true },
+  });
+  const lists = await prisma.$queryRawUnsafe<Array<{ id: string; name: string; remaining: number; distributed: number }>>(
+    `SELECT cl.id, cl.name,
+       COUNT(*) FILTER (WHERE cle.status IN ('validated','enriched') AND cle.phone_valid = true)::int AS remaining,
+       0::int AS distributed
+     FROM customer_lists cl
+     LEFT JOIN customer_list_entries cle ON cle.customer_list_id = cl.id
+     WHERE cl.org_id = $1 AND cl.shareable_to_pool = true AND cl.archived_at IS NULL
+     GROUP BY cl.id, cl.name ORDER BY remaining DESC LIMIT 20`,
+    orgId,
+  );
+
+  // ── Chất lượng lead: lý do trả lại (14 ngày) — đọc note của return ──
+  const returns14d = await prisma.leadRequest.findMany({
+    where: { contact: { orgId }, releaseReason: { in: ['manual_return', 'auto_return'] }, OR: [{ autoReturnedAt: { gte: start14d } }, { noteSubmittedAt: { gte: start14d } }] },
+    select: { releaseReason: true, source: true },
+  });
+  const distributed14d = await prisma.leadPoolDistribution.count({ where: { orgId, distributedAt: { gte: start14d } } });
+  const returnedCount = returns14d.length;
+
+  // ── Chất lượng theo TỪNG nguồn (returnRate) để tìm "nguồn rác nhất" ──
+  const [distBySource, returnBySource] = await Promise.all([
+    prisma.leadPoolDistribution.groupBy({ by: ['source'], where: { orgId, distributedAt: { gte: start14d } }, _count: { _all: true } }),
+    Promise.resolve(returns14d),
+  ]);
+  const retCntBySource = new Map<string, number>();
+  for (const r of returnBySource) retCntBySource.set(r.source, (retCntBySource.get(r.source) ?? 0) + 1);
+  const sourceQuality = distBySource.map((s) => {
+    const dist = s._count._all;
+    const ret = retCntBySource.get(s.source) ?? 0;
+    return { source: s.source, label: formatSourceLabel(s.source), distributed: dist, returned: ret,
+      returnRate: dist > 0 ? Math.round((ret / dist) * 100) : 0 };
+  }).sort((a, b) => b.returnRate - a.returnRate);
+
+  // ── 3 THẺ INSIGHT (Anh chốt bố cục A+C) — tính sẵn ở BE ──
+  const ranked = salePerformance.filter((s) => !s.lowSample);
+  const insight = {
+    topSale: ranked[0] ?? salePerformance[0] ?? null,                    // sale giỏi nhất
+    worstSale: ranked.length > 1 ? ranked[ranked.length - 1] : null,     // sale cần nhắc (đủ mẫu)
+    worstSource: sourceQuality.find((s) => s.distributed >= 5) ?? sourceQuality[0] ?? null, // nguồn rác nhất
+  };
+
+  return {
+    period,
+    statusBreakdown,
+    sourceQuality,
+    insight,
+    round: {
+      poolTotal,
+      currentRound,
+      distributedThisRound,
+      remaining: Math.max(0, poolTotal - distributedThisRound),
+    },
+    today: {
+      requested: requestedToday,
+      noted: notedToday,
+      notePct: requestedToday > 0 ? Math.round((notedToday / requestedToday) * 100) : 0,
+      returnedAuto, returnedManual,
+      returnedTotal: returnedAuto + returnedManual,
+      pendingActive,
+    },
+    stuckLeads: stuckLeads.map((s) => ({
+      id: s.id, name: s.crmName ?? s.fullName, phone: s.phone, pooledCount: s.pooledCount, avatarUrl: s.avatarUrl,
+    })),
+    stuckThreshold,
+    salePerformance,
+    sources: {
+      breakdown: sourceBreakdown.map((s) => ({ source: s.source, label: formatSourceLabel(s.source), count: s._count._all })),
+      lists: lists.map((l) => ({ id: l.id, name: l.name, remaining: l.remaining })),
+    },
+    quality: {
+      distributed14d,
+      returnedCount,
+      returnRate: distributed14d > 0 ? Math.round((returnedCount / distributed14d) * 100) : 0,
+      auto: returns14d.filter((r) => r.releaseReason === 'auto_return').length,
+      manual: returns14d.filter((r) => r.releaseReason === 'manual_return').length,
+    },
   };
 }
 

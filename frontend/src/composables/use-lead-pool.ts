@@ -136,15 +136,43 @@ export function useLeadPool() {
     }
   }
 
-  async function submitNote(leadRequestId: string, noteContent: string) {
+  // Phase Lead Pool FIFO 2026-06-15 — kèm statusId (trạng thái KH sale chọn ở màn khóa
+  // sau Lưu Note). Lưu vào Contact.statusId để admin lọc tệp pool theo chất lượng.
+  async function submitNote(leadRequestId: string, noteContent: string, statusId?: string | null) {
     error.value = '';
     try {
-      await api.post(`/lead-pool/${leadRequestId}/note`, { noteContent });
+      await api.post(`/lead-pool/${leadRequestId}/note`, { noteContent, statusId: statusId ?? null });
       await fetchEligibility();
       return true;
     } catch (err: any) {
       error.value = err?.response?.data?.error || 'Không lưu được note';
       return false;
+    }
+  }
+
+  // Nhật ký chia (admin). Phase FIFO 2026-06-15.
+  async function fetchDistributionLog(params: { date?: string; userId?: string; limit?: number } = {}) {
+    const { data } = await api.get('/lead-pool/distribution-log', { params });
+    return data as {
+      groups: Array<{ dateKey: string; dateLabel: string; count: number; items: any[] }>;
+      totalToday: number;
+    };
+  }
+
+  // Dashboard admin. Phase Dashboard v2 2026-06-15 — nhận period (today/7d/30d).
+  async function fetchAdminDashboard(period: 'today' | '7d' | '30d' = '7d') {
+    const { data } = await api.get('/lead-pool/admin-dashboard', { params: { period } });
+    return data as any;
+  }
+
+  // 8 trạng thái KH (org tự định nghĩa) — load động từ /settings/statuses cho màn chọn.
+  async function fetchStatuses() {
+    try {
+      const { data } = await api.get('/settings/statuses');
+      return (data?.statuses ?? []) as Array<{ id: string; name: string; color: string | null; order: number; isTerminal: boolean }>;
+    } catch (err: any) {
+      console.warn('[lead-pool] statuses failed:', err?.response?.data || err);
+      return [];
     }
   }
 
@@ -190,6 +218,9 @@ export function useLeadPool() {
     returnLead,
     getMyHistory,
     fetchStats,
+    fetchDistributionLog,
+    fetchStatuses,
+    fetchAdminDashboard,
     startTicker,
     stopTicker,
   };
