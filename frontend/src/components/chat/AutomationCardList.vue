@@ -135,6 +135,21 @@
         Gắn thêm luồng bám đuổi
       </button>
     </template>
+
+    <!-- Modal xác nhận pause/stop (thay window.confirm/prompt — anh chốt 2026-06-15) -->
+    <ConfirmActionModal
+      v-model:open="confirmOpen"
+      :title="confirmConfig.title"
+      :message="confirmConfig.message"
+      :tone="confirmConfig.tone"
+      :confirm-text="confirmConfig.confirmText"
+      :require-reason="confirmConfig.requireReason"
+      :reason-label="confirmConfig.reasonLabel"
+      :reason-placeholder="confirmConfig.reasonPlaceholder"
+      :busy="confirmBusy"
+      @confirm="runConfirmedAction"
+      @cancel="confirmOpen = false"
+    />
   </div>
 </template>
 
@@ -142,6 +157,15 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { api } from '@/api/index';
 import FollowUpCard, { type FollowUpCardData } from './FollowUpCard.vue';
+import ConfirmActionModal from './ConfirmActionModal.vue';
+import { useToast } from '@/composables/use-toast';
+
+const toastSvc = useToast();
+// Helper gọn: toast(msg) = thông báo thường; toast(msg, 'error') = lỗi.
+function toast(message: string, type: 'success' | 'error' = 'success'): void {
+  if (type === 'error') toastSvc.error(message);
+  else toastSvc.success(message);
+}
 
 // ── Props ──
 const props = defineProps<{
@@ -272,8 +296,11 @@ const STATE_RANK: Record<CardState, number> = { active: 3, paused: 2, completed:
 function groupBySequence(raw: AutomationStatusCard[]): AutomationStatusCard[] {
   const groups = new Map<string, AutomationStatusCard[]>();
   for (const c of raw) {
-    // Key: sequenceId nếu có, else triggerId (giữ riêng).
-    const key = c.sequenceId ? `seq:${c.sequenceId}` : `trg:${c.triggerId}`;
+    // 2026-06-15: run manual followup (có enrollmentId) = mỗi LẦN GẮN riêng → KHÔNG gom
+    // (dù cùng sequenceId — gắn lại nhiều lần là nhiều card). Card tự động gom theo sequence.
+    const key = c.enrollmentId
+      ? `enr:${c.enrollmentId}`
+      : (c.sequenceId ? `seq:${c.sequenceId}` : `trg:${c.triggerId}`);
     const arr = groups.get(key);
     if (arr) arr.push(c); else groups.set(key, [c]);
   }
@@ -345,52 +372,29 @@ async function onAction(
         { sequenceId: card.sequenceId ?? undefined },
       );
       await fetchStatus();
+      toast('Đã gửi bước tiếp ngay');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      window.alert(msg ?? 'Không gửi được bước tiếp ngay.');
+      toast(msg ?? 'Không gửi được bước tiếp ngay.', 'error');
     } finally {
       card.busy = false;
     }
     return;
   }
   if (kind === 'history') {
-    window.alert('Lịch sử chi tiết các bước đã gửi đang phát triển — sẽ có sớm.');
+    toast('Lịch sử chi tiết các bước đã gửi đang phát triển — sẽ có sớm.');
     return;
   }
 
-  if (kind === 'pause') {
-    const ok = window.confirm(`Pause chuỗi "${card.triggerName}" trong 24h cho KH này?`);
-    if (!ok) return;
-    card.busy = true;
-    try {
-      await api.post(
-        `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/pause`,
-        { hours: 24 },
-      );
-      await fetchStatus();
-    } catch (err) {
-      console.error('[pause] failed', err);
-      window.alert('Lỗi pause — thử lại sau');
-    } finally {
-      card.busy = false;
-    }
-  } else if (kind === 'stop') {
-    const reason = window.prompt(`Dừng chuỗi "${card.triggerName}" cho KH này. Lý do (bắt buộc):`);
-    if (!reason || !reason.trim()) return;
-    card.busy = true;
-    try {
-      await api.post(
-        `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/stop`,
-        { reason: reason.trim() },
-      );
-      await fetchStatus();
-    } catch (err) {
-      console.error('[stop] failed', err);
-      window.alert('Lỗi dừng — thử lại sau');
-    } finally {
-      card.busy = false;
-    }
-  } else if (kind === 'resume') {
+  // pause / stop → MỞ MODAL xác nhận đẹp (thay window.confirm/prompt — anh chốt 2026-06-15).
+  // Modal confirm mới gọi API (runConfirmedAction). resume KHÔNG cần xác nhận → chạy ngay.
+  if (kind === 'pause' || kind === 'stop') {
+    confirmCard.value = card;
+    confirmKind.value = kind;
+    confirmOpen.value = true;
+    return;
+  }
+  if (kind === 'resume') {
     card.busy = true;
     try {
       await api.post(
@@ -399,10 +403,70 @@ async function onAction(
       await fetchStatus();
     } catch (err) {
       console.error('[resume] failed', err);
-      window.alert('Lỗi tiếp tục — thử lại sau');
+      toast('Lỗi tiếp tục — thử lại sau', 'error');
     } finally {
       card.busy = false;
     }
+  }
+}
+
+// ── Modal xác nhận pause/stop (thay window.confirm/prompt) ──
+const confirmOpen = ref(false);
+const confirmKind = ref<'pause' | 'stop'>('pause');
+const confirmCard = ref<AutomationStatusCard | null>(null);
+const confirmBusy = ref(false);
+
+const confirmConfig = computed(() => {
+  const name = confirmCard.value?.sequenceName || confirmCard.value?.triggerName || 'luồng bám đuổi';
+  if (confirmKind.value === 'stop') {
+    return {
+      title: 'Dừng hẳn luồng bám đuổi?',
+      message: `Dừng hẳn "${name}" cho khách này. Luồng sẽ không gửi tin nữa.`,
+      tone: 'danger' as const,
+      confirmText: 'Dừng hẳn',
+      requireReason: true,
+      reasonLabel: 'Lý do dừng',
+      reasonPlaceholder: 'VD: khách đã chốt / không quan tâm / sai đối tượng...',
+    };
+  }
+  return {
+    title: 'Tạm dừng 24 giờ?',
+    message: `Tạm dừng "${name}" trong 24h cho khách này. Hết 24h luồng tự chạy lại.`,
+    tone: 'primary' as const,
+    confirmText: 'Tạm dừng 24h',
+    requireReason: false,
+    reasonLabel: '',
+    reasonPlaceholder: '',
+  };
+});
+
+async function runConfirmedAction(reason: string): Promise<void> {
+  const card = confirmCard.value;
+  if (!card) return;
+  confirmBusy.value = true;
+  card.busy = true;
+  try {
+    if (confirmKind.value === 'pause') {
+      await api.post(
+        `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/pause`,
+        { hours: 24 },
+      );
+      toast('Đã tạm dừng 24h');
+    } else {
+      await api.post(
+        `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/stop`,
+        { reason },
+      );
+      toast('Đã dừng hẳn luồng');
+    }
+    confirmOpen.value = false;
+    await fetchStatus();
+  } catch (err) {
+    console.error(`[${confirmKind.value}] failed`, err);
+    toast(confirmKind.value === 'pause' ? 'Lỗi tạm dừng — thử lại sau' : 'Lỗi dừng — thử lại sau', 'error');
+  } finally {
+    confirmBusy.value = false;
+    card.busy = false;
   }
 }
 

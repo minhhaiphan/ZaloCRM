@@ -910,8 +910,18 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         if (manualTrigger) {
           try {
             const allRuns = await buildManualFollowupContacts(orgId, manualTrigger.id);
-            manualRuns = allRuns
-              .filter((r) => r.contactId === cid)
+            const myRuns = allRuns.filter((r) => r.contactId === cid);
+            // Run chỉ có sequenceNAME (parse từ event detail) → tra sequenceId cho nút advance.
+            const runNames = [...new Set(myRuns.map((r) => r.sequenceName).filter((x): x is string => !!x))];
+            const seqIdByName = new Map<string, string>();
+            if (runNames.length) {
+              const seqs = await prisma.automationSequence.findMany({
+                where: { orgId, name: { in: runNames } },
+                select: { id: true, name: true },
+              });
+              for (const sq of seqs) seqIdByName.set(sq.name, sq.id);
+            }
+            manualRuns = myRuns
               .map((r) => ({
                 // Khóa duy nhất per-run cho FE :key (1 trigger đẻ nhiều run).
                 enrollmentId: r.enrollmentId,
@@ -920,7 +930,9 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
                 triggerName: r.sequenceName ?? manualTrigger.name ?? 'Bám đuổi thủ công',
                 isSystemTrigger: true,
                 systemKind: 'manual_chat_followup' as string | null,
-                sequenceId: null, // KHÔNG để FE groupBySequence gom các run lại với nhau
+                // sequenceId THẬT: nút "Gửi bước tiếp ngay" (advance) cần nó (BE advance bắt
+                // buộc sequenceId). FE group dùng enrollmentId nên KHÔNG gom các run lại.
+                sequenceId: r.sequenceName ? (seqIdByName.get(r.sequenceName) ?? null) : null,
                 sequenceName: r.sequenceName,
                 // BE đã biết chính xác state per-run (active/completed/stopped) → truyền thẳng
                 // để FE KHÔNG tự derive sai (run cũ progressUnknown totalSteps=null sẽ bị
