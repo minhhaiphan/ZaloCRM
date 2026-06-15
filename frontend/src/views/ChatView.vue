@@ -45,6 +45,7 @@
         :selected-account-ids="selectedAccountIds"
         :active-tab-key="inboxFilters.state.activeTab"
         :auto-compose-phone="autoComposePhone"
+        :following-pairs="followingPairs"
         v-model:search="searchQuery"
         @select="onSelectConv"
         @filter-account="onFilterAccount"
@@ -52,6 +53,7 @@
         @conversation-moved="onConversationMoved"
         @conversation-deleted="onConversationDeleted"
         @compose-opened="onComposeOpened"
+        @follow-changed="onFollowChanged"
       >
         <template #filters>
           <ConversationFilterBar
@@ -235,6 +237,26 @@ function onShowAllOutOfScope() {
   for (const b of outOfScopeAccessible.value) clearOutOfScopeBadge(b.id);
   workScope.setScope([]); // [] = TẤT CẢ nick có quyền
   window.location.reload();
+}
+
+// Theo dõi (anh chốt 2026-06-15) — Set "contactId|nickId" đang theo dõi → ConversationList
+// hiện chuông sau tên. Fetch 1 lần lúc mount; cập nhật ngay khi toggle follow ở menu.
+const followingPairs = ref<Set<string>>(new Set());
+async function fetchFollowingPairs() {
+  try {
+    const res = await api.get<{ pairs: Array<{ contactId: string; nickId: string }> }>(
+      '/automation/care-sessions/listening-pairs',
+    );
+    followingPairs.value = new Set((res.data.pairs ?? []).map(p => `${p.contactId}|${p.nickId}`));
+  } catch (err) {
+    console.error('[follow] fetch listening-pairs failed', err);
+  }
+}
+function onFollowChanged(contactId: string, nickId: string, following: boolean) {
+  const key = `${contactId}|${nickId}`;
+  const next = new Set(followingPairs.value);
+  if (following) next.add(key); else next.delete(key);
+  followingPairs.value = next; // gán Set mới → reactive, chuông cột 2 cập nhật ngay
 }
 
 const currentAccount = computed(() => {
@@ -608,6 +630,7 @@ onMounted(async () => {
     extraFilters.value = inboxFilters.buildQueryParams();
     fetchConversations();
     void fetchPriorityUnread(); // badge đậm tab Ưu tiên — load NGAY lúc mount (không debounce)
+    void fetchFollowingPairs(); // theo dõi — Set để cột 2 hiện chuông (anh chốt 2026-06-15)
     fetchAiConfig();
     initSocket();
     registerSocketListeners(getSocket());
