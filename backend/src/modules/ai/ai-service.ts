@@ -1,7 +1,7 @@
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
-import { getProviderConfig, getAvailableProviders } from './provider-registry.js';
+import { getProviderConfig, getAvailableProviders, resolveProviderApiKey, getProviderBaseUrl } from './provider-registry.js';
 import { generateWithAnthropic } from './providers/anthropic.js';
 import { generateWithGemini } from './providers/gemini.js';
 import { generateWithOpenaiCompat } from './providers/openai-compat.js';
@@ -37,15 +37,8 @@ function buildConversationContext(messages: MessageContext[]) {
 
 // M53 2026-05-30: exported để ai-virtual-chat-service reuse
 export async function getProviderApiKey(orgId: string, provider: string) {
-  /* 1. Check registry (env-based) */
-  const providerDef = getProviderConfig(provider);
-  if (providerDef?.authToken) return providerDef.authToken;
-
-  /* 2. Fallback: per-org DB setting */
-  const setting = await prisma.appSetting.findFirst({
-    where: { orgId, settingKey: `ai_${provider}_api_key` },
-  });
-  return setting?.valuePlain || '';
+  /* Ưu tiên key per-org (UI, mã hoá) → legacy plain → env fallback. */
+  return resolveProviderApiKey(orgId, provider);
 }
 
 export async function getAiConfig(orgId: string) {
@@ -55,10 +48,8 @@ export async function getAiConfig(orgId: string) {
       data: { orgId, provider: config.aiDefaultProvider, model: config.aiDefaultModel, maxDaily: 500, enabled: true },
     });
   }
-  const availableProviders = getAvailableProviders();
-  const hasKey = async (p: string) => !!(await getProviderApiKey(orgId, p));
-  const [hasAnthropicKey, hasGeminiKey] = await Promise.all([hasKey('anthropic'), hasKey('gemini')]);
-  return { ...aiConfig, hasAnthropicKey, hasGeminiKey, availableProviders };
+  const availableProviders = await getAvailableProviders(orgId);
+  return { ...aiConfig, availableProviders };
 }
 
 export async function updateAiConfig(orgId: string, input: { provider?: string; model?: string; maxDaily?: number; enabled?: boolean }) {
@@ -111,15 +102,15 @@ async function loadConversation(conversationId: string, orgId: string) {
 }
 
 // M53 2026-05-30: exported để ai-virtual-chat-service reuse
-export async function generateText(provider: string, apiKey: string, model: string, system: string, prompt: string, maxTokens?: number) {
+export async function generateText(provider: string, apiKey: string, model: string, system: string, prompt: string, maxTokens?: number, baseUrlOverride?: string) {
   const providerDef = getProviderConfig(provider);
-  const baseUrl = providerDef?.baseUrl || '';
+  const baseUrl = baseUrlOverride || providerDef?.baseUrl || '';
 
   if (provider === 'anthropic') return generateWithAnthropic(baseUrl, apiKey, model, system, prompt, maxTokens);
   if (provider === 'gemini') return generateWithGemini(baseUrl, apiKey, model, system, prompt, maxTokens);
 
   /* OpenAI, Qwen, Kimi all use OpenAI-compatible chat/completions API */
-  if (provider === 'openai') return generateWithOpenaiCompat(`${baseUrl}/v1/chat/completions`, apiKey, model, system, prompt, maxTokens);
+  if (provider === 'openai') return generateWithOpenaiCompat(`${baseUrl}/v1/chat/completions`, apiKey, model, system, prompt, maxTokens, 'max_completion_tokens');
   if (provider === 'qwen') return generateWithOpenaiCompat(`${baseUrl}/compatible-mode/v1/chat/completions`, apiKey, model, system, prompt, maxTokens);
   if (provider === 'kimi') return generateWithOpenaiCompat(`${baseUrl}/v1/chat/completions`, apiKey, model, system, prompt, maxTokens);
 
@@ -175,7 +166,7 @@ export async function generateAiOutput(input: { orgId: string; conversationId: s
       ? buildSummaryPrompt(language)
       : buildSentimentPrompt(language);
 
-  const raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, system, userPrompt);
+  const raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, system, userPrompt, undefined, await getProviderBaseUrl(input.orgId, currentConfig.provider));
 
   if (input.type === 'sentiment') {
     let parsed: SentimentResult;
@@ -279,7 +270,7 @@ export async function parseAppointmentFromText(input: { orgId: string; text: str
 
   let raw: string;
   try {
-    raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, system, userPrompt);
+    raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, system, userPrompt, undefined, await getProviderBaseUrl(input.orgId, currentConfig.provider));
   } catch (err: unknown) {
     // AI fail (429 quota, timeout, network) → fallback to rule-based parser
     const msg = err instanceof Error ? err.message : String(err);
@@ -581,7 +572,7 @@ export async function aiFormatRichText(input: { orgId: string; rawText: string }
     // 2026-05-21 fix: cap đủ cho JSON output dài (text + nhiều style overlap per range).
     // Test với đoạn dự án 800 chars input → Gemini muốn trả ~7900 chars JSON ≈ 5000 tokens.
     // Set 8000 = sát limit Gemini 2.5 Flash (8192) + buffer. Nếu vẫn cap → cần shrink prompt.
-    const raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, AI_FORMAT_SYSTEM_PROMPT, text, 8000);
+    const raw = await generateText(currentConfig.provider, apiKey, currentConfig.model, AI_FORMAT_SYSTEM_PROMPT, text, 8000, await getProviderBaseUrl(input.orgId, currentConfig.provider));
 
     let parsed: { ranges?: unknown } | null = null;
     try {

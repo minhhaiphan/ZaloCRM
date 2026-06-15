@@ -17,6 +17,7 @@ import type { Server } from 'socket.io';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { getAiConfig, getProviderApiKey, generateText } from './ai-service.js';
+import { getProviderBaseUrl } from './provider-registry.js';
 import { DEFAULT_VIRTUAL_CHAT_PROMPT } from './prompts/virtual-chat-assistant.js';
 import { safeParseEntities, type ExtractedEntities } from './schemas/extracted-entities.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
@@ -110,7 +111,7 @@ async function runVirtualChatAiReply(
     let raw: string;
     try {
       raw = await Promise.race([
-        generateText(config.provider, apiKey, config.model, systemPrompt, userPrompt, 800),
+        generateText(config.provider, apiKey, config.model, systemPrompt, userPrompt, 800, await getProviderBaseUrl(orgId, config.provider)),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('AI timeout')), AI_TIMEOUT_MS),
         ),

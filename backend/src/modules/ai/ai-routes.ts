@@ -5,7 +5,14 @@ import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { getAiConfig, getAiUsage, updateAiConfig, generateAiOutput, aiFormatRichText, aiGenerateSalesHandoffMessage } from './ai-service.js';
 // M53 2026-05-30 — Trợ Lý AI Virtual Chat
 import { DEFAULT_VIRTUAL_CHAT_PROMPT } from './prompts/virtual-chat-assistant.js';
-import { getAvailableProviders } from './provider-registry.js';
+import {
+  getAvailableProviders,
+  getProviderBaseUrl,
+  resolveProviderApiKey,
+  setProviderApiKey,
+  setProviderBaseUrl,
+} from './provider-registry.js';
+import { listProviderModels, invalidateModelCache } from './providers/list-models.js';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 
@@ -75,9 +82,48 @@ function sendHandledError(reply: FastifyReply, err: unknown, fallback: string) {
 export async function aiRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
-  /* Returns available AI providers + their models (based on .env config) */
-  app.get('/api/v1/ai/providers', async () => {
-    return getAvailableProviders();
+  /* Danh sách provider (cả 5) + baseUrl + trạng thái key per-org. */
+  app.get('/api/v1/ai/providers', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      return await getAvailableProviders(request.user!.orgId);
+    } catch (err) {
+      logger.error('[ai] Get providers error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch providers' });
+    }
+  });
+
+  /* Set/xoá API key + base URL của 1 provider (per-org). apiKey rỗng = xoá → fallback .env. */
+  app.put('/api/v1/ai/providers/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const orgId = request.user!.orgId;
+      const { id } = request.params as { id: string };
+      const body = (request.body ?? {}) as { apiKey?: string | null; baseUrl?: string | null };
+      if (body.apiKey !== undefined) await setProviderApiKey(orgId, id, body.apiKey?.trim() || null);
+      if (body.baseUrl !== undefined) await setProviderBaseUrl(orgId, id, body.baseUrl ?? null);
+      invalidateModelCache(orgId, id);
+      return { ok: true };
+    } catch (err) {
+      logger.error('[ai] Update provider error:', err);
+      return reply.status(400).send({ error: (err as Error).message || 'Failed to update provider' });
+    }
+  });
+
+  /* Danh sách model lấy động từ provider. Lỗi → {models:[],error} (200) để UI fallback gõ tay. */
+  app.get('/api/v1/ai/providers/:id/models', async (request: FastifyRequest) => {
+    const orgId = request.user!.orgId;
+    const { id } = request.params as { id: string };
+    try {
+      const [apiKey, baseUrl] = await Promise.all([
+        resolveProviderApiKey(orgId, id),
+        getProviderBaseUrl(orgId, id),
+      ]);
+      if (!apiKey) return { models: [], error: 'Chưa cấu hình API key' };
+      const models = await listProviderModels(id, baseUrl, apiKey, orgId);
+      return { models };
+    } catch (err) {
+      logger.warn('[ai] List models fail provider=%s: %s', id, (err as Error).message);
+      return { models: [], error: (err as Error).message };
+    }
   });
 
   app.get('/api/v1/ai/config', async (request: FastifyRequest, reply: FastifyReply) => {
