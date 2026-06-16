@@ -111,7 +111,7 @@ async function planSplit(contactId: string): Promise<SplitPlan | null> {
   return runSystemQuery(async () => {
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { id: true, orgId: true, fullName: true, zaloGlobalId: true },
+      select: { id: true, orgId: true, fullName: true, zaloGlobalId: true, phoneNormalized: true },
     });
     if (!contact) return null;
 
@@ -136,14 +136,28 @@ async function planSplit(contactId: string): Promise<SplitPlan | null> {
 
     // Tra TRƯỚC: mỗi globalId trong byGid đã thuộc Contact KHÁC nào chưa
     // (unique (org, globalId) → tối đa 1). Cần để (a) chọn cụm ở-lại an toàn,
-    // (b) quyết action mỗi cụm.
-    const ownerByGid = new Map<string, { id: string; mergedInto: string | null } | null>();
+    // (b) quyết action mỗi cụm, (c) gom cụm CÙNG PHONE = cùng người.
+    const ownerByGid = new Map<string, { id: string; mergedInto: string | null; phoneNormalized: string | null } | null>();
     for (const g of byGid.keys()) {
       const owner = await prisma.contact.findFirst({
         where: { orgId: contact.orgId, zaloGlobalId: g, id: { not: contactId } },
-        select: { id: true, mergedInto: true },
+        select: { id: true, mergedInto: true, phoneNormalized: true },
       });
       ownerByGid.set(g, owner ?? null);
+    }
+
+    // CÙNG PHONE = CÙNG NGƯỜI (anh chốt 2026-06-16): Zalo có thể cấp nhiều globalId
+    // cho 1 người. Cụm nào có owner cùng phone_normalized với Cha (Cha có phone) →
+    // coi là CÙNG người với Cha → GIỮ ở Cha, KHÔNG tách (tránh tách 1 người thành
+    // nhiều + tránh lỗi unique (org, phone_normalized) khi revive 2 row cùng phone).
+    const samePhoneAsCha = new Set<string>();
+    if (contact.phoneNormalized) {
+      for (const [g] of byGid) {
+        const owner = ownerByGid.get(g);
+        if (owner && owner.phoneNormalized && owner.phoneNormalized === contact.phoneNormalized) {
+          samePhoneAsCha.add(g);
+        }
+      }
     }
 
     // Chọn cụm "ở lại", ưu tiên:
@@ -172,7 +186,8 @@ async function planSplit(contactId: string): Promise<SplitPlan | null> {
     const clusters: SplitPlan['clusters'] = [];
     for (const [g, fs] of byGid) {
       const sample = fs[0];
-      if (g === keepGid) {
+      // Cụm ở-lại CHÍNH (keepGid) HOẶC cụm cùng phone với Cha → keep (cùng người).
+      if (g === keepGid || samePhoneAsCha.has(g)) {
         clusters.push({ globalId: g, friendIds: fs.map((f) => f.id), sampleName: sample.zaloDisplayName, sampleAvatar: sample.zaloAvatarUrl, sampleUid: sample.zaloUidInNick, targetContactId: contactId, action: 'keep' });
         continue;
       }
@@ -286,7 +301,11 @@ async function executeSplit(plan: SplitPlan): Promise<void> {
       //  - full_name: ĐỒNG BỘ về tên Zalo của cụm ở-lại khi đang LỆCH (vd Cha tên
       //    "Trọng Ngoán" nhưng cụm ở-lại theo globalId là "Thành Tiến" → đổi về
       //    "Thành Tiến Hs" để vỏ Cha khớp hoàn toàn tên+globalId+SĐT+avatar).
-      const keepCluster = plan.clusters.find((c) => c.action === 'keep');
+      // Đại diện cụm ở-lại để cập nhật Cha = cụm khớp keepGlobalId (cụm ở-lại CHÍNH),
+      // KHÔNG lấy cụm cùng-phone (chúng cũng keep nhưng không nên ép đổi gid/tên Cha).
+      const keepCluster = plan.keepGlobalId
+        ? plan.clusters.find((c) => c.action === 'keep' && c.globalId === plan.keepGlobalId)
+        : undefined;
       if (keepCluster) {
         const needOverrideGid = !plan.contactGlobalId || plan.contactGlobalId !== keepCluster.globalId;
         const keepName = (keepCluster.sampleName || '').trim();
