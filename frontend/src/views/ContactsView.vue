@@ -4,18 +4,25 @@
     <!-- ════════ Page header (2026-06-05 Anh chốt: bỏ mô tả + legend) ════════ -->
     <header class="page-header">
       <div class="page-header-row">
-        <h1>Khách hàng</h1>
+        <div class="ph-title">
+          <h1>Khách hàng</h1>
+          <span class="count-pill"><svg class="lc" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>{{ total }} khách</span>
+        </div>
         <!-- Hàng 1: action căn lề phải -->
         <div class="header-actions">
-          <button class="btn-advanced" :class="{ on: showAdvanced }" @click="showAdvanced = !showAdvanced">
-            {{ showAdvanced ? '▾' : '▸' }} Lọc nâng cao
+          <button class="btn btn-primary" @click="openCreate">
+            <svg class="lc" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> Thêm Khách Hàng
+          </button>
+          <div class="seg-cluster">
+          <button class="seg-btn" :class="{ on: showAdvanced }" @click="showAdvanced = !showAdvanced">
+            <svg class="lc" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg> Lọc nâng cao
             <span v-if="advancedActiveCount > 0" class="btn-badge">{{ advancedActiveCount }}</span>
           </button>
           <!-- Công cụ -->
           <v-menu :close-on-content-click="false" location="bottom end">
             <template #activator="{ props: act }">
-              <button v-bind="act" class="btn" title="Công cụ dữ liệu & tùy chọn cột">
-                ⚙ Công cụ
+              <button v-bind="act" class="seg-btn" title="Công cụ dữ liệu & tùy chọn cột">
+                <svg class="lc" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg> Công cụ
                 <span v-if="toolsBadgeTotal > 0" class="btn-badge">{{ toolsBadgeTotal }}</span>
               </button>
             </template>
@@ -62,24 +69,27 @@
           </v-menu>
           <!-- Bảng / Chi tiết -->
           <div class="view-toggle" role="radiogroup" aria-label="View mode">
-            <button class="view-btn" :class="{ active: viewMode === 'm1' }" @click="setViewMode('m1')" title="Bảng đầy đủ — click row mở Friend rows inline">📋 Bảng</button>
-            <button class="view-btn" :class="{ active: viewMode === 'm2' }" @click="setViewMode('m2')" title="Chi tiết bên — click row mở panel chi tiết bên phải">🔍 Chi tiết</button>
+            <button class="view-btn" :class="{ active: viewMode === 'm1' }" @click="setViewMode('m1')" title="Bảng đầy đủ — click row mở Friend rows inline"><svg class="lc" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM3 9h18M3 15h18"/></svg> Bảng</button>
+            <button class="view-btn" :class="{ active: viewMode === 'm2' }" @click="setViewMode('m2')" title="Chi tiết bên — click row mở panel chi tiết bên phải"><svg class="lc" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM15 3v18"/></svg> Chi tiết</button>
           </div>
-          <button class="btn btn-primary" @click="openCreate">+ Thêm Khách Hàng</button>
+          </div><!-- /seg-cluster -->
         </div>
       </div>
     </header>
 
     <!-- ════════ Toolbar Row 2: search + filter + Thêm KH Nhanh ════════ -->
     <div class="toolbar toolbar-primary">
-      <input
-        v-model="filters.search"
-        class="toolbar-search"
-        name="contacts-search"
-        autocomplete="off"
-        placeholder="🔍 Tìm tên / SĐT / UID / @username / globalId…"
-        @input="debouncedFetch"
-      />
+      <div class="tb-search">
+        <svg class="lc" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input
+          v-model="filters.search"
+          class="toolbar-search"
+          name="contacts-search"
+          autocomplete="off"
+          placeholder="Tìm tên / SĐT / UID / @username / globalId…"
+          @input="debouncedFetch"
+        />
+      </div>
       <select v-model="filters.threadType" @change="fetchContacts" title="Loại khách: cá nhân (người có SĐT) hay nhóm Zalo">
         <option value="">Tất cả</option>
         <option value="user">👤 Cá nhân</option>
@@ -165,7 +175,8 @@
         :title="s.filter ? 'Bấm để lọc theo ' + s.label : ''"
         @click="s.filter && toggleStatFilter(s)"
       >
-        {{ s.icon }} {{ s.label }}: <span class="stat-num">{{ s.value ?? 0 }}</span>
+        <span class="sdot" :style="{ background: STAT_DOT[s.key] || 'var(--ink-4)' }"></span>
+        {{ s.label }}: <span class="stat-num">{{ s.value ?? 0 }}</span>
       </div>
     </div>
 
@@ -888,6 +899,11 @@ async function loadStats() {
 // Tương tác, Mới hôm nay) chỉ hiển thị, không lọc.
 interface StatBox { key: string; icon: string; label: string; value: number | undefined; filter?: () => void }
 const activeStatKey = ref<string | null>(null);
+// Màu chấm KPI (thay emoji — line/dot HS theme).
+const STAT_DOT: Record<string, string> = {
+  total: 'var(--ink-3, #6b7488)', withNick: 'var(--success, #12b76a)', active7d: 'var(--warning, #f5a524)',
+  newToday: 'var(--brand, #1786be)', highScore: '#f5a524', multiClaim: 'var(--purple, #8b5cf6)', noZalo: 'var(--error, #f04438)',
+};
 const statBoxes = computed<StatBox[]>(() => [
   { key: 'total', icon: '📋', label: 'Tổng KH', value: stats.value.total ?? total.value },
   { key: 'withNick', icon: '🟢', label: 'Có nick chăm', value: stats.value.withNick },
@@ -2671,4 +2687,56 @@ watch(
 .fr-row .ft-sync { background: var(--smax-grey-100); border-color: var(--smax-grey-300); color: var(--smax-grey-700); }
 .child-empty { padding: 9px 13px; font-size: 12px; color: var(--smax-grey-700); }
 
+/* ═══════════ P3 markup redesign — HS theme header / filter / KPI (2026-06-17) ═══════════ */
+/* line-icon (Lucide-style stroke SVG) */
+.lc { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none;
+      stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -2px; }
+
+/* Header: title + count pill */
+.page-header-row { align-items: center; }
+.ph-title { display: flex; align-items: center; gap: 11px; }
+.ph-title h1 { margin: 0; }
+.count-pill { display: inline-flex; align-items: center; gap: 5px; background: var(--brand-soft);
+  color: var(--brand-700); padding: 4px 11px; border-radius: var(--r-pill, 999px);
+  font-size: 12px; font-weight: 700; line-height: 1; }
+.count-pill .lc { width: 13px; height: 13px; }
+
+/* Header actions: 1 primary + segmented utility cluster */
+.header-actions { gap: 10px; }
+.header-actions .btn-primary { display: inline-flex; align-items: center; gap: 7px; height: 38px;
+  padding: 0 16px; border-radius: var(--r-sm, 8px); background: var(--brand); border: 1px solid var(--brand);
+  color: #fff; font-weight: 700; font-size: 13px; box-shadow: 0 1px 2px rgba(16,24,40,.06); cursor: pointer; }
+.header-actions .btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+.seg-cluster { display: inline-flex; align-items: stretch; border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px); overflow: hidden; background: var(--surface); }
+.seg-btn { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 13px;
+  border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+.seg-btn:hover { background: var(--surface-3); color: var(--ink); }
+.seg-btn.on { background: var(--brand-soft); color: var(--brand-700); }
+.seg-cluster .view-toggle { display: inline-flex; align-items: stretch; background: transparent;
+  border: 0; padding: 0; margin: 0; border-radius: 0; }
+.seg-cluster .view-btn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 13px;
+  border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--ink-3);
+  font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+.seg-cluster .view-btn:last-child { border-right: 0; }
+.seg-cluster .view-btn.active { background: var(--brand); color: #fff; }
+.seg-btn .btn-badge, .seg-cluster .btn-badge { background: var(--brand); color: #fff; }
+
+/* Filter toolbar → search box + pill selects */
+.toolbar.toolbar-primary { gap: 9px; align-items: center; }
+.tb-search { display: flex; align-items: center; gap: 8px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--r-pill, 999px); padding: 0 14px;
+  flex: 1 1 240px; min-width: 200px; max-width: 440px; color: var(--ink-4); height: 38px;
+  transition: border-color .12s, box-shadow .12s; }
+.tb-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); color: var(--brand); }
+.tb-search .toolbar-search { border: 0 !important; background: none !important; outline: none;
+  flex: 1; min-width: 0; font-size: 13px; color: var(--ink); height: 100%; padding: 0; max-width: none; }
+.toolbar.toolbar-primary select { height: 36px; border: 1px solid var(--line); border-radius: var(--r-pill, 999px);
+  background: var(--surface); color: var(--ink-2); font-weight: 600; font-size: 12.5px; padding: 0 14px; cursor: pointer; }
+.toolbar.toolbar-primary select:hover { border-color: var(--brand); color: var(--ink); }
+
+/* KPI stats — colored dot instead of emoji */
+.sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.stat-box .sdot { margin-right: 1px; }
 </style>
