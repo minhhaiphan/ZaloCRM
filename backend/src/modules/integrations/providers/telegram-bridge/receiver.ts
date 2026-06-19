@@ -14,9 +14,22 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { zaloOps } from '../../../../shared/zalo-operations.js';
-import { getUpdates, sendMessage, type TgMessageUpdate } from './telegram-api.js';
+import { getUpdates, sendMessage, downloadTelegramFile, cleanupTempFile, type TgMessageUpdate } from './telegram-api.js';
 import { emitChatMessage } from '../../../../shared/realtime/emit-chat.js';
 import { zaloPool } from '../../../zalo/zalo-pool.js';
+
+// Rút thông tin media từ tin Telegram → file_id + cách gửi Zalo + TÊN GỐC (Zalo hiển thị theo tên này).
+function extractMedia(
+  m: NonNullable<TgMessageUpdate['message']>,
+): { fileId: string; kind: 'image' | 'file'; filename: string } | null {
+  if (m.photo && m.photo.length) return { fileId: m.photo[m.photo.length - 1]!.file_id, kind: 'image', filename: 'photo.jpg' };
+  if (m.sticker) return { fileId: m.sticker.file_id, kind: 'image', filename: 'sticker.webp' };
+  if (m.document) return { fileId: m.document.file_id, kind: 'file', filename: m.document.file_name || 'file' };
+  if (m.video) return { fileId: m.video.file_id, kind: 'file', filename: m.video.file_name || 'video.mp4' };
+  if (m.voice) return { fileId: m.voice.file_id, kind: 'file', filename: 'voice.ogg' };
+  if (m.audio) return { fileId: m.audio.file_id, kind: 'file', filename: m.audio.file_name || 'audio.mp3' };
+  return null;
+}
 
 let running = false;
 let offset = 0;
@@ -84,7 +97,7 @@ async function pollLoop(): Promise<void> {
 
 async function processUpdate(u: TgMessageUpdate): Promise<void> {
   const m = u.message;
-  if (!m || !m.text) return; // Phase 2: chỉ text
+  if (!m) return;
   if (m.from?.is_bot) return; // bỏ tin của bot
   if (!m.message_thread_id) return; // tin ngoài topic (General) → bỏ
 
@@ -117,7 +130,6 @@ async function processUpdate(u: TgMessageUpdate): Promise<void> {
   if (!conv.zaloAccount.telegramBridge?.enabled) return;
   // (Phase 3: checkZaloAccess theo Telegram-user↔CRM-user. Phase 2: thành viên group = quyền.)
 
-  const text = m.text;
   const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
 
   // Nick phải đang connected mới gửi được.
@@ -125,6 +137,37 @@ async function processUpdate(u: TgMessageUpdate): Promise<void> {
     await sendMessage(chatId, '⚠️ Nick Zalo đang mất kết nối — chưa gửi được, thử lại sau.', m.message_thread_id);
     return;
   }
+
+  // ── Phase 2.5: MEDIA từ Telegram → Zalo ──
+  // Tải file Telegram về temp → gửi qua zaloOps (cần local path). KHÔNG tạo row: echo
+  // selfListen sẽ tạo row với media THẬT (Zalo CDN→minio), forwarder bỏ qua (markBridgeSent).
+  const media = extractMedia(m);
+  if (media) {
+    const tmp = await downloadTelegramFile(media.fileId, media.filename);
+    if (!tmp) {
+      await sendMessage(chatId, '⚠️ Không tải được file từ Telegram để gửi Zalo.', m.message_thread_id);
+      return;
+    }
+    try {
+      const caption = m.caption || '';
+      const sendResult =
+        media.kind === 'image'
+          ? await zaloOps.sendImage(conv.zaloAccountId, conv.externalThreadId, threadType, [tmp], null, caption)
+          : await zaloOps.sendFile(conv.zaloAccountId, conv.externalThreadId, threadType, [tmp], null, caption);
+      const sr = sendResult as { message?: { msgId?: number | string } | null; attachment?: Array<{ msgId?: number | string }> };
+      const zaloMsgId = String(sr?.message?.msgId ?? sr?.attachment?.[0]?.msgId ?? '');
+      if (zaloMsgId) markBridgeSent(zaloMsgId);
+    } catch (err) {
+      logger.warn(`[telegram-bridge] gửi media Zalo lỗi (conv=${conv.id}): ${String(err)}`);
+      await sendMessage(chatId, '⚠️ Gửi media sang Zalo thất bại.', m.message_thread_id);
+    } finally {
+      await cleanupTempFile(tmp);
+    }
+    return; // media xong
+  }
+
+  if (!m.text) return; // không media + không text → bỏ
+  const text = m.text;
 
   try {
     const sendResult = await zaloOps.sendMessage(conv.zaloAccountId, conv.externalThreadId, threadType, { msg: text }, null);

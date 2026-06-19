@@ -5,6 +5,10 @@
  * Có RETRY: 'fetch failed' (nghẽn mạng thoáng qua) thử lại 1 lần → 1 cú nghẽn không làm
  * rớt tin (quan trọng cho cầu). Lỗi Telegram trả về (ok:false) thì KHÔNG retry (lỗi thật).
  */
+import { writeFile, mkdir, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { getTelegramBotToken } from '../../../../shared/telegram-bridge-config.js';
 import { logger } from '../../../../shared/utils/logger.js';
 
@@ -65,7 +69,48 @@ export interface TgMessageUpdate {
     chat: { id: number; type: string };
     from?: { id: number; is_bot: boolean; first_name?: string; username?: string };
     text?: string;
+    caption?: string;
+    photo?: Array<{ file_id: string; file_size?: number }>;
+    document?: { file_id: string; file_name?: string; mime_type?: string };
+    video?: { file_id: string; file_name?: string };
+    voice?: { file_id: string };
+    audio?: { file_id: string; file_name?: string };
+    sticker?: { file_id: string };
   };
+}
+
+/**
+ * Tải 1 file Telegram (theo file_id) về path tạm → trả đường dẫn local (null nếu lỗi).
+ * zca-js gửi media cần LOCAL PATH (không nhận URL). Caller tự xoá file sau khi gửi.
+ */
+export async function downloadTelegramFile(fileId: string, filename: string): Promise<string | null> {
+  const token = getTelegramBotToken();
+  if (!token) return null;
+  try {
+    const info = await call<{ file_path?: string }>('getFile', { file_id: fileId });
+    const fp = info?.file_path;
+    if (!fp) return null;
+    const res = await fetch(`${BASE}/file/bot${token}/${fp}`, { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    // GIỮ TÊN GỐC làm basename (Zalo lấy basename làm tên hiển thị cho khách + CRM). Đặt trong
+    // thư mục con ngẫu nhiên để tránh trùng tên. Lọc ký tự nguy hiểm + ép có đuôi.
+    let safeName = (filename || 'file').replace(/[/\\?%*:|"<>]/g, '_').replace(/^\.+/, '').slice(0, 200) || 'file';
+    if (!path.extname(safeName)) safeName += path.extname(fp) || '';
+    const dir = path.join(os.tmpdir(), 'tg-bridge', randomUUID());
+    await mkdir(dir, { recursive: true });
+    const tmp = path.join(dir, safeName);
+    await writeFile(tmp, buf);
+    return tmp;
+  } catch (err) {
+    logger.warn(`[telegram-bridge] tải file Telegram lỗi: ${String(err)}`);
+    return null;
+  }
+}
+
+/** Xoá file tạm + thư mục con chứa nó (gọi sau khi gửi Zalo xong). */
+export async function cleanupTempFile(tmp: string): Promise<void> {
+  await rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => {});
 }
 
 /**
