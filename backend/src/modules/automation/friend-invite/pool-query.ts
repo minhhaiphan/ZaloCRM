@@ -20,6 +20,7 @@ export interface ClaimedEntry {
   id: string;
   contactId: string | null;
   phoneE164: string | null;
+  phoneLocal: string | null; // "0778144100" — dạng VN, dùng cho alias {phone} (Anh chốt mặc định 2026-06-19)
   phoneRaw: string;
   nameRaw: string | null;
   triggerId: string;
@@ -28,21 +29,23 @@ export interface ClaimedEntry {
 }
 
 /**
- * Claim 1 entry từ pool cho nick này. Implements SKIP LOCKED to avoid race
+ * Claim 1 entry từ pool cho nick này, SCOPE đúng 1 trigger (per-trigger pacing
+ * 2026-06-20: mỗi Mục tiêu chạy nhịp riêng → nhặt đúng khách của Mục tiêu đó,
+ * KHÔNG giành suất với Mục tiêu khác). Implements SKIP LOCKED to avoid race
  * across multiple nick workers within the same Node process.
  *
- * Returns null nếu pool empty for this nick (no entry pickable hiện tại).
+ * Returns null nếu pool empty cho (nick, trigger) này hiện tại.
  *
  * Filters:
  *   - queueStatus = 'queued_for_pickup'
- *   - trigger belongs to active list-based triggers anh chọn nickId này
+ *   - trigger_id = triggerId (chỉ Mục tiêu này) + trigger active + nick được chọn
  *   - NOT (failedNickIds @> [nickId])  — nick này chưa fail entry
  *   - jsonb_array_length(failedNickIds) < trigger.nickIds.length  — vẫn còn nick eligible
  *     (entries hết nick eligible đã được markFailedPermanent ở releaseEntryFailed)
  *
- * Order: rowIndex ASC, then trigger creation time ASC (FIFO).
+ * Order: rowIndex ASC (FIFO trong tệp của Mục tiêu này).
  */
-export async function claimNextEntry(nickId: string, orgId: string): Promise<ClaimedEntry | null> {
+export async function claimNextEntry(nickId: string, orgId: string, triggerId: string): Promise<ClaimedEntry | null> {
   // #2 2026-06-06 — claim trên BẢNG NỐI trigger_queue_entries (mỗi Mục tiêu hàng đợi
   // riêng). Lock row bảng nối (FOR UPDATE SKIP LOCKED), data khách JOIN từ entry.
   // ClaimedEntry.id GIỮ là entryId (downstream dùng làm key + nguồn data khách).
@@ -51,6 +54,7 @@ export async function claimNextEntry(nickId: string, orgId: string): Promise<Cla
       id: string;
       contact_id: string | null;
       phone_e164: string | null;
+      phone_local: string | null;
       phone_raw: string;
       name_raw: string | null;
       trigger_id: string;
@@ -69,13 +73,14 @@ export async function claimNextEntry(nickId: string, orgId: string): Promise<Cla
       JOIN automation_triggers t ON t.id = q.trigger_id
       JOIN customer_list_entries e ON e.id = q.customer_list_entry_id
       WHERE q.queue_status = 'queued_for_pickup'
+        AND q.trigger_id = ${triggerId}
         AND t.state = 'active'
         AND t.org_id = ${orgId}
         AND t.event_type = 'friend_invite_to_list'
         AND (t.segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
         AND NOT (q.failed_nick_ids @> to_jsonb(${nickId}::text))
         AND jsonb_array_length(q.failed_nick_ids) < jsonb_array_length(t.segment_spec->'nickIds')
-      ORDER BY e.row_index ASC, t.created_at ASC
+      ORDER BY e.row_index ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
@@ -83,6 +88,7 @@ export async function claimNextEntry(nickId: string, orgId: string): Promise<Cla
       customer_list_entry_id AS id,
       contact_id,
       (SELECT phone_e164 FROM customer_list_entries WHERE id = trigger_queue_entries.customer_list_entry_id) AS phone_e164,
+      (SELECT phone_local FROM customer_list_entries WHERE id = trigger_queue_entries.customer_list_entry_id) AS phone_local,
       (SELECT phone_raw  FROM customer_list_entries WHERE id = trigger_queue_entries.customer_list_entry_id) AS phone_raw,
       (SELECT name_raw   FROM customer_list_entries WHERE id = trigger_queue_entries.customer_list_entry_id) AS name_raw,
       trigger_id,
@@ -95,6 +101,7 @@ export async function claimNextEntry(nickId: string, orgId: string): Promise<Cla
     id: r.id,
     contactId: r.contact_id,
     phoneE164: r.phone_e164,
+    phoneLocal: r.phone_local,
     phoneRaw: r.phone_raw,
     nameRaw: r.name_raw,
     triggerId: r.trigger_id,

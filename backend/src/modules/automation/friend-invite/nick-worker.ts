@@ -25,6 +25,7 @@ import { applyFriendTransition } from '../../zalo/friend-event-handler.js';
 import { nickWorkerLockKey } from './fnv1a.js';
 import { claimNextEntry, markEntrySent, releaseEntryFailed } from './pool-query.js';
 import { logEvent } from './event-log-service.js';
+import { setContactAlias } from '../blocks/auto-alias-service.js';
 import { checkMultiNickThreshold } from '../queues/worker-guards.js';
 import { getBullMQRedis } from '../queues/redis-connection.js';
 // Observability "vì sao không gửi" 2026-06-18 — nhãn lý do (T6 hết lượt kết bạn) + ghi blocker.
@@ -78,6 +79,50 @@ async function logFriendQuotaExhausted(
     }
   } catch (err) {
     logger.warn(`[nick-worker] logFriendQuotaExhausted failed nick=${nickId}: ${(err as Error).message}`);
+  }
+}
+
+// 2026-06-19 (Anh chốt — Observability "vì sao chưa gửi"): ghi 1 dòng log NGƯỜI DÙNG cho
+// các Mục tiêu của nick NÀY còn khách queued, nêu LÝ DO lời mời chưa gửi (ngoài giờ / nick
+// rớt / đang chờ nhịp gửi) → hết cảnh "luồng đứng im, log trống = tưởng treo".
+// Chống flood: Redis SET NX per (nick × trigger × category), TTL ngắn → 1 đợt chặn = 1 dòng.
+async function logFriendInviteBlock(
+  nickId: string,
+  orgId: string,
+  reason: string,
+  nickName: string | null,
+  ttlSec: number,
+): Promise<void> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ trigger_id: string }>>`
+      SELECT DISTINCT q.trigger_id
+      FROM trigger_queue_entries q
+      JOIN automation_triggers t ON t.id = q.trigger_id
+      WHERE q.org_id = ${orgId} AND q.queue_status = 'queued_for_pickup'
+        AND t.state = 'active'
+        AND (t.segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
+      LIMIT 50
+    `;
+    if (rows.length === 0) return;
+    const redis = getBullMQRedis();
+    const info = resolveBlockReason(reason);
+    for (const r of rows) {
+      if (!r.trigger_id) continue;
+      const ok = await redis.set(`evtlog:fiblock:${nickId}:${r.trigger_id}:${info.category}`, '1', 'EX', ttlSec, 'NX');
+      if (ok !== 'OK') continue; // đợt chặn này đã ghi rồi
+      void logEvent({
+        orgId,
+        triggerId: r.trigger_id,
+        nickId,
+        eventType: 'friend_invite_blocked',
+        eventPriority: 'warning',
+        summary: nickName ? `${info.label} (nick ${nickName})` : info.label,
+        category: info.category,
+        metadata: { reason, hint: info.hint },
+      });
+    }
+  } catch (err) {
+    logger.warn(`[nick-worker] logFriendInviteBlock failed nick=${nickId} reason=${reason}: ${(err as Error).message}`);
   }
 }
 
@@ -167,40 +212,84 @@ interface WorkerState {
   todayCount: number; // friend-request count today (from Outbox)
   isBusy: boolean; // prevent overlapping ticks
   stopped: boolean; // flag to halt self-scheduling loop
+  // PER-TRIGGER PACING 2026-06-20: "giờ tới lượt" (epoch ms) RIÊNG cho từng Mục tiêu
+  // gắn nick này → mỗi Mục tiêu chạy nhịp/giờ độc lập, KHÔNG kéo nhau.
+  triggerDueAt: Map<string, number>;
 }
 
 const nickWorkers = new Map<string, WorkerState>();
 
 /**
- * Nhịp gửi (ms) giữa 2 lần gửi lời mời của 1 nick — random trong [min, max] phút
- * ĐỌC TỪ CẤU HÌNH Mục tiêu (Anh nhập trên UI), không còn hardcode.
- *
- * 1 nick có thể phục vụ nhiều Mục tiêu cấu hình nhịp khác nhau → lấy khoảng RỘNG
- * NHẤT (min của các min, max của các max) để không nick nào bị ép nhanh hơn mức
- * Mục tiêu cẩn trọng nhất cho phép. Không có Mục tiêu active → fallback 20-40 phút.
+ * PER-TRIGGER PACING 2026-06-20 (Anh chốt: các Mục tiêu KHÔNG ảnh hưởng nhau).
+ * Mỗi Mục tiêu friend_invite gắn nick này có NHỊP (min/max phút) + GIỜ GỬI riêng.
+ * Worker theo dõi "giờ tới lượt" (triggerDueAt) cho từng Mục tiêu → chạy độc lập, KHÔNG
+ * còn gộp MIN/MAX khiến Mục tiêu nhanh bị Mục tiêu chậm kéo theo. Trần-ngày của nick vẫn
+ * chung (1 worker/nick) nên tổng không vượt cap an toàn.
  */
-async function getNextDelayMs(nickId: string): Promise<number> {
-  let minMs = DEFAULT_INTERVAL_MIN_MS;
-  let maxMs = DEFAULT_INTERVAL_MAX_MS;
+interface TriggerPace {
+  id: string;
+  minMs: number;
+  maxMs: number;
+  hourStart: number;
+  hourEnd: number;
+}
+
+// Poll: worker thức tối đa mỗi POLL_FLOOR để bắt Mục tiêu MỚI tạo + ghi "đang chờ" lên monitor.
+const POLL_FLOOR_MS = 60_000;
+const MIN_WAKE_MS = 2_000;
+
+/** Các Mục tiêu friend_invite active gắn nick này, kèm nhịp + giờ RIÊNG của từng cái. */
+async function getActiveTriggersForNick(nickId: string): Promise<TriggerPace[]> {
   try {
-    const rows = await prisma.$queryRaw<Array<{ min_min: number | null; max_max: number | null }>>`
-      SELECT MIN(friend_req_interval_min_minutes) AS min_min,
-             MAX(friend_req_interval_max_minutes) AS max_max
+    const rows = await prisma.$queryRaw<
+      Array<{ id: string; min_m: number | null; max_m: number | null; h_start: number | null; h_end: number | null }>
+    >`
+      SELECT id,
+             friend_req_interval_min_minutes AS min_m,
+             friend_req_interval_max_minutes AS max_m,
+             send_hour_start AS h_start,
+             send_hour_end AS h_end
       FROM automation_triggers
       WHERE event_type = 'friend_invite_to_list'
         AND state = 'active'
         AND (segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
     `;
-    const r = rows[0];
-    if (r?.min_min != null && r?.max_max != null) {
-      minMs = Math.max(0, Number(r.min_min)) * 60_000;
-      maxMs = Math.max(Number(r.max_max), Number(r.min_min)) * 60_000;
-    }
+    return rows.map((r) => {
+      const minM = r.min_m != null ? Math.max(0, Number(r.min_m)) : DEFAULT_INTERVAL_MIN_MS / 60_000;
+      const maxM = r.max_m != null ? Math.max(Number(r.max_m), minM) : Math.max(DEFAULT_INTERVAL_MAX_MS / 60_000, minM);
+      return {
+        id: r.id,
+        minMs: minM * 60_000,
+        maxMs: maxM * 60_000,
+        hourStart: r.h_start != null ? Number(r.h_start) : 6,
+        hourEnd: r.h_end != null ? Number(r.h_end) : 22,
+      };
+    });
   } catch (err) {
-    logger.warn(`[nick-worker] getNextDelayMs read config failed nick=${nickId}, dùng default 20-40m:`, err);
+    logger.warn(`[nick-worker] getActiveTriggersForNick failed nick=${nickId}:`, err);
+    return [];
   }
-  if (maxMs <= minMs) return minMs;
-  return minMs + Math.random() * (maxMs - minMs);
+}
+
+/** Nhịp kế (ms) cho 1 Mục tiêu — random trong [min,max] của CHÍNH nó. */
+function nextPaceDelayMs(p: TriggerPace): number {
+  if (p.maxMs <= p.minMs) return p.minMs;
+  return p.minMs + Math.random() * (p.maxMs - p.minMs);
+}
+
+/**
+ * Đồng bộ due-map với danh sách Mục tiêu active hiện tại:
+ *   - Mục tiêu bị tắt/xoá → bỏ khỏi map (không còn được chọn).
+ *   - Mục tiêu MỚI (chưa có trong map) → due = NOW → chạy NGAY lượt kế (tick-ngay-khi-tạo).
+ */
+function syncTriggerDueMap(worker: WorkerState, paces: TriggerPace[]): void {
+  const activeIds = new Set(paces.map((p) => p.id));
+  for (const id of [...worker.triggerDueAt.keys()]) {
+    if (!activeIds.has(id)) worker.triggerDueAt.delete(id);
+  }
+  for (const p of paces) {
+    if (!worker.triggerDueAt.has(p.id)) worker.triggerDueAt.set(p.id, Date.now());
+  }
 }
 
 /**
@@ -262,6 +351,7 @@ export async function startNickWorker(nickId: string, orgId: string): Promise<vo
     todayCount,
     isBusy: false,
     stopped: false,
+    triggerDueAt: new Map(),
   };
   nickWorkers.set(nickId, state);
 
@@ -270,16 +360,17 @@ export async function startNickWorker(nickId: string, orgId: string): Promise<vo
   // 20-40 phút random window. Prevents predictable cadence per nick.
   const scheduleNext = (): void => {
     if (state.stopped) return;
-    // Nhịp đọc từ cấu hình Mục tiêu mỗi lần lên lịch → Anh chỉnh nhịp trên UI là
-    // áp dụng ngay từ lượt kế tiếp, không cần restart worker.
-    void getNextDelayMs(nickId).then((next) => {
-      if (state.stopped) return;
-      state.timeoutId = setTimeout(() => {
-        void runTick(nickId)
-          .catch((err) => logger.error(`[nick-worker] tick error for nick=${nickId}:`, err))
-          .finally(() => scheduleNext());
-      }, next);
-    });
+    // PER-TRIGGER: thức dậy vào lúc Mục tiêu SỚM NHẤT tới lượt (đọc due-map in-memory do
+    // runTick cập nhật). Trần POLL_FLOOR để re-check bắt Mục tiêu MỚI + ghi "đang chờ".
+    const now = Date.now();
+    let soonest = POLL_FLOOR_MS;
+    for (const due of state.triggerDueAt.values()) soonest = Math.min(soonest, due - now);
+    const next = Math.min(Math.max(soonest, MIN_WAKE_MS), POLL_FLOOR_MS);
+    state.timeoutId = setTimeout(() => {
+      void runTick(nickId)
+        .catch((err) => logger.error(`[nick-worker] tick error for nick=${nickId}:`, err))
+        .finally(() => scheduleNext());
+    }, next);
   };
   scheduleNext();
 
@@ -391,29 +482,7 @@ async function runTick(nickId: string): Promise<void> {
   if (!worker) return;
   if (worker.isBusy) return; // skip if previous tick still running
 
-  // Gate 1: working hours — #3 2026-06-06 (Anh chốt): ĐỌC TỪ CỘT send_hour_start/end
-  // của chính Mục tiêu (Anh nhập trên wizard), thay vì Sequence.runtimeRules như cũ
-  // (cột UI trước đây bị worker bỏ qua → ô giờ vô tác dụng). 1 nick phục vụ nhiều
-  // Mục tiêu giờ khác nhau → lấy khoảng RỘNG NHẤT (min start, max end). Không có Mục
-  // tiêu active nào → fallback 6-22h.
-  const hourRows = await prisma.$queryRaw<Array<{ min_start: number | null; max_end: number | null }>>`
-    SELECT MIN(send_hour_start) AS min_start, MAX(send_hour_end) AS max_end
-    FROM automation_triggers
-    WHERE event_type = 'friend_invite_to_list'
-      AND state = 'active'
-      AND (segment_spec->'nickIds')::jsonb @> to_jsonb(${nickId}::text)
-  `.catch(() => [] as Array<{ min_start: number | null; max_end: number | null }>);
-  const hr = hourRows[0];
-  const effectiveRange: [number, number] =
-    hr?.min_start != null && hr?.max_end != null
-      ? [Number(hr.min_start), Number(hr.max_end)]
-      : [6, 22];
-  if (!isWithinWorkingHours(effectiveRange)) {
-    logger.debug(`[nick-worker] ${nickId} skip tick: outside working hours ${effectiveRange[0]}-${effectiveRange[1]}h VN`);
-    return;
-  }
-
-  // Gate 2: daily cap (friend-request)
+  // Gate (nick-level, áp chung MỌI Mục tiêu): nick tồn tại + connected + còn trần ngày.
   const nick = await prisma.zaloAccount.findUnique({
     where: { id: nickId },
     select: { dailyFriendAddCap: true, status: true, displayName: true },
@@ -425,24 +494,46 @@ async function runTick(nickId: string): Promise<void> {
   }
   if (nick.status !== 'connected') {
     logger.debug(`[nick-worker] ${nickId} status=${nick.status}, skip tick`);
+    // Observability: ghi "nick chưa online / chờ QR" cho Mục tiêu còn khách chờ.
+    const reason = nick.status === 'qr_pending' ? 'nick_qr_pending'
+      : nick.status === 'connecting' ? 'nick_connecting' : 'nick_offline';
+    void logFriendInviteBlock(nickId, worker.orgId, reason, nick.displayName ?? null, 1800);
     return;
   }
   if (worker.todayCount >= nick.dailyFriendAddCap) {
     logger.debug(
       `[nick-worker] ${nickId} hit daily cap ${worker.todayCount}/${nick.dailyFriendAddCap}, skip tick`,
     );
-    // T6 (2026-06-18): ghi "nick hết lượt kết bạn hôm nay" cho các trigger đang chờ kết bạn
-    // (1 lần/nick/trigger/ngày) → sale thấy lý do trên monitor thay vì luồng đứng im.
+    // ghi "nick hết lượt kết bạn hôm nay" lên monitor (1 lần/nick/trigger/ngày).
     void logFriendQuotaExhausted(nickId, worker.orgId, nick.displayName ?? null);
     return;
   }
 
+  // ── PER-TRIGGER PACING 2026-06-20 (Anh chốt: Mục tiêu KHÔNG ảnh hưởng nhau) ──
+  // Mỗi Mục tiêu active gắn nick này có NHỊP + GIỜ GỬI riêng. Worker chọn Mục tiêu TỚI
+  // LƯỢT (due) + trong giờ CỦA CHÍNH NÓ, nhặt đúng khách của Mục tiêu đó. Mục tiêu mới
+  // tạo → due=NOW (chạy ngay lượt kế). Đúng thứ tự: quét tệp (precompute) → kết bạn → log.
+  const paces = await getActiveTriggersForNick(nickId);
+  syncTriggerDueMap(worker, paces);
+  if (paces.length === 0) return; // không Mục tiêu active → poll lại sau
+  const now = Date.now();
+  const due = paces
+    .filter((p) => isWithinWorkingHours([p.hourStart, p.hourEnd]) && (worker.triggerDueAt.get(p.id) ?? 0) <= now)
+    .sort((a, b) => (worker.triggerDueAt.get(a.id) ?? 0) - (worker.triggerDueAt.get(b.id) ?? 0));
+  if (due.length === 0) {
+    // Chưa Mục tiêu nào tới lượt/trong giờ → ghi "đang chờ nhịp gửi" lên monitor (dedup 30')
+    // để Anh thấy luồng đang XẾP HÀNG, không phải treo.
+    void logFriendInviteBlock(nickId, worker.orgId, 'nick_gap', nick.displayName ?? null, 1800);
+    return;
+  }
+  const picked = due[0];
+
   worker.isBusy = true;
   try {
-    // Phase 1: CLAIM
-    const entry = await claimNextEntry(nickId, worker.orgId);
+    // Phase 1: CLAIM — SCOPE đúng Mục tiêu được chọn (KHÔNG giành suất Mục tiêu khác).
+    const entry = await claimNextEntry(nickId, worker.orgId, picked.id);
     if (!entry) {
-      // Pool empty for this nick — that's OK, next tick will retry
+      // Mục tiêu này hết khách queued — finally sẽ đẩy due ra xa; Mục tiêu khác vẫn chạy.
       return;
     }
     if (!entry.phoneE164) {
@@ -468,6 +559,10 @@ async function runTick(nickId: string): Promise<void> {
         multiNickThreshold: true,
         createdById: true,
         orgId: true,
+        // Tự đặt tên gợi nhớ 2026-06-19 — đọc LIVE (toggle/mẫu mới nhất, không bị frozen).
+        autoAliasEnabled: true,
+        aliasTemplate: true,
+        projectAbbr: true,
       },
     });
     if (!trigger) {
@@ -664,6 +759,21 @@ async function runTick(nickId: string): Promise<void> {
           } catch (err) {
             logger.warn(`[nick-worker] applyFriendTransition failed entry=${entry.id}:`, err);
           }
+        }
+        // Tự đặt tên gợi nhớ 2026-06-19 — nhánh "đã là bạn" cũng đặt (đặt hết cả tệp).
+        if (trigger.autoAliasEnabled && trigger.aliasTemplate && resolvedUid) {
+          void setContactAlias({
+            orgId: worker.orgId,
+            contactId,
+            nickId,
+            template: trigger.aliasTemplate,
+            triggerProject: trigger.projectAbbr ?? undefined,
+            uid: resolvedUid,
+            zaloName: resolvedDisplayName ?? undefined,
+            phone: entry.phoneLocal ?? entry.phoneE164 ?? undefined,
+            triggerId: entry.triggerId,
+            actorSystemSource: 'auto_alias_trigger',
+          }).catch((err) => logger.warn(`[nick-worker] setContactAlias (already-friend) failed entry=${entry.id}:`, err));
         }
         await markEntrySent({
           entryId: entry.id,
@@ -878,6 +988,27 @@ async function runTick(nickId: string): Promise<void> {
         logger.warn(`[nick-worker] applyFriendTransition failed entry=${entry.id}:`, err);
       }
     }
+
+    // ── Tự đặt tên gợi nhớ 2026-06-19 (Anh chốt) — đặt alias cho cả tệp khi có UID ──
+    // changeFriendAlias chỉ cần UID (KHÔNG cần khách accept). Tên Zalo THẬT live =
+    // resolvedDisplayName. Config đọc LIVE từ trigger (toggle/mẫu mới nhất). Fire-and-forget.
+    // Friend row vừa upsert ở applyFriendTransition trên → setContactAlias đọc/ghi aliasInNick
+    // (log "đặt mới" vs "cũ → mới") được.
+    if (trigger.autoAliasEnabled && trigger.aliasTemplate && resolvedUid) {
+      void setContactAlias({
+        orgId: worker.orgId,
+        contactId,
+        nickId,
+        template: trigger.aliasTemplate,
+        triggerProject: trigger.projectAbbr ?? undefined,
+        uid: resolvedUid,
+        zaloName: resolvedDisplayName ?? undefined,
+        phone: entry.phoneLocal ?? entry.phoneE164 ?? undefined,
+        triggerId: entry.triggerId,
+        actorSystemSource: 'auto_alias_trigger',
+      }).catch((err) => logger.warn(`[nick-worker] setContactAlias failed entry=${entry.id}:`, err));
+    }
+
     await markEntrySent({
       entryId: entry.id,
       triggerId: entry.triggerId,
@@ -936,7 +1067,15 @@ async function runTick(nickId: string): Promise<void> {
         phoneE164: entry.phoneE164,
       },
     });
+
+    // Observability 2026-06-19 (Anh chốt): vừa gửi 1 lời mời — các Mục tiêu của nick này CÒN
+    // khách chờ (cùng/khác Mục tiêu, xếp hàng theo nhịp chống-ban) → ghi "đang chờ nhịp gửi"
+    // (deduped 30') để anh thấy luồng đang chờ, KHÔNG phải treo. Hết khách queued → tự bỏ qua.
+    void logFriendInviteBlock(nickId, worker.orgId, 'nick_gap', nick.displayName ?? null, 1800);
   } finally {
+    // PER-TRIGGER: đặt nhịp KẾ cho chính Mục tiêu vừa xử (nhịp riêng của nó). Mọi nhánh
+    // return trong try đều qua đây → due luôn được đẩy tới, KHÔNG spin, Mục tiêu khác độc lập.
+    worker.triggerDueAt.set(picked.id, Date.now() + nextPaceDelayMs(picked));
     worker.isBusy = false;
   }
 }

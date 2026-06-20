@@ -24,7 +24,7 @@ import {
   getSequenceStepQueue,
 } from '../queues/queue-registry.js';
 import { enqueueSequenceStart } from '../queues/sequence-step-worker.js';
-import { pickSequenceNickForContact } from './nick-selector.js';
+import { resolveEligibleNicks } from './nick-selector.js';
 
 export interface MaterializeResult {
   campaignsCreated: number;
@@ -159,6 +159,14 @@ export async function materializeFromEvent(
       ...DEFAULT_RUNTIME_RULES,
       ...(trigger.sequence.runtimeRules as object),
       ...((trigger.ruleOverrides as object) ?? {}),
+      // Tự đặt tên gợi nhớ 2026-06-19 — đẩy config trigger xuống handler request_friend
+      // (đặt alias ngay khi có UID). triggerId kèm để logEvent('contact_alias_set').
+      aliasCfg: {
+        enabled: trigger.autoAliasEnabled,
+        template: trigger.aliasTemplate ?? '',
+        project: trigger.projectAbbr ?? '',
+        triggerId: trigger.id,
+      },
     };
 
     // 5. Find or create active campaign for this trigger + sequence
@@ -205,8 +213,9 @@ export async function materializeFromEvent(
     // 7. Per-contact enrollment → BullMQ (2026-06-12 rewrite, AutomationTask đã drop).
     //
     // ĐỔI SO VỚI BẢN CŨ (ghi AutomationTask stub → 0 việc thật → KH không bám đuổi):
-    //   - Chọn nick: pickSequenceNickForContact (ngẫu nhiên trong list segmentSpec.nickIds,
-    //     connected + dưới cap + có Friend row). Nick này đi HẾT luồng cho KH.
+    //   - Chọn nick: CHIA CỨNG round-robin trên resolveEligibleNicks (nick được-phép đang
+    //     connected). KHÔNG lọc Friend row, KHÔNG failover, KHÔNG tra UID ở đây. Worker tra
+    //     UID + gửi + log sự cố lúc gửi. Nick được phân đi HẾT luồng cho KH.
     //   - Enqueue: enqueueSequenceStart (BullMQ jobId `${trigger}-${contact}-0`).
     //   - Idempotent: BullMQ jobId dedup (cùng KH cùng Mục tiêu → 1 job step-0). Bỏ
     //     check-task-DB cũ.
@@ -219,35 +228,41 @@ export async function materializeFromEvent(
       ? ((trigger.segmentSpec as { nickIds: string[] }).nickIds)
       : null;
 
-    for (const contactId of contactIds) {
-      // Chọn nick gắn KH (đợt này: chỉ nick ĐÃ có Friend row gửi-được-ngay).
-      // KH lạ (chưa quan hệ nick nào) → skip, chờ TODO SEQ-C1 (findUser qua phone).
-      const pick = await pickSequenceNickForContact({
-        orgId: event.orgId,
-        contactId,
-        allowedNickIds,
-      });
-      if (pick.nickId === null) {
-        result.skipped++;
-        result.reasons.push(`contact ${contactId}: no_sendable_nick (${pick.reason})`);
-        continue;
-      }
+    // CHIA CỨNG THUẦN (anh chốt 2026-06-20): pool = nick được-phép đang connected.
+    // KHÔNG lọc Friend row/cap, KHÔNG failover, KHÔNG gọi SDK ở đây → materializer nhẹ,
+    // không treo dù tệp vài nghìn KH. Tra UID + gửi + log do worker làm lúc gửi.
+    const eligibleNicks = await resolveEligibleNicks(event.orgId, allowedNickIds);
+    if (eligibleNicks.length === 0) {
+      result.skipped++;
+      result.reasons.push(`trigger ${trigger.id}: no_eligible_nick (không nick nào connected)`);
+      continue;
+    }
+
+    // resolveNextEnrollEpoch: hoist dynamic import RA NGOÀI vòng lặp (trước đây import lại
+    // mỗi KH — phí). Hàm vẫn gọi per-KH (epoch idempotency), chỉ module load 1 lần.
+    const { resolveNextEnrollEpoch } = await import('../care-session/care-session-service.js');
+
+    for (let i = 0; i < contactIds.length; i++) {
+      const contactId = contactIds[i];
+      // Chia ĐỀU round-robin: KH thứ i → nick i%n. Nick này đi HẾT luồng cho KH (worker
+      // mang nickId theo mọi step). Phần xấu của 1 nick (chặn/no-Zalo) thì CHỊU — không failover.
+      const nickId = eligibleNicks[i % eligibleNicks.length];
 
       // LỖI A (review-epoch 2026-06-15): auto-path cũng phải bump epoch khi RE-ENROLL.
       // Trước đây luôn epoch=1 → trigger re-fire cho KH vừa chạy xong cùng luồng <24h →
       // jobId `...-e1-0` trùng job cũ còn trong removeOnComplete window → BullMQ dedup nuốt
       // = đúng bug gốc nhưng cho luồng tự động. resolveNextEnrollEpoch: lần đầu→1 (giữ
       // idempotency probe), re-enroll→>1 (jobId mới). enqueueSequenceStart vẫn dedup lần-đầu.
-      const { resolveNextEnrollEpoch } = await import('../care-session/care-session-service.js');
       const autoEpoch = await resolveNextEnrollEpoch(event.orgId, contactId, trigger.sequenceId);
 
       // Enqueue step 0 vào BullMQ. jobId dedup tự lo idempotent (double-fire an toàn).
-      // nick đã chọn được mang theo mọi step (sequence-step-worker không bốc lại).
+      // Worker tra UID theo nickId này lúc gửi (ensureUidForPair → lưu Friend row); KH
+      // no_zalo/blocked → worker log 'sequence_step_failed' + bỏ (sót, chiến dịch sau bám lại).
       await enqueueSequenceStart({
         triggerId: trigger.id,
         contactId,
         sequenceId: trigger.sequenceId,
-        nickId: pick.nickId,
+        nickId,
         orgId: event.orgId,
         startDelayMinutes: firstStep.delayMinutes,
         enrollEpoch: autoEpoch,
