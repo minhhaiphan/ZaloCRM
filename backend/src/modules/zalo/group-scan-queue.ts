@@ -88,6 +88,7 @@ export async function enqueueGroupScan(scanId: string): Promise<void> {
 
 // ── Worker lifecycle ──────────────────────────────────────────────────────────
 let workerInstance: Worker<GroupScanJobData> | null = null;
+let workerConnection: Redis | null = null;
 
 /** Wire the BullMQ Worker → processor. Gọi 1 lần lúc app start. */
 export function startGroupScanWorker(): Worker<GroupScanJobData> {
@@ -95,11 +96,15 @@ export function startGroupScanWorker(): Worker<GroupScanJobData> {
     logger.warn('[group-scan-worker] already started');
     return workerInstance;
   }
+  // Worker dùng connection RIÊNG (review #6): BullMQ worker chạy blocking command
+  // (BRPOPLPUSH) độc chiếm socket — chia sẻ với Queue producer là anti-pattern, dễ
+  // stall queue.add() dưới tải. duplicate() = cùng REDIS_URL, socket riêng.
+  workerConnection = getConnection().duplicate();
   workerInstance = new Worker<GroupScanJobData>(
     GROUP_SCAN_QUEUE,
     (job: Job<GroupScanJobData>) => processGroupScan(job.data.scanId),
     {
-      connection: getConnection() as ConnectionOptions,
+      connection: workerConnection as ConnectionOptions,
       // Concurrency 1: 1 nick quét tuần tự — group_read đã rate-limited per-nick,
       // chạy song song nhiều job cùng nick = burst → Zalo anti-spam.
       concurrency: 1,
@@ -124,6 +129,10 @@ export async function stopGroupScanWorker(): Promise<void> {
   if (workerInstance) {
     await workerInstance.close();
     workerInstance = null;
+  }
+  if (workerConnection) {
+    await workerConnection.quit();
+    workerConnection = null;
   }
   if (queueInstance) {
     await queueInstance.close();

@@ -139,6 +139,21 @@ describe('POST /api/v1/zalo-accounts/:accountId/group-scans', () => {
     await buildApp().inject({ method: 'POST', url: BASE, payload: { groupIds: ['A', 'A', 'B'] } });
     expect((prisma as any).groupScan.create.mock.calls[0][0].data.groupIds).toEqual(['A', 'B']);
   });
+
+  // review #4 — guardrails on scan creation
+  it('returns 400 when groupIds exceeds the cap (5000)', async () => {
+    const huge = Array.from({ length: 5001 }, (_, i) => `g${i}`);
+    const res = await buildApp().inject({ method: 'POST', url: BASE, payload: { groupIds: huge } });
+    expect(res.statusCode).toBe(400);
+    expect((prisma as any).groupScan.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when a scan is already queued/running for the account', async () => {
+    (prisma as any).groupScan.findFirst.mockResolvedValueOnce({ id: 'scan-running', state: 'running' });
+    const res = await buildApp().inject({ method: 'POST', url: BASE, payload: { groupIds: ['A'] } });
+    expect(res.statusCode).toBe(409);
+    expect((prisma as any).groupScan.create).not.toHaveBeenCalled();
+  });
 });
 
 // ── GET scan status ───────────────────────────────────────────────────────────

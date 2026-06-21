@@ -17,6 +17,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.js';
 import { enqueueGroupScan } from './group-scan-queue.js';
 
+const MAX_GROUPS_PER_SCAN = 5000;
+
 export async function groupScanRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
@@ -31,9 +33,25 @@ export async function groupScanRoutes(app: FastifyInstance) {
       if (!all && (!Array.isArray(groupIds) || groupIds.length === 0)) {
         return reply.status(400).send({ error: 'groupIds array is required when all is not set' });
       }
+      // Chặn payload khổng lồ (review #4): IN (...) lớn + job/row flood.
+      if (Array.isArray(groupIds) && groupIds.length > MAX_GROUPS_PER_SCAN) {
+        return reply
+          .status(400)
+          .send({ error: `too many groupIds (max ${MAX_GROUPS_PER_SCAN})` });
+      }
       try {
         const account = await resolveAccount(accountId, request.user!.orgId);
         if (!(await checkAccess(request, reply, accountId, 'read'))) return;
+
+        // Dedup in-flight (review #4): 1 nick chỉ 1 scan đang chạy — tránh 2 scan
+        // cùng nick race upsert + flood job. Trả scan đang chạy thay vì tạo mới.
+        const inFlight = await prisma.groupScan.findFirst({
+          where: { zaloAccountId: accountId, orgId: account.orgId, state: { in: ['queued', 'running'] } },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (inFlight) {
+          return reply.status(409).send({ error: 'a scan is already running for this account', scan: inFlight });
+        }
 
         let ids: string[];
         let scope: string;

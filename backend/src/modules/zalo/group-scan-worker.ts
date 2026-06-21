@@ -64,12 +64,15 @@ export async function processGroupScan(scanId: string): Promise<void> {
   });
 
   let anyFailed = false;
+  let anyTruncated = false;
 
   for (let i = startIdx; i < groupIds.length; i++) {
     const groupId = groupIds[i];
     try {
       const added = await scanOneGroup(orgId, zaloAccountId, groupId);
+      if (added.truncated) anyTruncated = true;
       // Cập nhật tiến độ + resumeCursor SAU khi group xong (atomic increment).
+      // Member của group truncated VẪN được đếm (đã upsert) — chỉ scan = partial.
       await prisma.groupScan.update({
         where: { id: scanId },
         data: {
@@ -93,16 +96,13 @@ export async function processGroupScan(scanId: string): Promise<void> {
     }
   }
 
+  // partial khi có group lỗi HOẶC roster thiếu (truncated); completed nếu đầy đủ.
+  const finalState = anyFailed || anyTruncated ? 'partial' : 'completed';
   await prisma.groupScan.update({
     where: { id: scanId },
-    data: {
-      state: anyFailed ? 'partial' : 'completed',
-      completedAt: new Date(),
-    },
+    data: { state: finalState, completedAt: new Date() },
   });
-  logger.info(
-    `[group-scan-worker] scan=${scanId} done state=${anyFailed ? 'partial' : 'completed'}`,
-  );
+  logger.info(`[group-scan-worker] scan=${scanId} done state=${finalState}`);
 }
 
 /**
@@ -113,7 +113,7 @@ async function scanOneGroup(
   orgId: string,
   zaloAccountId: string,
   groupId: string,
-): Promise<{ members: number; friends: number }> {
+): Promise<{ members: number; friends: number; truncated: boolean }> {
   // ── 1. getGroupInfo → memberIds, totalMember, hasMoreMember, profiles inline ──
   const info = await zaloOps.getGroupInfo(zaloAccountId, groupId);
   const gridInfo = (info as { gridInfoMap?: Record<string, unknown> })?.gridInfoMap?.[groupId] as
@@ -234,12 +234,14 @@ async function scanOneGroup(
     }
   }
 
+  // Roster thiếu (community lớn, SDK không phân trang member): KHÔNG ném — thành viên
+  // đã upsert vẫn được ĐẾM, chỉ đánh dấu truncated để scan = partial (AC #3 không
+  // silently complete). Ném chỉ dành cho lỗi API thật (caller bắt → failed group).
   if (truncated) {
-    // Roster thiếu — ném để scan = partial (AC #3 không silently complete).
-    throw new Error(
-      `group ${groupId} roster incomplete: got ${upserted} of ${totalMember} members (hasMoreMember=${hasMore}, no paginated member API)`,
+    logger.warn(
+      `[group-scan-worker] group ${groupId} roster incomplete: ${upserted}/${totalMember} (hasMoreMember=${hasMore}, no paginated member API)`,
     );
   }
 
-  return { members: upserted, friends: friendsFound };
+  return { members: upserted, friends: friendsFound, truncated };
 }

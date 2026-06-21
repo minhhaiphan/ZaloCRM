@@ -197,9 +197,9 @@ describe('processGroupScan — isFriend from Friend(accepted)', () => {
   });
 });
 
-// ── AC #10 — truncated group (hasMoreMember>0) → partial, members upserted, memberCount NOT inflated ──
+// ── AC #10 — truncated group (hasMoreMember>0) → partial, members upserted + COUNTED (not inflated) ──
 describe('processGroupScan — truncated group → partial', () => {
-  it('hasMoreMember>0 ends state=partial, still upserts fetched members, does not increment memberCount for that group', async () => {
+  it('hasMoreMember>0 ends state=partial, upserts fetched members, counts ONLY fetched (not totalMember)', async () => {
     prismaMock.groupScan.findUnique.mockResolvedValueOnce(scanRecord({ groupIds: ['gA'] }));
     // 2 members fetched but totalMember=5, hasMoreMember=3 → roster truncated.
     zaloOpsMock.getGroupInfo.mockResolvedValueOnce(
@@ -210,10 +210,12 @@ describe('processGroupScan — truncated group → partial', () => {
 
     // Members that WERE fetched are still upserted (no silent loss).
     expect(prismaMock.groupMember.upsert).toHaveBeenCalledTimes(2);
-    // Final state partial (scanOneGroup threw on truncation).
+    // Final state partial (truncated, not a failure).
     expect(lastScanUpdate()).toMatchObject({ state: 'partial' });
-    // No memberCount increment happened (success-path update skipped) → count not inflated to totalMember.
-    expect(scanUpdatesWith('memberCount')).toHaveLength(0);
+    // memberCount incremented by ACTUALLY-fetched (2), NOT inflated to totalMember (5).
+    const inc = scanUpdatesWith('memberCount');
+    expect(inc.some((d) => d.memberCount?.increment === 2)).toBe(true);
+    expect(inc.some((d) => d.memberCount?.increment === 5)).toBe(false);
   });
 });
 

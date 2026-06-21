@@ -8,7 +8,7 @@ import { ref } from 'vue';
 import { api } from '@/api/index';
 
 /** GroupScan lifecycle states returned by the backend. */
-export type GroupScanState = 'pending' | 'running' | 'completed' | 'partial' | 'failed';
+export type GroupScanState = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
 
 export interface GroupScan {
   id: string;
