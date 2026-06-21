@@ -263,11 +263,20 @@
 
               <div class="actions-grid" style="margin-top:8px">
                 <button
+                  v-if="!tgStatus.enabled"
                   class="action-btn full"
-                  :disabled="tgStatus.enabled || tgProvisioning || !tgStatus.provisionerConfigured || !canEditSettings"
+                  :disabled="tgProvisioning || !tgStatus.provisionerConfigured || !canEditSettings"
                   @click="provisionBridge"
                 >
-                  <span class="lbl">{{ tgStatus.enabled ? '✓ Đã bật cầu' : (tgProvisioning ? 'Đang bật…' : 'Bật cầu Telegram') }}</span>
+                  <span class="lbl">{{ tgProvisioning ? 'Đang bật…' : (tgStatus.telegramChatId ? '▶ Bật lại cầu' : 'Bật cầu Telegram') }}</span>
+                </button>
+                <button
+                  v-else
+                  class="action-btn full"
+                  :disabled="tgDisabling || !canEditSettings"
+                  @click="disableBridge"
+                >
+                  <span class="lbl">{{ tgDisabling ? 'Đang tắt…' : '⏸ Tắt cầu Telegram' }}</span>
                 </button>
                 <button class="action-btn full" :disabled="tgLinkLoading" @click="getLinkCode">
                   <span class="lbl">{{ tgLinkLoading ? 'Đang lấy mã…' : 'Lấy mã liên kết (sale)' }}</span>
@@ -406,6 +415,7 @@ interface TgStatus { botConfigured: boolean; provisionerConfigured: boolean; ena
 const tgStatus = ref<TgStatus | null>(null);
 const tgLoading = ref(false);
 const tgProvisioning = ref(false);
+const tgDisabling = ref(false);
 const tgLinkCode = ref<string | null>(null);
 const tgLinkLoading = ref(false);
 const tgError = ref<string | null>(null);
@@ -448,6 +458,19 @@ async function getLinkCode() {
     tgError.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Lấy mã liên kết thất bại.';
   } finally {
     tgLinkLoading.value = false;
+  }
+}
+
+async function disableBridge() {
+  if (!props.account || tgDisabling.value) return;
+  tgDisabling.value = true; tgError.value = null;
+  try {
+    await api.post(`/telegram-bridge/disable/${props.account.id}`);
+    await loadTgStatus();
+  } catch (e: unknown) {
+    tgError.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Tắt cầu thất bại.';
+  } finally {
+    tgDisabling.value = false;
   }
 }
 
