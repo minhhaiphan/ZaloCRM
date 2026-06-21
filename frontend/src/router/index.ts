@@ -207,6 +207,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    // Feature E1 — Quét nhóm & thành viên (group scan).
+    path: '/groups/scan',
+    name: 'GroupScan',
+    component: () => import('@/views/GroupScanView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/friends',
     name: 'Friends',
     component: () => import('@/views/FriendsView.vue'),
@@ -330,6 +337,7 @@ const ROUTE_TITLES: Record<string, string> = {
   StuckLeads: 'Lead bị kẹt',
   Automation: 'Tự động hóa',
   Groups: 'Nhóm',
+  GroupScan: 'Quét nhóm & thành viên',
   Friends: 'Bạn bè',
   NotFound: 'Không tìm thấy trang',
   // Cài đặt
