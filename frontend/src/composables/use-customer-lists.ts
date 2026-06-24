@@ -151,6 +151,9 @@ export function useCustomerLists() {
   const entrySearch = ref('');
   const entryPage = ref(1);
   const entryLimit = ref(50);
+  // Sắp xếp bảng entries (UI 2026-06-24). Mặc định rowIndex DESC = khách mới thêm nằm trên cùng.
+  const entrySort = ref<string>('rowIndex');
+  const entryDir = ref<'asc' | 'desc'>('desc');
 
   // Selection for bulk
   const selectedEntryIds = ref<Set<string>>(new Set());
@@ -292,6 +295,8 @@ export function useCustomerLists() {
           page: entryPage.value,
           limit: entryLimit.value,
           search: entrySearch.value || undefined,
+          sort: entrySort.value,
+          dir: entryDir.value,
         },
       });
       entries.value = res.data.entries ?? [];
@@ -418,6 +423,8 @@ export function useCustomerLists() {
     entrySearch,
     entryPage,
     entryLimit,
+    entrySort,
+    entryDir,
     fetchEntries,
     bulkResolveEntries,
     // selection
