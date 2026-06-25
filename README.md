@@ -409,7 +409,7 @@ docker exec zalo-crm-db psql -U crmuser -d zalocrm < backup-v2.1-<datetime>.sql
 
 ## API & Webhook
 
-> Hướng dẫn chi tiết: [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md)
+> 📖 Hướng dẫn sử dụng đầy đủ (luôn cập nhật mới nhất): **https://docs.locnguyendata.com/**
 
 ### Xác thực API
 ```
