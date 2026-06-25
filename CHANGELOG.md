@@ -7,7 +7,7 @@ Các thay đổi đáng chú ý của ZaloCRM. Theo [Semantic Versioning](https:
 
 ## [3.4.0] - 2026-06-20
 
-Đợt cập nhật lớn: **vận hành sale** (luồng bám đuổi + bể lead), **cầu Zalo ↔ Telegram**, **độ tin cậy chat**, và chuyển sang **mã nguồn mở AGPL-3.0**.
+Đợt cập nhật lớn: **giao diện mới** + **Dashboard mới**, **nâng cao bảo mật**, **quét nhóm Zalo**, **bộ báo cáo mới**, **cầu Zalo ↔ Telegram**, **độ tin cậy chat**, và chuyển sang **mã nguồn mở AGPL-3.0**.
 
 ### Added — Tính năng mới
 - **Giao diện mới** — redesign toàn diện UI (layout, theme sáng/tối, responsive desktop/mobile).
@@ -17,9 +17,7 @@ Các thay đổi đáng chú ý của ZaloCRM. Theo [Semantic Versioning](https:
 - **Bộ báo cáo mới** — Tổng quan điều hành · Vận hành Nick Zalo · Hiệu suất Sale & Team · Tương tác khách hàng · Audit & Sức khoẻ hệ thống · **Phân tích nâng cao**.
 - **API hoàn chỉnh cho ZaloCRM Mobile App** — bộ REST API đầy đủ (auth, chat, contacts, lịch hẹn, báo cáo, push) phục vụ ứng dụng di động.
 - **Cầu Zalo ↔ Telegram** — mirror tin nhắn **2 chiều** (vào/ra) + **media** (ảnh/video/audio/file, giữ tên file gốc), realtime + badge, chống lặp theo `msgId`.
-- **Luồng bám đuổi (follow-up sequence) — recode toàn bộ:** nền móng schema cột mềm + `ensureUidForPair` + schedule-calculator; epoch trong jobId để gắn lại cùng luồng cho KH đã chạy xong; 4 luật (giãn cách random `[min,max]` + **jitter từng bước**, cooldown, pause/guard/resume); **Luật 4** tự giữ/hoãn theo `careHoldHours` cấu hình khi khách trả lời; ETA timing 4 mốc; UI màn 4 luật + badge timing + nút "gửi bước tiếp ngay"; 21 unit test.
-- **Bể Lead (lead-pool) — rebuild:** chia lead FIFO vòng tua (round-robin) + 2 ca làm việc + màn khóa trạng thái + 4 màn pro; tab "Tổng quan v2" phân tích sale tốt/tệ + lọc lead rác.
-- **Chuông "đang theo dõi"** sau tên khách ở cột 2 chat; sequence tự gắn cũng hiện chuông (đồng bộ 3 nơi).
+- **Chuông "đang theo dõi"** sau tên khách ở cột 2 chat (đồng bộ 3 nơi).
 - **Chat "Phạm vi làm việc":** scope trở thành điều kiện LOAD; mỗi lần gắn 1 card + nhóm "đã xong" thu gọn.
 - **Template:** mở rộng 8 biến cá nhân hóa.
 - **AI:** quản lý API key + model provider trên giao diện (per-org).
@@ -28,20 +26,16 @@ Các thay đổi đáng chú ý của ZaloCRM. Theo [Semantic Versioning](https:
 
 ### Changed — Thay đổi / Giao diện
 - **Giấy phép → AGPL-3.0:** relicense sang GNU AGPL-3.0 (copyleft + §13 SaaS source-disclosure) + **dual-license thương mại** + điều khoản **trademark "ZaloCRM"**; SPDX header trên toàn bộ file nguồn; thêm CONTRIBUTING + DCO; link **"Mã nguồn"** ở trang login (tuân thủ §13).
-- Lead-pool đồng bộ theme HS (tím → teal-navy, bỏ emoji), avatar bo tròn.
 - Hồ sơ KH dùng tag per-nick (TagV2); nút Hồ sơ ở trang Bạn bè mở popup.
 - Bộ nhận diện ZaloCRM mới (logo monochrome, design system) + user guide + quick start (quản trị/nhân viên).
 
 ### Fixed — Sửa lỗi
 - **clamav** image tag `1.3` → `1.4` (tag 1.3 không tồn tại trên Docker Hub).
-- **Migration** bổ sung cho 3 cột `AutomationTrigger` bị thiếu (vá schema drift → ColumnNotFound).
 - **Build:** sửa `@import` CSS trỏ sai sau khi di chuyển `airtable.css` (chỉ lộ ở `vite build`).
 - **Privacy:** chặn blur `▒` ăn vào data — tên KH không bị ghi đè bằng `▒▒▒▒`.
 - **Chat:** bấm avatar/tên KH báo "Không tải được thông tin user" (per-account UID); badge "tin ở nick khác" gọn 1 dòng.
 - **Gửi tin (advance):** toast đỏ → vàng + báo đúng lý do; sửa báo "đã gửi" sai khi tin chưa đi + promote nhầm job mồ côi.
-- **Phiên chăm sóc:** 3 bug khi khách trả lời giữa luồng (notify + ETA tạm dừng); card hiện "Tạm dừng vì khách trả lời · gửi tiếp [giờ]"; card đã xong 10/10 không bị kéo lên "Tạm dừng" oan.
-- **Realtime/Socket:** tin BOT bám đuổi tự hiện cột 3 + update preview cột 2; tự hồi socket khi treo lâu (token 15' hết hạn).
-- **Chống spam:** `cooldown=0` = TẮT (trước đây bị fallback mặc định 30).
+- **Realtime/Socket:** tự hồi socket khi treo lâu (token 15' hết hạn).
 
 ---
 
@@ -114,7 +108,6 @@ Các thay đổi đáng chú ý của ZaloCRM. Theo [Semantic Versioning](https:
 ### Hygiene
 
 - Thêm `.env.bak*` và `.env.*.bak` vào `.gitignore` — ngăn commit nhầm file backup env.
-- Bổ sung biến Facebook integration (`FB_GRAPH_API_VERSION`, `FB_APP_ID`, `FB_APP_SECRET`, `FB_WEBHOOK_VERIFY_TOKEN`, `FB_TOKEN_ENC_KEY`, `FB_OAUTH_REDIRECT_URI`) vào `.env.example` kèm hướng dẫn tạo.
 
 ### Upgrade notes
 
@@ -127,8 +120,6 @@ MINIO_ROOT_PASSWORD=<strong-password>
 ## v3.3.0 — 25/05/2026
 
 ### Added
-- Facebook Lead Ingestion: Meta OAuth, page connection, webhook verify/HMAC, lead queue, form auto-discovery.
-- Tự tạo Customer List theo Facebook page/form và gán sale vòng tròn cho lead mới.
 - Chuyển tiếp media trong chat: image, video, audio.
 - Backfill/mirror ảnh/video inbound từ Zalo CDN sang MinIO/S3/R2.
 - Cloudflare R2 config trong `.env.example`.
@@ -136,7 +127,6 @@ MINIO_ROOT_PASSWORD=<strong-password>
 
 ### Changed
 - Merge upstream `locphamnguyen/main` qua branch `merge/upstream-main-20260525`.
-- Merge `feat/fb-lead-ingestion` vào `main`.
 - Chat media pipeline dùng object storage nhất quán hơn cho preview và forward.
 - `.env` parser xử lý secret/password có ký tự `#`.
 
@@ -150,14 +140,11 @@ MINIO_ROOT_PASSWORD=<strong-password>
 ## v3.2.0 — 21/05/2026
 
 ### Added
-- Bot-Auto framework: Blocks, Sequences, Triggers, Broadcasts, Customer Lists.
 - Lead Scoring Phase 6: signal detector, auto-decay, auto tags, stuck lead dashboard.
-- Customer Lists import CSV/Excel, column mapping, inline edit, undo delete.
 - Scoring settings tại `/settings/crm/scoring`.
 - Scripts hỗ trợ Phase 7 runner và setup test data.
 
 ### Changed
-- Bot-Auto được đưa lên top-level navigation.
 - Appointments, Friends, Zalo Accounts, Settings layout được redesign.
 - Zalo Labels auto-sync khi connect/reconnect.
 - Contact touch-profile endpoint bổ sung thông tin từ SDK khi mở conversation.
@@ -228,7 +215,6 @@ MINIO_ROOT_PASSWORD=<strong-password>
 
 ### Added
 - AI Assistant: gợi ý trả lời, tóm tắt, phân tích cảm xúc.
-- Workflow Automation.
 - Integration Hub: Google Sheets, Telegram, Facebook, Zapier.
 - Mobile PWA.
 - Contact Intelligence: gộp trùng, lead scoring, auto-tag.
