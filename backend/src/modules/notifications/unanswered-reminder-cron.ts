@@ -49,13 +49,32 @@ function waitLabel(lastMessageAt: Date | null, nowMs = Date.now()): string {
   return `${days} ngày ${hours % 24} giờ`;
 }
 
-function cleanPreview(candidate: ReminderCandidate): string {
+const FRIENDLY_CONTENT_TYPE: Record<string, string> = {
+  image: 'Khách đã gửi một hình ảnh',
+  video: 'Khách đã gửi một video',
+  file: 'Khách đã gửi một tệp đính kèm',
+  voice: 'Khách đã gửi một tin nhắn thoại',
+  audio: 'Khách đã gửi một tin nhắn thoại',
+  sticker: 'Khách đã gửi một sticker',
+  gif: 'Khách đã gửi một ảnh GIF',
+  link: 'Khách đã gửi một liên kết',
+  location: 'Khách đã gửi vị trí',
+  contact_card: 'Khách đã gửi một danh thiếp',
+  qr_code: 'Khách đã gửi một mã QR',
+  bank_transfer: 'Khách đã gửi thông tin chuyển khoản',
+  call: 'Khách có một cuộc gọi nhỡ',
+};
+
+function friendlyPreview(candidate: ReminderCandidate): string {
   const message = candidate.messages[0];
-  if (!message) return '';
-  if (message.contentType === 'call') return '[Cuộc gọi nhỡ]';
-  if (message.contentType !== 'text' || !message.content) return `[${message.contentType || 'tin nhắn'}]`;
+  if (!message) return 'Không có nội dung xem trước';
+  if (message.contentType !== 'text') {
+    return FRIENDLY_CONTENT_TYPE[message.contentType] || 'Khách đã gửi một tin nhắn';
+  }
+  if (!message.content) return 'Khách đã gửi một tin nhắn';
   const compact = message.content.replace(/\s+/g, ' ').trim();
-  return compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
+  const preview = compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
+  return `“${preview}”`;
 }
 
 export function buildUnansweredReminderMessage(
@@ -65,20 +84,27 @@ export function buildUnansweredReminderMessage(
   const shown = candidates.slice(0, MAX_ITEMS_IN_MESSAGE);
   const lines = shown.flatMap((candidate, index) => {
     const customer = candidate.contact?.fullName?.trim() || 'Khách hàng chưa đặt tên';
-    const nick = candidate.zaloAccount.displayName?.trim() || 'Nick Zalo';
-    const preview = cleanPreview(candidate);
+    const nick = candidate.zaloAccount.displayName?.trim() || 'Tài khoản chưa đặt tên';
+    const preview = friendlyPreview(candidate);
     return [
-      `${index + 1}. ${customer} - chờ ${waitLabel(candidate.lastMessageAt, nowMs)}`,
-      `   Nick: ${nick}${preview ? ` | Tin cuối: ${preview}` : ''}`,
-      `   ${config.appUrl.replace(/\/+$/, '')}/chat/${candidate.id}`,
+      ...(index > 0 ? [''] : []),
+      `${index + 1}. 👤 ${customer}`,
+      `⏳ Đã chờ: ${waitLabel(candidate.lastMessageAt, nowMs)}`,
+      `💬 Tin nhắn cuối: ${preview}`,
+      `📱 Tài khoản Zalo: ${nick}`,
+      '👉 Mở hội thoại:',
+      `${config.appUrl.replace(/\/+$/, '')}/chat/${candidate.id}`,
     ];
   });
   const remaining = candidates.length - shown.length;
-  if (remaining > 0) lines.push(`... và ${remaining} khách khác đang chờ trả lời.`);
+  if (remaining > 0) lines.push('', `Còn ${remaining} khách hàng khác đang chờ phản hồi.`);
   return [
-    `NHẮC TRẢ LỜI KHÁCH > 15 PHÚT (${candidates.length})`,
+    '🔔 KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI',
+    `Có ${candidates.length} hội thoại đã chờ quá 15 phút.`,
     '',
     ...lines,
+    '',
+    'Vui lòng kiểm tra và phản hồi khách sớm.',
   ].join('\n');
 }
 
