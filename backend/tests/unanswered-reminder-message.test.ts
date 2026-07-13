@@ -24,4 +24,25 @@ describe('unanswered reminder message', () => {
     expect(message).toContain('📱 Tài khoản Zalo: Nhà Thuốc Kiểm Nghiệm');
     expect(message).not.toContain('[link]');
   });
+
+  it('labels split digest parts and keeps global numbering', () => {
+    const now = Date.parse('2026-07-13T08:15:00.000Z');
+    const candidate = {
+      id: 'conversation-3',
+      orgId: 'org-1',
+      lastMessageAt: new Date(now - 20 * 60_000),
+      contact: { fullName: 'Khách thứ ba' },
+      zaloAccount: { displayName: 'Nhà Thuốc Trường Thọ' },
+      messages: [{ content: null, contentType: 'image' }],
+    };
+    const message = buildUnansweredReminderMessage([candidate], now, {
+      totalCandidates: 4,
+      partNumber: 2,
+      totalParts: 2,
+      itemOffset: 2,
+    });
+
+    expect(message).toContain('Có 4 hội thoại đã chờ quá 15 phút (phần 2/2).');
+    expect(message).toContain('3. 👤 Khách thứ ba');
+  });
 });

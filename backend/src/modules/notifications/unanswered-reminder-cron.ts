@@ -18,7 +18,8 @@ const UNANSWERED_THRESHOLD_MS = 15 * 60 * 1000;
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const DEDUP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_SCAN_PER_ORG = 500;
-const MAX_ITEMS_IN_MESSAGE = 12;
+// Keep each Zalo payload comfortably below the personal-message SDK limit.
+const MAX_ITEMS_PER_MESSAGE = 2;
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 let cronRunning = false;
@@ -80,15 +81,15 @@ function friendlyPreview(candidate: ReminderCandidate): string {
 export function buildUnansweredReminderMessage(
   candidates: ReminderCandidate[],
   nowMs = Date.now(),
+  context?: { totalCandidates: number; partNumber: number; totalParts: number; itemOffset: number },
 ): string {
-  const shown = candidates.slice(0, MAX_ITEMS_IN_MESSAGE);
-  const lines = shown.flatMap((candidate, index) => {
+  const lines = candidates.flatMap((candidate, index) => {
     const customer = candidate.contact?.fullName?.trim() || 'Khách hàng chưa đặt tên';
     const nick = candidate.zaloAccount.displayName?.trim() || 'Tài khoản chưa đặt tên';
     const preview = friendlyPreview(candidate);
     return [
       ...(index > 0 ? [''] : []),
-      `${index + 1}. 👤 ${customer}`,
+      `${(context?.itemOffset ?? 0) + index + 1}. 👤 ${customer}`,
       `⏳ Đã chờ: ${waitLabel(candidate.lastMessageAt, nowMs)}`,
       `💬 Tin nhắn cuối: ${preview}`,
       `📱 Tài khoản Zalo: ${nick}`,
@@ -96,11 +97,13 @@ export function buildUnansweredReminderMessage(
       `${config.appUrl.replace(/\/+$/, '')}/chat/${candidate.id}`,
     ];
   });
-  const remaining = candidates.length - shown.length;
-  if (remaining > 0) lines.push('', `Còn ${remaining} khách hàng khác đang chờ phản hồi.`);
+  const totalCandidates = context?.totalCandidates ?? candidates.length;
+  const partLabel = context && context.totalParts > 1
+    ? ` (phần ${context.partNumber}/${context.totalParts})`
+    : '';
   return [
     '🔔 KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI',
-    `Có ${candidates.length} hội thoại đã chờ quá 15 phút.`,
+    `Có ${totalCandidates} hội thoại đã chờ quá 15 phút${partLabel}.`,
     '',
     ...lines,
     '',
@@ -211,16 +214,38 @@ async function processOrganization(org: {
   const claimed = await claimCandidates(org.id, candidates, now);
   if (!claimed.length) return { scanned: candidates.length, notified: 0, skipped: null };
 
+  const batches: ClaimedCandidate[][] = [];
+  for (let index = 0; index < claimed.length; index += MAX_ITEMS_PER_MESSAGE) {
+    batches.push(claimed.slice(index, index + MAX_ITEMS_PER_MESSAGE));
+  }
+  const sentDedupIds = new Set<string>();
   try {
-    const message = buildUnansweredReminderMessage(claimed, now.getTime());
-    await api.sendMessage({ msg: message, urgency: 1 }, org.internalNotifyGroupThreadId, 1);
+    for (let index = 0; index < batches.length; index++) {
+      const batch = batches[index];
+      const message = buildUnansweredReminderMessage(batch, now.getTime(), {
+        totalCandidates: claimed.length,
+        partNumber: index + 1,
+        totalParts: batches.length,
+        itemOffset: index * MAX_ITEMS_PER_MESSAGE,
+      });
+      await api.sendMessage({ msg: message, urgency: 1 }, org.internalNotifyGroupThreadId, 1);
+      batch.forEach((candidate) => sentDedupIds.add(candidate.dedupId));
+      logger.info(
+        `[unanswered-reminder] Sent org=${org.name} group=${org.internalNotifyGroupThreadId} part=${index + 1}/${batches.length} count=${batch.length} chars=${message.length}`,
+      );
+    }
     logger.info(
       `[unanswered-reminder] Sent org=${org.name} group=${org.internalNotifyGroupThreadId} count=${claimed.length}`,
     );
     return { scanned: candidates.length, notified: claimed.length, skipped: null };
   } catch (err) {
-    // A failed external send must be retryable on the next minute.
-    await prisma.notifyDedupState.deleteMany({ where: { id: { in: claimed.map(item => item.dedupId) } } });
+    // Keep successful-part claims; only unsent candidates should retry next minute.
+    const unsentIds = claimed
+      .filter((candidate) => !sentDedupIds.has(candidate.dedupId))
+      .map((candidate) => candidate.dedupId);
+    if (unsentIds.length) {
+      await prisma.notifyDedupState.deleteMany({ where: { id: { in: unsentIds } } });
+    }
     throw err;
   }
 }
