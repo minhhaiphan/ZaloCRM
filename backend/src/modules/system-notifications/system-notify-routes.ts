@@ -15,6 +15,10 @@ import { DEFAULT_WELCOME_TEMPLATE, buildWelcomeMessage, validateTemplate, toZalo
 import { formatMessage } from '../../shared/text-formatter.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
+import {
+  getUnansweredExcludedCrmTagIds,
+  saveUnansweredExcludedCrmTagIds,
+} from '../notifications/unanswered-reminder-settings.js';
 
 function hashPhone(phone: string): string {
   return createHash('sha256').update(phone.trim()).digest('hex');
@@ -165,6 +169,68 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return { ok: true, systemNotifyZaloAccountId: accountId };
+    },
+  );
+
+  app.get(
+    '/api/v1/system-notifications/unanswered-reminder-settings',
+    { preHandler: requireGrant('settings', 'access') },
+    async (request: FastifyRequest) => {
+      const currentUser = request.user!;
+      const [excluded, tags] = await Promise.all([
+        getUnansweredExcludedCrmTagIds(currentUser.orgId),
+        prisma.tag.findMany({
+          where: {
+            orgId: currentUser.orgId,
+            scope: 'crm',
+            source: 'manual_crm',
+            archivedAt: null,
+          },
+          select: { id: true, name: true, color: true, emoji: true, usageCount: true },
+          orderBy: [{ usageCount: 'desc' }, { name: 'asc' }],
+        }),
+      ]);
+      const availableIds = new Set(tags.map((tag) => tag.id));
+      return {
+        excludedCrmTagIds: excluded.tagIds.filter((id) => availableIds.has(id)),
+        usesDefault: excluded.usesDefault,
+        tags,
+      };
+    },
+  );
+
+  app.patch(
+    '/api/v1/system-notifications/unanswered-reminder-settings',
+    { preHandler: requireGrant('settings', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const currentUser = request.user!;
+      const body = (request.body ?? {}) as { excludedCrmTagIds?: unknown };
+      if (!Array.isArray(body.excludedCrmTagIds)) {
+        return reply.status(400).send({ error: 'excludedCrmTagIds phải là một danh sách' });
+      }
+      if (body.excludedCrmTagIds.length > 100 || body.excludedCrmTagIds.some((id) => typeof id !== 'string')) {
+        return reply.status(400).send({ error: 'Danh sách nhãn loại trừ không hợp lệ' });
+      }
+
+      const tagIds = Array.from(new Set(body.excludedCrmTagIds.map((id) => id.trim()).filter(Boolean)));
+      const validTags = tagIds.length
+        ? await prisma.tag.findMany({
+            where: {
+              id: { in: tagIds },
+              orgId: currentUser.orgId,
+              scope: 'crm',
+              source: 'manual_crm',
+              archivedAt: null,
+            },
+            select: { id: true },
+          })
+        : [];
+      if (validTags.length !== tagIds.length) {
+        return reply.status(400).send({ error: 'Có nhãn CRM không tồn tại hoặc đã bị lưu trữ' });
+      }
+
+      await saveUnansweredExcludedCrmTagIds(currentUser.orgId, tagIds);
+      return { ok: true, excludedCrmTagIds: tagIds };
     },
   );
 

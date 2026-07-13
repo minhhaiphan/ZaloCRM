@@ -10,6 +10,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { config } from '../../config/index.js';
+import { getUnansweredExcludedCrmTagIds } from './unanswered-reminder-settings.js';
 
 const CRON_SCHEDULE = '*/1 * * * *';
 const UNANSWERED_THRESHOLD_MS = 15 * 60 * 1000;
@@ -17,7 +18,6 @@ const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const DEDUP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_SCAN_PER_ORG = 500;
 const MAX_ITEMS_IN_MESSAGE = 12;
-const EXCLUDED_CRM_LABEL = 'Đồng nghiệp';
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 let cronRunning = false;
@@ -80,7 +80,7 @@ export function buildUnansweredReminderMessage(
   ].join('\n');
 }
 
-async function loadCandidates(orgId: string, now: Date): Promise<ReminderCandidate[]> {
+async function loadCandidates(orgId: string, now: Date, excludedTagIds: string[]): Promise<ReminderCandidate[]> {
   return prisma.conversation.findMany({
     where: {
       orgId,
@@ -93,21 +93,25 @@ async function loadCandidates(orgId: string, now: Date): Promise<ReminderCandida
         lte: new Date(now.getTime() - UNANSWERED_THRESHOLD_MS),
         gte: new Date(now.getTime() - LOOKBACK_MS),
       },
-      contact: {
-        is: {
-          tagAssignments: {
-            none: {
-              removedAt: null,
-              tag: {
-                archivedAt: null,
-                scope: 'crm',
-                source: 'manual_crm',
-                name: { equals: EXCLUDED_CRM_LABEL, mode: 'insensitive' },
+      ...(excludedTagIds.length
+        ? {
+            contact: {
+              is: {
+                tagAssignments: {
+                  none: {
+                    removedAt: null,
+                    tagId: { in: excludedTagIds },
+                    tag: {
+                      archivedAt: null,
+                      scope: 'crm' as const,
+                      source: 'manual_crm' as const,
+                    },
+                  },
+                },
               },
             },
-          },
-        },
-      },
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -173,7 +177,8 @@ async function processOrganization(org: {
   if (!api) return { scanned: 0, notified: 0, skipped: 'system sender disconnected' };
 
   const now = new Date();
-  const candidates = await loadCandidates(org.id, now);
+  const excluded = await getUnansweredExcludedCrmTagIds(org.id);
+  const candidates = await loadCandidates(org.id, now, excluded.tagIds);
   const claimed = await claimCandidates(org.id, candidates, now);
   if (!claimed.length) return { scanned: candidates.length, notified: 0, skipped: null };
 
@@ -237,7 +242,7 @@ export function startUnansweredReminderCron(): void {
       cronRunning = false;
     }
   });
-  logger.info(`[unanswered-reminder] Started, threshold=15m schedule="${CRON_SCHEDULE}" exclude="${EXCLUDED_CRM_LABEL}"`);
+  logger.info(`[unanswered-reminder] Started, threshold=15m schedule="${CRON_SCHEDULE}" exclusions=org-settings`);
 }
 
 export function stopUnansweredReminderCron(): void {

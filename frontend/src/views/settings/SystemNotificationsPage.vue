@@ -16,13 +16,14 @@
       </v-btn>
     </div>
 
-    <!-- 2026-06-10: gộp còn 3 tab — 'Cấu hình gửi' cũ (1 dropdown) dồn vào đầu
-         tab 'Nhân viên nhận' vì cùng luồng: chọn nick gửi → xem ai nhận. -->
+    <!-- 'Cấu hình gửi' cũ (1 dropdown) nằm trong tab Nhân viên nhận; cấu hình
+         reminder tách riêng để admin dễ quản lý các Nhãn CRM loại trừ. -->
     <v-tabs v-model="activeTab" class="sn-tabs" color="primary" density="comfortable">
       <v-tab value="people">
         👥 Nhân viên nhận
         <span class="sn-tab-cnt">{{ recipients.length }}</span>
       </v-tab>
+      <v-tab value="reminders">⏱ Nhắc trả lời</v-tab>
       <v-tab value="welcome">📨 Tin chào mừng</v-tab>
       <v-tab value="logs">
         📜 Lịch sử gửi
@@ -31,6 +32,83 @@
     </v-tabs>
 
     <v-window v-model="activeTab" class="sn-window">
+      <!-- ════ TAB: NHẮC TRẢ LỜI KHÁCH ════ -->
+      <v-window-item value="reminders">
+        <div class="ur-wrap">
+          <section class="ur-card">
+            <div class="ur-card-head">
+              <div class="ur-icon"><v-icon size="24">mdi-timer-alert-outline</v-icon></div>
+              <div>
+                <div class="ur-title">Nhắc hội thoại chưa trả lời</div>
+                <div class="ur-subtitle">
+                  Sau 15 phút chưa có phản hồi, CRM gửi một bản tổng hợp vào nhóm Công việc hằng ngày.
+                </div>
+              </div>
+              <v-chip color="success" variant="tonal" size="small">Đang bật</v-chip>
+            </div>
+
+            <div class="ur-rule">
+              <div class="ur-rule-number">15</div>
+              <div>
+                <strong>phút chưa trả lời</strong>
+                <span>Mỗi trạng thái tin đến chỉ được nhắc một lần, tránh gửi trùng.</span>
+              </div>
+            </div>
+
+            <div class="ur-field">
+              <label>Không nhắc contact có một trong các Nhãn CRM sau</label>
+              <v-autocomplete
+                v-model="excludedCrmTagIds"
+                :items="reminderTagOptions"
+                item-title="name"
+                item-value="id"
+                variant="outlined"
+                density="comfortable"
+                multiple
+                chips
+                closable-chips
+                clearable
+                hide-details="auto"
+                placeholder="Chọn Đồng nghiệp, Nhà CC, Spam..."
+                :loading="loadingReminderSettings"
+                :disabled="loadingReminderSettings || savingReminderSettings"
+                no-data-text="Chưa có Nhãn CRM phù hợp"
+              >
+                <template #chip="{ item, props: chipProps }">
+                  <v-chip v-bind="chipProps" :color="item.color || 'primary'" variant="tonal" size="small">
+                    {{ item.emoji ? `${item.emoji} ` : '' }}{{ item.name }}
+                  </v-chip>
+                </template>
+              </v-autocomplete>
+              <div class="ur-help">
+                Chỉ áp dụng cho <strong>Nhãn CRM</strong>, không áp dụng cho Thẻ Zalo. Để trống nghĩa là không loại trừ contact nào.
+              </div>
+            </div>
+
+            <div class="ur-actions">
+              <span v-if="reminderUsesDefault && !reminderSettingsDirty" class="ur-default-note">
+                Đang dùng mặc định: Đồng nghiệp
+              </span>
+              <v-spacer />
+              <v-btn variant="text" :disabled="!reminderSettingsDirty || savingReminderSettings" @click="discardReminderSettings">
+                Huỷ thay đổi
+              </v-btn>
+              <v-btn
+                color="primary"
+                prepend-icon="mdi-content-save-outline"
+                :loading="savingReminderSettings"
+                :disabled="!reminderSettingsDirty"
+                @click="saveReminderSettings"
+              >
+                Lưu loại trừ
+              </v-btn>
+            </div>
+            <v-alert v-if="reminderSettingsError" type="error" density="compact" class="mt-3">{{ reminderSettingsError }}</v-alert>
+            <v-alert v-if="reminderSettingsSuccess" type="success" density="compact" class="mt-3">{{ reminderSettingsSuccess }}</v-alert>
+          </section>
+        </div>
+      </v-window-item>
+
       <!-- ════ TAB: TIN CHÀO MỪNG ════
            Atlas v3 2026-06-08 (anh chốt): sao chép "edit block view Zalo" — soạn WYSIWYG
            (bôi đậm/màu/cỡ) bên trái + bong bóng Zalo render LIVE bên phải. KHÔNG gõ **markup**. -->
@@ -592,6 +670,14 @@ interface SenderNick {
   status: string;
 }
 
+interface ReminderCrmTag {
+  id: string;
+  name: string;
+  color: string | null;
+  emoji: string | null;
+  usageCount: number;
+}
+
 interface RecipientRow {
   user: {
     id: string;
@@ -614,8 +700,8 @@ interface RecipientRow {
   };
 }
 
-// 2026-06-04 — Atlas v2 redesign: tab ngang. 2026-06-10: gộp còn 3 tab, mặc định 'people'.
-const activeTab = ref<'welcome' | 'people' | 'logs'>('people');
+// Atlas tabs, mặc định tab nhân viên nhận.
+const activeTab = ref<'welcome' | 'people' | 'reminders' | 'logs'>('people');
 
 const loadingSettings = ref(false);
 const loadingRecipients = ref(false);
@@ -628,6 +714,22 @@ const nicks = ref<SenderNick[]>([]);
 const recipients = ref<RecipientRow[]>([]);
 const summary = ref<Record<string, number>>({});
 const lookupUserId = ref<string | null>(null);
+
+const loadingReminderSettings = ref(false);
+const savingReminderSettings = ref(false);
+const reminderSettingsError = ref('');
+const reminderSettingsSuccess = ref('');
+const reminderUsesDefault = ref(false);
+const reminderTags = ref<ReminderCrmTag[]>([]);
+const excludedCrmTagIds = ref<string[]>([]);
+const savedExcludedCrmTagIds = ref<string[]>([]);
+
+const reminderTagOptions = computed(() => reminderTags.value);
+const reminderSettingsDirty = computed(() => {
+  const current = [...excludedCrmTagIds.value].sort();
+  const saved = [...savedExcludedCrmTagIds.value].sort();
+  return current.length !== saved.length || current.some((id, index) => id !== saved[index]);
+});
 
 // ── Org config: welcome template + image + admin fallback phone ──
 // Atlas v3 2026-06-08: soạn WYSIWYG (RichTextEditor) thay textarea markup.
@@ -856,6 +958,47 @@ async function saveSender(value: unknown) {
     senderError.value = err?.response?.data?.error || 'Lỗi lưu nick gửi thông báo hệ thống';
   } finally {
     savingSender.value = false;
+  }
+}
+
+async function fetchReminderSettings() {
+  loadingReminderSettings.value = true;
+  reminderSettingsError.value = '';
+  try {
+    const { data } = await api.get('/system-notifications/unanswered-reminder-settings');
+    reminderTags.value = data.tags || [];
+    excludedCrmTagIds.value = data.excludedCrmTagIds || [];
+    savedExcludedCrmTagIds.value = [...excludedCrmTagIds.value];
+    reminderUsesDefault.value = Boolean(data.usesDefault);
+  } catch (err: any) {
+    reminderSettingsError.value = err?.response?.data?.error || 'Lỗi tải cấu hình nhắc trả lời';
+  } finally {
+    loadingReminderSettings.value = false;
+  }
+}
+
+function discardReminderSettings() {
+  excludedCrmTagIds.value = [...savedExcludedCrmTagIds.value];
+  reminderSettingsError.value = '';
+  reminderSettingsSuccess.value = '';
+}
+
+async function saveReminderSettings() {
+  savingReminderSettings.value = true;
+  reminderSettingsError.value = '';
+  reminderSettingsSuccess.value = '';
+  try {
+    const { data } = await api.patch('/system-notifications/unanswered-reminder-settings', {
+      excludedCrmTagIds: excludedCrmTagIds.value,
+    });
+    excludedCrmTagIds.value = data.excludedCrmTagIds || [];
+    savedExcludedCrmTagIds.value = [...excludedCrmTagIds.value];
+    reminderUsesDefault.value = false;
+    reminderSettingsSuccess.value = 'Đã cập nhật các Nhãn CRM được loại khỏi nhắc trả lời.';
+  } catch (err: any) {
+    reminderSettingsError.value = err?.response?.data?.error || 'Lỗi lưu cấu hình nhắc trả lời';
+  } finally {
+    savingReminderSettings.value = false;
   }
 }
 
@@ -1244,12 +1387,13 @@ function goToConversation(log: LogItem) {
 
 // Làm mới toàn trang (nút topbar) — refresh dữ liệu tab đang xem + recipients.
 async function refreshAll() {
-  await Promise.all([fetchRecipients(), fetchLogs(true)]);
+  await Promise.all([fetchRecipients(), fetchReminderSettings(), fetchLogs(true)]);
 }
 
 onMounted(async () => {
   await fetchSettings();
   await fetchRecipients();
+  await fetchReminderSettings();
   await fetchOrgConfig();
   await fetchLogs();
 });
@@ -1606,6 +1750,67 @@ onMounted(async () => {
   display: flex; justify-content: center; align-items: center; gap: 6px;
   padding: 9px 12px; background: rgba(255,255,255,0.75); border-top: 1px solid var(--at-hairline);
   font-size: 10.5px; color: var(--at-primary); font-weight: 500; text-align: center;
+}
+
+/* ── Nhắc hội thoại chưa trả lời ── */
+.ur-wrap {
+  padding: 28px;
+  min-height: 440px;
+  background:
+    radial-gradient(circle at 92% 5%, rgba(0, 104, 255, 0.08), transparent 32%),
+    #f7f9fc;
+}
+.ur-card {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 26px;
+  border: 1px solid var(--at-hairline);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(23, 43, 77, 0.07);
+}
+.ur-card-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+.ur-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: #0068ff;
+  background: #e7f0ff;
+}
+.ur-title { color: var(--at-ink); font-size: 18px; font-weight: 700; }
+.ur-subtitle { margin-top: 3px; color: var(--at-muted); font-size: 13px; line-height: 1.5; }
+.ur-rule {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 24px 0;
+  padding: 16px 18px;
+  border: 1px solid #cfe0ff;
+  border-radius: 12px;
+  background: linear-gradient(105deg, #f3f7ff, #fbfdff);
+}
+.ur-rule-number { color: #0068ff; font-size: 34px; font-weight: 800; line-height: 1; }
+.ur-rule strong { display: block; color: var(--at-ink); font-size: 14px; }
+.ur-rule span { display: block; margin-top: 3px; color: var(--at-muted); font-size: 12px; }
+.ur-field label { display: block; margin-bottom: 9px; color: var(--at-ink); font-size: 13px; font-weight: 650; }
+.ur-help { margin-top: 8px; color: var(--at-muted); font-size: 12px; }
+.ur-actions { display: flex; align-items: center; gap: 8px; margin-top: 24px; }
+.ur-default-note { color: var(--at-muted); font-size: 12px; }
+
+@media (max-width: 700px) {
+  .ur-wrap { padding: 14px; }
+  .ur-card { padding: 18px; }
+  .ur-card-head { grid-template-columns: auto 1fr; }
+  .ur-card-head > .v-chip { grid-column: 2; justify-self: start; }
+  .ur-actions { flex-wrap: wrap; }
+  .ur-default-note { width: 100%; }
 }
 
 /* ── Log thông báo hệ thống (2026-06-04) ── */
