@@ -75,6 +75,7 @@ import { registerSocketAuth } from './shared/realtime/socket-auth.js';
 import { registerPrivacyLeakGuard } from './modules/privacy/privacy-leak-guard.js';
 import { registerSecurityHeaders } from './shared/security/security-headers.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
+import { startUnansweredReminderCron } from './modules/notifications/unanswered-reminder-cron.js';
 import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
@@ -386,6 +387,7 @@ async function bootstrap() {
     // E1 Quét group (🟢 Community) — BullMQ worker xử lý group-scan job.
     if (config.nodeEnv !== 'test') startGroupScanWorker();
     startInteractionCron(); // daily silent_30d detection (02:00 VN)
+    if (config.nodeEnv !== 'test') startUnansweredReminderCron();
     // Phase 8 — Engagement heatmap classification (02:30 VN daily)
     const { startEngagementCron } = await import('./modules/engagement/engagement-cron.js');
     startEngagementCron();
