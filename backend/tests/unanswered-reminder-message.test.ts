@@ -16,12 +16,12 @@ describe('unanswered reminder message', () => {
       },
     ], now);
 
-    expect(message).toContain('🔔 KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI');
+    expect(message).toContain('NHẮC KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI');
     expect(message).toContain('Có 1 hội thoại đã chờ quá 15 phút.');
-    expect(message).toContain('1. 👤 Chăm Sóc Kh Ct Southpro');
-    expect(message).toContain('⏳ Đã chờ: 15 phút');
-    expect(message).toContain('💬 Tin nhắn cuối: Khách đã gửi một liên kết');
-    expect(message).toContain('📱 Tài khoản Zalo: Nhà Thuốc Kiểm Nghiệm');
+    expect(message).toContain('1. Chăm Sóc Kh Ct Southpro');
+    expect(message).toContain('- Đã chờ: 15 phút');
+    expect(message).toContain('- Tin nhắn cuối: Khách đã gửi một liên kết');
+    expect(message).toContain('- Tài khoản Zalo: Nhà Thuốc Kiểm Nghiệm');
     expect(message).not.toContain('[link]');
   });
 
@@ -43,6 +43,6 @@ describe('unanswered reminder message', () => {
     });
 
     expect(message).toContain('Có 4 hội thoại đã chờ quá 15 phút (phần 2/2).');
-    expect(message).toContain('3. 👤 Khách thứ ba');
+    expect(message).toContain('3. Khách thứ ba');
   });
 });

@@ -75,7 +75,7 @@ function friendlyPreview(candidate: ReminderCandidate): string {
   if (!message.content) return 'Khách đã gửi một tin nhắn';
   const compact = message.content.replace(/\s+/g, ' ').trim();
   const preview = compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
-  return `“${preview}”`;
+  return `"${preview}"`;
 }
 
 export function buildUnansweredReminderMessage(
@@ -89,12 +89,11 @@ export function buildUnansweredReminderMessage(
     const preview = friendlyPreview(candidate);
     return [
       ...(index > 0 ? [''] : []),
-      `${(context?.itemOffset ?? 0) + index + 1}. 👤 ${customer}`,
-      `⏳ Đã chờ: ${waitLabel(candidate.lastMessageAt, nowMs)}`,
-      `💬 Tin nhắn cuối: ${preview}`,
-      `📱 Tài khoản Zalo: ${nick}`,
-      '👉 Mở hội thoại:',
-      `${config.appUrl.replace(/\/+$/, '')}/chat/${candidate.id}`,
+      `${(context?.itemOffset ?? 0) + index + 1}. ${customer}`,
+      `- Đã chờ: ${waitLabel(candidate.lastMessageAt, nowMs)}`,
+      `- Tin nhắn cuối: ${preview}`,
+      `- Tài khoản Zalo: ${nick}`,
+      `- Mở hội thoại: ${config.appUrl.replace(/\/+$/, '')}/chat/${candidate.id}`,
     ];
   });
   const totalCandidates = context?.totalCandidates ?? candidates.length;
@@ -102,7 +101,7 @@ export function buildUnansweredReminderMessage(
     ? ` (phần ${context.partNumber}/${context.totalParts})`
     : '';
   return [
-    '🔔 KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI',
+    'NHẮC KHÁCH HÀNG ĐANG CHỜ PHẢN HỒI',
     `Có ${totalCandidates} hội thoại đã chờ quá 15 phút${partLabel}.`,
     '',
     ...lines,
