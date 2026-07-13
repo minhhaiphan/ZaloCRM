@@ -76,7 +76,12 @@
               @updated="onDealStageUpdated"
             />
             <!-- Tag Zalo Real — dòng 1 PHÍA SAU trạng thái (Anh chốt 2026-06-06). -->
-            <v-menu v-if="conversation.externalThreadId && conversation.zaloAccount" :close-on-content-click="false" location="bottom start">
+            <v-menu
+              v-if="conversation.externalThreadId && conversation.zaloAccount"
+              v-model="classificationMenuOpen"
+              :close-on-content-click="false"
+              location="bottom start"
+            >
               <template #activator="{ props: actProps }">
                 <button v-bind="actProps" class="zlbl-trigger" :title="currentLabel ? `Đang gắn: ${currentLabel.text}` : 'Chưa gắn tag Zalo'">
                   <!-- Logo Zalo thật (brand đa màu) — ĐỒNG BỘ với TagCrmBar + cột 2 (Anh chốt 2026-06-06).
@@ -86,15 +91,21 @@
                     {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
                   </span>
                   <span v-else class="zlbl-empty">Phân loại</span>
+                  <span v-if="activeCrmTags.length" class="zlbl-crm-count">{{ activeCrmTags.length }}</span>
                   <span class="zlbl-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
                 </button>
               </template>
               <div class="zlbl-dropdown zalo-native">
+                <div class="zlbl-section-head">
+                  <span><ZaloBrandIcon :size="14" /> Thẻ Zalo</span>
+                  <button class="zlbl-section-action" :disabled="loadingAllLabels" @click="onSyncLabels">
+                    <RefreshCwIcon :size="12" :stroke-width="2" /> Đồng bộ
+                  </button>
+                </div>
                 <div v-if="loadingAllLabels && !allLabels.length" class="zlbl-loading">Đang tải…</div>
 
                 <div v-else-if="!allLabels.length" class="zlbl-empty-state">
-                  Tài khoản chưa có thẻ phân loại nào.<br />
-                  <button class="zlbl-inline-sync" @click="onSyncLabels"><RefreshCwIcon :size="13" :stroke-width="2" /> Đồng bộ từ Zalo</button>
+                  Tài khoản chưa có thẻ Zalo nào.
                 </div>
 
                 <div v-else class="zlbl-options">
@@ -114,10 +125,65 @@
                 </div>
 
                 <div class="zlbl-divider"></div>
-                <button class="zlbl-manage" @click="goToLabelsSettings">
-                  <span class="manage-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
-                  Quản lý thẻ phân loại
-                </button>
+                <div class="zlbl-section-head crm">
+                  <span><TagIcon :size="14" :stroke-width="2" /> Nhãn CRM</span>
+                  <span v-if="activeCrmTags.length" class="zlbl-section-count">{{ activeCrmTags.length }} đã gắn</span>
+                </div>
+
+                <template v-if="conversation.contact">
+                  <div class="zlbl-crm-search">
+                    <input
+                      ref="crmTagSearchInput"
+                      v-model="crmTagSearch"
+                      name="crm-tag-search"
+                      autocomplete="off"
+                      placeholder="Tìm hoặc tạo nhãn CRM..."
+                      @keydown.enter.prevent="onCrmTagEnter"
+                    />
+                  </div>
+
+                  <div v-if="loadingCrmTags && !crmTagDefs.length" class="zlbl-loading">Đang tải nhãn CRM…</div>
+                  <div v-else-if="!filteredCrmTagDefs.length && !crmTagSearch.trim()" class="zlbl-empty-state crm-empty">
+                    Chưa có nhãn CRM. Gõ tên để tạo nhãn đầu tiên.
+                  </div>
+                  <div v-else class="zlbl-options zlbl-crm-options">
+                    <button
+                      v-for="tag in filteredCrmTagDefs"
+                      :key="tag.id"
+                      class="zlbl-option crm-option"
+                      :class="{ active: isCrmTagAssigned(tag.id), busy: crmTagMutatingId === tag.id }"
+                      :disabled="!!crmTagMutatingId"
+                      @click="toggleCrmTag(tag)"
+                    >
+                      <span class="zlbl-color-dot" :style="{ background: tag.color || '#607d8b' }"></span>
+                      <span class="zlbl-name">
+                        <span v-if="tag.emoji">{{ tag.emoji }} </span>{{ tag.name }}
+                      </span>
+                      <span v-if="isCrmTagAssigned(tag.id)" class="zlbl-check"><CheckIcon :size="13" :stroke-width="2.2" /></span>
+                    </button>
+                    <button
+                      v-if="canCreateCrmTag"
+                      class="zlbl-create-crm"
+                      :disabled="crmTagMutatingId === 'create'"
+                      @click="createAndAssignCrmTag"
+                    >
+                      <PlusIcon :size="13" :stroke-width="2.2" /> Tạo và gắn “{{ crmTagSearch.trim() }}”
+                    </button>
+                  </div>
+                </template>
+                <div v-else class="zlbl-empty-state crm-empty">Nhãn CRM chỉ áp dụng cho hội thoại khách hàng.</div>
+
+                <div class="zlbl-divider"></div>
+                <div class="zlbl-manage-row">
+                  <button class="zlbl-manage" @click="goToLabelsSettings">
+                    <span class="manage-icon"><ZaloBrandIcon :size="14" /></span>
+                    Quản lý thẻ Zalo
+                  </button>
+                  <button class="zlbl-manage" @click="goToCrmTagsSettings">
+                    <span class="manage-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
+                    Quản lý nhãn CRM
+                  </button>
+                </div>
               </div>
             </v-menu>
           </div>
@@ -316,7 +382,12 @@
                 @click="$emit('toggle-contact-panel')"
               />
               <v-divider />
-              <v-list-item prepend-icon="mdi-history" title="Lịch sử hội thoại" @click="toast.push('Lịch sử: chưa implement')" />
+              <v-list-item
+                prepend-icon="mdi-history"
+                :title="syncHistoryLoading ? 'Đang đồng bộ lịch sử hội thoại…' : 'Lịch sử hội thoại'"
+                :disabled="syncHistoryLoading"
+                @click="onSyncHistory"
+              />
               <v-list-item prepend-icon="mdi-magnify" title="Tìm trong hội thoại" @click="toast.push('Tìm: chưa implement')" />
               <v-list-item prepend-icon="mdi-note-edit-outline" title="Ghi chú nhanh" @click="onOpenNote" />
               <v-divider />
@@ -980,6 +1051,8 @@ import {
   Info as InfoIcon,
   Check as CheckIcon,
   Flag as FlagIcon,
+  Tag as TagIcon,
+  Plus as PlusIcon,
   Send as SendIcon,
   Download as DownloadIcon,
 } from 'lucide-vue-next';
@@ -1082,6 +1155,7 @@ const emit = defineEmits<{
 
 const toast = useToast();
 const inputText = ref('');
+const syncHistoryLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) { previewImageUrl.value = ''; lightboxList.value = []; lightboxIndex.value = 0; } } });
@@ -1354,8 +1428,163 @@ type AccountLabelView = {
   assignedTo?: boolean;  // server flag — true nếu thread hiện tại đang gắn label này
 };
 
+type CrmTagDef = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  emoji: string | null;
+  source: string;
+};
+
+type ContactCrmTagAssignment = {
+  id: string;
+  tag: CrmTagDef;
+  addedAt: string;
+  removedAt: string | null;
+};
+
 const allLabels = ref<AccountLabelView[]>([]);
 const loadingAllLabels = ref(false);
+const classificationMenuOpen = ref(false);
+const crmTagDefs = ref<CrmTagDef[]>([]);
+const contactCrmTagAssignments = ref<ContactCrmTagAssignment[]>([]);
+const loadingCrmTags = ref(false);
+const crmTagSearch = ref('');
+const crmTagSearchInput = ref<HTMLInputElement | null>(null);
+const crmTagMutatingId = ref<string | null>(null);
+
+const activeCrmTags = computed(() => contactCrmTagAssignments.value.map(a => a.tag));
+const filteredCrmTagDefs = computed(() => {
+  const q = crmTagSearch.value.trim().toLowerCase();
+  if (!q) return crmTagDefs.value;
+  return crmTagDefs.value.filter(tag =>
+    tag.name.toLowerCase().includes(q) || tag.slug.toLowerCase().includes(q),
+  );
+});
+const canCreateCrmTag = computed(() => {
+  const name = crmTagSearch.value.trim();
+  if (!name) return false;
+  return !crmTagDefs.value.some(tag => tag.name.toLowerCase() === name.toLowerCase());
+});
+
+function isCrmTagAssigned(tagId: string): boolean {
+  return contactCrmTagAssignments.value.some(a => a.tag.id === tagId);
+}
+
+async function loadCrmTagsForContact() {
+  const contactId = props.conversation?.contact?.id;
+  if (!contactId) {
+    crmTagDefs.value = [];
+    contactCrmTagAssignments.value = [];
+    return;
+  }
+
+  loadingCrmTags.value = true;
+  try {
+    const [defsRes, assignedRes] = await Promise.all([
+      api.get('/tags', { params: { scope: 'crm', source: 'manual_crm', limit: 200 } }),
+      api.get(`/contacts/${contactId}/crm-tags`),
+    ]);
+    const assignments = (assignedRes.data.contactTags || []) as ContactCrmTagAssignment[];
+    contactCrmTagAssignments.value = assignments;
+
+    // Keep assigned CRM labels visible even if they came from import/AI rather than manual creation.
+    const merged = new Map<string, CrmTagDef>();
+    for (const tag of (defsRes.data.tags || []) as CrmTagDef[]) merged.set(tag.id, tag);
+    for (const assignment of assignments) merged.set(assignment.tag.id, assignment.tag);
+    crmTagDefs.value = [...merged.values()];
+  } catch (err) {
+    console.error('[crm-tags] load error', err);
+    toast.error('Không tải được nhãn CRM');
+  } finally {
+    loadingCrmTags.value = false;
+  }
+}
+
+function updateContactTagSlug(slug: string, operation: 'add' | 'remove') {
+  const contact = props.conversation?.contact;
+  if (!contact) return;
+  const current = Array.isArray(contact.tags) ? [...contact.tags] : [];
+  contact.tags = operation === 'add'
+    ? [...new Set([...current, slug])]
+    : current.filter(tag => tag !== slug);
+}
+
+function notifyCrmTagChanged() {
+  const contactId = props.conversation?.contact?.id;
+  if (!contactId) return;
+  window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId } }));
+  window.dispatchEvent(new CustomEvent('contact-crm-tags-changed', { detail: { contactId } }));
+}
+
+async function toggleCrmTag(tag: CrmTagDef) {
+  const contactId = props.conversation?.contact?.id;
+  if (!contactId || crmTagMutatingId.value) return;
+  crmTagMutatingId.value = tag.id;
+  try {
+    if (isCrmTagAssigned(tag.id)) {
+      await api.delete(`/contacts/${contactId}/crm-tags/${tag.id}`);
+      updateContactTagSlug(tag.slug, 'remove');
+      toast.success(`Đã gỡ nhãn “${tag.name}”`);
+    } else {
+      await api.post(`/contacts/${contactId}/crm-tags`, { tagId: tag.id, source: 'manual_crm' });
+      updateContactTagSlug(tag.slug, 'add');
+      toast.success(`Đã gắn nhãn “${tag.name}”`);
+    }
+    await loadCrmTagsForContact();
+    notifyCrmTagChanged();
+  } catch (err: any) {
+    toast.error(err.response?.data?.error || 'Không cập nhật được nhãn CRM');
+  } finally {
+    crmTagMutatingId.value = null;
+  }
+}
+
+async function createAndAssignCrmTag() {
+  const contactId = props.conversation?.contact?.id;
+  const name = crmTagSearch.value.trim();
+  if (!contactId || !name || crmTagMutatingId.value) return;
+  crmTagMutatingId.value = 'create';
+  try {
+    const { data } = await api.post(`/contacts/${contactId}/crm-tags`, {
+      tagName: name,
+      source: 'manual_crm',
+      autoCreate: true,
+    });
+    if (data.tag?.slug) updateContactTagSlug(data.tag.slug, 'add');
+    crmTagSearch.value = '';
+    await loadCrmTagsForContact();
+    notifyCrmTagChanged();
+    toast.success(`Đã tạo và gắn nhãn “${name}”`);
+  } catch (err: any) {
+    toast.error(err.response?.data?.error || 'Không tạo được nhãn CRM');
+  } finally {
+    crmTagMutatingId.value = null;
+  }
+}
+
+function onCrmTagEnter() {
+  const exact = crmTagDefs.value.find(
+    tag => tag.name.toLowerCase() === crmTagSearch.value.trim().toLowerCase(),
+  );
+  if (exact) void toggleCrmTag(exact);
+  else if (canCreateCrmTag.value) void createAndAssignCrmTag();
+}
+
+watch(classificationMenuOpen, open => {
+  if (!open) return;
+  crmTagSearch.value = '';
+  void loadCrmTagsForContact();
+  nextTick(() => crmTagSearchInput.value?.focus());
+});
+
+watch(() => props.conversation?.contact?.id, () => {
+  crmTagSearch.value = '';
+  crmTagDefs.value = [];
+  contactCrmTagAssignments.value = [];
+  if (classificationMenuOpen.value) void loadCrmTagsForContact();
+});
 
 // currentLabel: tìm label có assignedTo=true (do BE trả về khi pass threadId).
 // Fallback: nếu allLabels chưa load, dùng friendship.zaloLabels[0] (chỉ cho user threads).
@@ -1531,6 +1760,10 @@ async function onSyncLabels() {
 
 function goToLabelsSettings() {
   window.location.assign('/settings?tab=zalo-labels');
+}
+
+function goToCrmTagsSettings() {
+  window.location.assign('/settings/crm/tags-v2');
 }
 
 // CRM tags = merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
@@ -2211,6 +2444,36 @@ function onOpenNote() {
   // Open right info panel + scroll to note footer
   if (!props.showContactPanel) emit('toggle-contact-panel');
   toast.push('Mở ghi chú nhanh ở panel bên phải');
+}
+async function onSyncHistory() {
+  const conversation = props.conversation;
+  const accountId = conversation?.zaloAccount?.id;
+
+  if (!conversation || !accountId) {
+    toast.push('Hội thoại này không gắn với nick Zalo để đồng bộ lịch sử.', 'warning');
+    return;
+  }
+  if (isVirtualConv.value) {
+    toast.push('Chat nội bộ không có lịch sử Zalo để đồng bộ.', 'warning');
+    return;
+  }
+  if (isArchivedNick.value) {
+    toast.push('Nick đã xóa khỏi CRM. Hãy kết nối lại nick trước khi đồng bộ lịch sử.', 'warning');
+    return;
+  }
+  if (syncHistoryLoading.value) return;
+
+  syncHistoryLoading.value = true;
+  toast.push('Đang đồng bộ lịch sử hội thoại từ Zalo…');
+  try {
+    await api.post(`/zalo-accounts/${accountId}/sync-history`);
+    emit('refresh-thread');
+    toast.push('Đồng bộ lịch sử hội thoại thành công', 'success');
+  } catch (err: any) {
+    toast.push('Đồng bộ lịch sử hội thoại thất bại: ' + (err.response?.data?.error || err.message), 'error');
+  } finally {
+    syncHistoryLoading.value = false;
+  }
 }
 const inputPlaceholder = computed(() => {
   // T11 2026-06-20: nick đã xóa → placeholder khóa
@@ -4063,13 +4326,26 @@ watch(() => props.editingMessage?.id, async (id) => {
   white-space: nowrap;
 }
 .zlbl-empty { font-style: italic; color: var(--smax-grey-500); }
+.zlbl-crm-count {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8f1ff;
+  color: #2463a7;
+  font-size: 10px;
+  font-weight: 700;
+}
 .zlbl-caret { font-size: 9px; opacity: 0.6; flex-shrink: 0; }
 
 /* Dropdown chính — match Zalo native: rộng, padding 0, list items full-width */
 .zlbl-dropdown.zalo-native {
-  min-width: 280px;
-  max-width: 320px;
-  max-height: 480px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  max-height: min(620px, calc(100vh - 120px));
   overflow-y: auto;
   background: #fff;
   padding: 6px 0;
@@ -4096,6 +4372,47 @@ watch(() => props.editingMessage?.id, async (id) => {
   cursor: pointer;
 }
 .zlbl-inline-sync:hover { filter: brightness(0.95); }
+
+.zlbl-section-head {
+  min-height: 34px;
+  padding: 6px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--smax-grey-700);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+}
+.zlbl-section-head > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.zlbl-section-head.crm { color: #315f83; }
+.zlbl-section-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--smax-primary, #1786be);
+  font: inherit;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.zlbl-section-action:disabled { opacity: 0.45; cursor: wait; }
+.zlbl-section-count {
+  color: var(--smax-grey-500);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 .zlbl-options {
   display: flex;
@@ -4133,6 +4450,53 @@ watch(() => props.editingMessage?.id, async (id) => {
   white-space: nowrap;
 }
 .zlbl-option.active .zlbl-name { font-weight: 600; }
+.zlbl-crm-options {
+  max-height: 210px;
+  overflow-y: auto;
+}
+.zlbl-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05);
+}
+.crm-option.active { background: #eef7ff; }
+.zlbl-crm-search { padding: 4px 12px 7px; }
+.zlbl-crm-search input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--smax-grey-200, #dfe3e8);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--smax-text);
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.zlbl-crm-search input:focus {
+  border-color: var(--smax-primary, #1786be);
+  box-shadow: 0 0 0 2px rgba(23, 134, 190, 0.1);
+}
+.zlbl-create-crm {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: #f4f9fd;
+  color: var(--smax-primary, #1786be);
+  padding: 9px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.zlbl-create-crm:hover { background: #e9f4fb; }
+.zlbl-create-crm:disabled { opacity: 0.5; cursor: wait; }
+.zlbl-empty-state.crm-empty { padding: 12px 16px; }
 .zlbl-check {
   color: var(--smax-primary, #1786be);
   font-size: 14px;
@@ -4161,5 +4525,7 @@ watch(() => props.editingMessage?.id, async (id) => {
   transition: background 0.1s;
 }
 .zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
+.zlbl-manage-row { display: grid; grid-template-columns: 1fr 1fr; }
+.zlbl-manage-row .zlbl-manage { font-size: 11px; padding: 9px 12px; }
 .manage-icon { font-size: 14px; }
 </style>

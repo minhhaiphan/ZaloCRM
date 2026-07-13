@@ -4,6 +4,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 COPY frontend/ ./
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # ── Stage 2: Build backend ───────────────────────────────────────────────────

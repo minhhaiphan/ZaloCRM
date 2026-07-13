@@ -450,6 +450,25 @@ function onOpenProfile(uid: string) {
   emit('open-profile', uid);
 }
 
+function normalizeMediaUrl(raw: string | null): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  if (!raw.startsWith('http')) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (typeof window === 'undefined') return raw;
+    if (window.location.protocol !== 'https:' || parsed.protocol !== 'http:') return raw;
+    if (parsed.pathname.startsWith('/files/')) {
+      return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    if (parsed.hostname === window.location.hostname) {
+      parsed.protocol = 'https:';
+      if (parsed.port === '80') parsed.port = '';
+      return parsed.toString();
+    }
+  } catch {}
+  return raw;
+}
+
 function getImageUrl(msg: Message): string | null {
   // Skip link preview / QR / sticker / reminder / call — không render thumb như chat-image,
   // chúng có renderer riêng (link-preview-card, qr-card, special-message-renderer, ...)
@@ -457,21 +476,21 @@ function getImageUrl(msg: Message): string | null {
     return null;
   }
   if (msg.contentType === 'image' && msg.content) {
-    if (msg.content.startsWith('http')) return msg.content;
+    if (msg.content.startsWith('http')) return normalizeMediaUrl(msg.content);
     try {
       const p = JSON.parse(msg.content);
-      return p.hdUrl || p.href || p.normalUrl || p.thumbUrl || p.thumb || null;
+      return normalizeMediaUrl(p.hdUrl || p.href || p.normalUrl || p.thumbUrl || p.thumb || null);
     } catch {}
   }
   if (msg.content?.startsWith('{')) {
     try {
       const p = JSON.parse(msg.content);
       const href = p.hdUrl || p.href || p.normalUrl || p.thumb || '';
-      if (href && /\.(jpg|jpeg|png|webp|gif)/i.test(href)) return href;
+      if (href && /\.(jpg|jpeg|png|webp|gif)/i.test(href)) return normalizeMediaUrl(href);
       // Zalo CDN host — usually image even without ext
       if (href && (href.includes('zdn.vn') || href.includes('zaloapp.com') || href.includes('zalocontent.com'))) {
         const fileExt = (typeof p.params === 'string' ? safeParse(p.params) : p.params)?.fileExt;
-        if (!fileExt || /^(jpg|jpeg|png|webp|gif)$/i.test(fileExt)) return href;
+        if (!fileExt || /^(jpg|jpeg|png|webp|gif)$/i.test(fileExt)) return normalizeMediaUrl(href);
       }
     } catch {}
   }
@@ -485,11 +504,11 @@ function safeParse(s: unknown): Record<string, unknown> | null {
 
 function getVideoUrl(msg: Message): string | null {
   if (msg.contentType !== 'video' || !msg.content) return null;
-  if (msg.content.startsWith('http')) return msg.content;
+  if (msg.content.startsWith('http')) return normalizeMediaUrl(msg.content);
   if (!msg.content.startsWith('{')) return null;
   try {
     const p = JSON.parse(msg.content);
-    return p.href || p.fileUrl || p.normalUrl || null;
+    return normalizeMediaUrl(p.href || p.fileUrl || p.normalUrl || null);
   } catch { return null; }
 }
 
@@ -761,7 +780,7 @@ const videoThumb = computed(() => {
   const thumb = (p.thumbUrl as string) || (p.thumb as string) || (p.thumbnail as string);
   if (typeof thumb !== 'string' || !thumb.startsWith('http')) return null;
   if (/\.(mp4|mov|webm|mkv)(\?|#|$)/i.test(thumb)) return null;
-  return thumb;
+  return normalizeMediaUrl(thumb);
 });
 const videoTitle = computed(() => {
   const p = safeParse(props.message.content);
@@ -786,11 +805,11 @@ const videoSize = computed(() => {
 
 function extractMediaUrl(_kind: string, content: string | null): string | null {
   if (!content) return null;
-  if (content.startsWith('http')) return content;
+  if (content.startsWith('http')) return normalizeMediaUrl(content);
   const p = safeParse(content);
   if (!p) return null;
   const url = (p.hdUrl as string) || (p.href as string) || (p.url as string) || (p.normalUrl as string) || '';
-  return typeof url === 'string' && url.startsWith('http') ? url : null;
+  return typeof url === 'string' && url.startsWith('http') ? normalizeMediaUrl(url) : null;
 }
 
 // E08 — anh chốt 2026-05-21: video play TRONG popup modal, KHÔNG mở tab mới.
@@ -799,7 +818,9 @@ function openVideo() {
   const p = safeParse(props.message.content);
   const url = (p?.href as string) || (p?.hdUrl as string) || (p?.normalUrl as string);
   if (typeof url === 'string' && url.startsWith('http')) {
-    emit('preview-video', url, videoDownloadName(url));
+    const safeUrl = normalizeMediaUrl(url);
+    if (!safeUrl) return;
+    emit('preview-video', safeUrl, videoDownloadName(url));
   }
 }
 
