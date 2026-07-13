@@ -11,6 +11,7 @@ import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.j
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { config } from '../../config/index.js';
 import { getUnansweredExcludedCrmTagIds } from './unanswered-reminder-settings.js';
+import { shouldRemindForLastMessage } from './unanswered-reminder-filter.js';
 
 const CRON_SCHEDULE = '*/1 * * * *';
 const UNANSWERED_THRESHOLD_MS = 15 * 60 * 1000;
@@ -51,6 +52,7 @@ function waitLabel(lastMessageAt: Date | null, nowMs = Date.now()): string {
 function cleanPreview(candidate: ReminderCandidate): string {
   const message = candidate.messages[0];
   if (!message) return '';
+  if (message.contentType === 'call') return '[Cuộc gọi nhỡ]';
   if (message.contentType !== 'text' || !message.content) return `[${message.contentType || 'tin nhắn'}]`;
   const compact = message.content.replace(/\s+/g, ' ').trim();
   return compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
@@ -81,7 +83,7 @@ export function buildUnansweredReminderMessage(
 }
 
 async function loadCandidates(orgId: string, now: Date, excludedTagIds: string[]): Promise<ReminderCandidate[]> {
-  return prisma.conversation.findMany({
+  const candidates = await prisma.conversation.findMany({
     where: {
       orgId,
       threadType: 'user',
@@ -129,6 +131,7 @@ async function loadCandidates(orgId: string, now: Date, excludedTagIds: string[]
     orderBy: { lastMessageAt: 'desc' },
     take: MAX_SCAN_PER_ORG,
   });
+  return candidates.filter((candidate) => shouldRemindForLastMessage(candidate.messages[0]));
 }
 
 async function claimCandidates(orgId: string, candidates: ReminderCandidate[], now: Date): Promise<ClaimedCandidate[]> {
