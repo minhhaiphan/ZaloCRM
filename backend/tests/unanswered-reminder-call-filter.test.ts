@@ -32,4 +32,23 @@ describe('unanswered reminder call filter', () => {
   it('skips malformed call payloads instead of sending a false reminder', () => {
     expect(shouldRemindForLastMessage({ contentType: 'call', content: '{bad-json' })).toBe(false);
   });
+
+  it('skips Zalo birthday contact cards', () => {
+    expect(shouldRemindForLastMessage({
+      contentType: 'contact_card',
+      content: JSON.stringify({
+        title: '14/07 Sinh nhật của Hoàng Anh',
+        description: 'Hãy gửi lời chúc tốt đẹp!',
+        action: 'show.profile',
+        params: JSON.stringify({ notifyTxt: 'Hôm nay (14/07) là sinh nhật của Hoàng Anh' }),
+      }),
+    })).toBe(false);
+  });
+
+  it('keeps regular contact cards', () => {
+    expect(shouldRemindForLastMessage({
+      contentType: 'contact_card',
+      content: JSON.stringify({ title: 'Nguyễn Văn A', action: 'show.profile' }),
+    })).toBe(true);
+  });
 });
