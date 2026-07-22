@@ -104,9 +104,17 @@ function logout() {
 }
 
 .mobile-content--chat {
-  height: 100%;
+  height: calc(100vh - var(--v-layout-top, 48px) - var(--v-layout-bottom, 56px));
+  max-height: calc(100vh - var(--v-layout-top, 48px) - var(--v-layout-bottom, 56px));
   min-height: 0;
   overflow: hidden;
   padding-bottom: 0;
+}
+
+@supports (height: 100dvh) {
+  .mobile-content--chat {
+    height: calc(100dvh - var(--v-layout-top, 48px) - var(--v-layout-bottom, 56px));
+    max-height: calc(100dvh - var(--v-layout-top, 48px) - var(--v-layout-bottom, 56px));
+  }
 }
 </style>
