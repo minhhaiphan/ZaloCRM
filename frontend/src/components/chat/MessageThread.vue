@@ -4528,4 +4528,74 @@ watch(() => props.editingMessage?.id, async (id) => {
 .zlbl-manage-row { display: grid; grid-template-columns: 1fr 1fr; }
 .zlbl-manage-row .zlbl-manage { font-size: 11px; padding: 9px 12px; }
 .manage-icon { font-size: 14px; }
+
+@media (max-width: 767px) {
+  .chat-header {
+    min-height: 58px;
+    padding: 4px 7px;
+    gap: 5px;
+  }
+
+  .chat-header > .ch-avatar-wrap {
+    width: 34px;
+    margin-right: -8px;
+    transform: scale(0.72);
+    transform-origin: left center;
+  }
+
+  .ch-info {
+    gap: 0;
+  }
+
+  .ch-name,
+  .ch-gender-chip .gender-label,
+  .ch-cung-cham-chip,
+  .last-online,
+  .ch-row-chips > .ch-sep:first-of-type {
+    display: none;
+  }
+
+  .ch-row-1 {
+    gap: 4px;
+    min-height: 26px;
+    padding-right: 74px;
+  }
+
+  .ch-row-chips {
+    min-height: 24px;
+    padding: 0;
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .nick-name {
+    max-width: 118px;
+    font-size: 11px;
+  }
+
+  .chat-header > .ch-actions {
+    top: 4px;
+    right: 5px;
+    gap: 2px;
+  }
+
+  .ch-actions .btn-action {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;
+  }
+
+  .ch-actions .btn-action .ic {
+    font-size: 13px;
+  }
+
+  .ch-actions .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+}
 </style>

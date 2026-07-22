@@ -17,11 +17,11 @@
     <!-- Message thread (shown when conversation selected) -->
     <div v-else style="height: 100%; display: flex; flex-direction: column;">
       <!-- Back button bar -->
-      <div class="d-flex align-center pa-2" style="flex-shrink: 0;">
-        <v-btn icon variant="text" size="small" @click="goBack">
-          <v-icon>mdi-arrow-left</v-icon>
+      <div class="mobile-chat-backbar d-flex align-center">
+        <v-btn icon variant="text" size="x-small" @click="goBack">
+          <v-icon size="20">mdi-arrow-left</v-icon>
         </v-btn>
-        <span v-if="selectedConv" class="text-body-2 font-weight-medium ml-1">
+        <span v-if="selectedConv" class="mobile-chat-backbar-name font-weight-medium">
           {{ selectedConv.contact?.fullName || 'Chat' }}
         </span>
       </div>
@@ -132,5 +132,22 @@ watch(searchQuery, () => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.mobile-chat-backbar {
+  height: 34px;
+  flex: 0 0 34px;
+  gap: 4px;
+  padding: 1px 7px;
+}
+
+.mobile-chat-backbar-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--smax-text, #111827);
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
