@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <v-app>
+  <v-app :class="{ 'mobile-layout--chat': isChatRoute }">
     <OfflineIndicator />
 
     <!-- Slim mobile app bar -->
@@ -24,9 +24,9 @@
       </v-btn>
     </v-app-bar>
 
-    <!-- Main content with padding for bottom nav -->
-    <v-main>
-      <div style="padding-bottom: 72px;">
+    <!-- Vuetify reserves the app bar and bottom navigation space for v-main. -->
+    <v-main :class="{ 'mobile-main--chat': isChatRoute }">
+      <div class="mobile-content" :class="{ 'mobile-content--chat': isChatRoute }">
         <slot />
       </div>
     </v-main>
@@ -36,18 +36,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useTheme } from 'vuetify';
 import { useAuthStore } from '@/stores/auth';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import BottomNav from '@/components/BottomNav.vue';
 import OfflineIndicator from '@/components/OfflineIndicator.vue';
 
 const theme = useTheme();
 const authStore = useAuthStore();
+const route = useRoute();
 const router = useRouter();
 const isDark = ref(localStorage.getItem('theme') !== 'light');
+const isChatRoute = computed(() => route.path === '/chat' || route.path.startsWith('/chat/'));
 
 onMounted(() => {
   theme.global.name.value = isDark.value ? 'dark' : 'light';
@@ -64,3 +66,47 @@ function logout() {
   router.push('/login');
 }
 </script>
+
+<style scoped>
+.mobile-content {
+  padding-bottom: 72px;
+}
+
+.mobile-layout--chat {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.mobile-layout--chat :deep(.v-application__wrap) {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* Dynamic viewport units exclude the visible mobile browser chrome. */
+@supports (height: 100dvh) {
+  .mobile-layout--chat {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  .mobile-layout--chat :deep(.v-application__wrap) {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+}
+
+.mobile-main--chat {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mobile-content--chat {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+</style>

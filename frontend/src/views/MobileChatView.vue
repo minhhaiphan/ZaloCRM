@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <div class="mobile-chat" style="height: calc(100vh - 120px);">
+  <div class="mobile-chat">
     <!-- Conversation list (shown when no conversation selected) -->
     <div v-if="!selectedConvId" style="height: 100%;">
       <ConversationList
@@ -126,3 +126,11 @@ watch(searchQuery, () => {
   searchTimeout = setTimeout(() => fetchConversations(), 300);
 });
 </script>
+
+<style scoped>
+.mobile-chat {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+</style>
